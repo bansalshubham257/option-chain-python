@@ -37,3 +37,12 @@ def get_option_chain(instrument_key, expiry_date):
         return data["data"] if "data" in data else []
     except Exception as e:
         return []
+
+def get_fno_stocks():
+    """Fetch all F&O stocks dynamically."""
+    fno_stocks = set()
+    for instrument in u.get_instruments("NSE_FO"):
+        stock_symbol = instrument.symbol.split("-")[0]  # Extract stock name
+        fno_stocks.add(stock_symbol)
+
+    return sorted(list(fno_stocks))  # Return sorted stock list
