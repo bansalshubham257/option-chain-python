@@ -105,7 +105,11 @@ def option_details():
     
     return jsonify({"error": "Strike price not found"}), 404
 
-
+@app.route("/fno_stocks", methods=["GET"])
+def fno_stocks():
+    stocks = get_fno_stocks()
+    return jsonify({"stocks": stocks})
+    
 # Function to handle CORS preflight requests
 def _build_cors_preflight_response():
     response = jsonify({"message": "CORS preflight success"})
@@ -119,6 +123,7 @@ def _build_actual_response(response_data, status_code=200):
     response = jsonify(response_data)
     response.headers.add("Access-Control-Allow-Origin", "https://swingtradingwithme.blogspot.com")
     return response
+
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))  # Render provides PORT, default to 10000
