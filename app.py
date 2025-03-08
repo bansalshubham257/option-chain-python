@@ -1,5 +1,6 @@
 from flask import Flask, request, jsonify
 from fetch_data import get_instrument_key, get_expiry_dates, get_option_chain
+import os
 
 app = Flask(__name__)
 
@@ -40,4 +41,6 @@ def option_chain():
     return jsonify({"options": formatted_data})
 
 if __name__ == "__main__":
-    app.run(debug=True)
+    port = int(os.environ.get("PORT", 10000))  # Render provides PORT, default to 10000
+    app.run(host="0.0.0.0", port=port)
+
