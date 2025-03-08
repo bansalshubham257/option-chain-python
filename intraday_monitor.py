@@ -1,85 +1,95 @@
 import os
 import json
 import time
+import datetime
 from fetch_data import get_option_chain, get_fno_stocks
 from fetch_data import get_nearest_expiry
 
-data_file = "intraday_data.json"
+DATA_FILE = "intraday_data.json"
+SPIKE_THRESHOLDS = {"volume": 50, "oi": 30, "iv": 20}  # Percentage thresholds
 
-def load_previous_data():
-    if os.path.exists(data_file):
-        with open(data_file, "r") as file:
-            return json.load(file)
+# Load previous intraday data
+def load_intraday_data():
+    if os.path.exists(DATA_FILE):
+        with open(DATA_FILE, "r") as f:
+            return json.load(f)
     return {}
 
-def save_data(data):
-    with open(data_file, "w") as file:
-        json.dump(data, file, indent=4)
+# Save updated intraday data
+def save_intraday_data(data):
+    with open(DATA_FILE, "w") as f:
+        json.dump(data, f, indent=4)
 
-def detect_spikes(previous_data, current_data):
-    alerts = []
-    for option in current_data:
-        strike = option["strike"]
-        call_oi = option["call_oi"]
-        put_oi = option["put_oi"]
-        call_vol = option["call_volume"]
-        put_vol = option["put_volume"]
-        
-        prev_option = previous_data.get(str(strike), {})
-        prev_call_oi = prev_option.get("call_oi", 0)
-        prev_put_oi = prev_option.get("put_oi", 0)
-        prev_call_vol = prev_option.get("call_volume", 0)
-        prev_put_vol = prev_option.get("put_volume", 0)
-        
-        # Detect volume spike
-        if call_vol - prev_call_vol > 5000:
-            alerts.append(f"Call Volume Spike at {strike} - {call_vol}")
-        if put_vol - prev_put_vol > 5000:
-            alerts.append(f"Put Volume Spike at {strike} - {put_vol}")
-        
-        # Detect OI spike
-        if call_oi - prev_call_oi > 10000:
-            alerts.append(f"Call OI Spike at {strike} - {call_oi}")
-        if put_oi - prev_put_oi > 10000:
-            alerts.append(f"Put OI Spike at {strike} - {put_oi}")
-        
-        # Detect large trades (70+ lots in one go)
-        if option["call_bid_qty"] >= 70 * 50:
-            alerts.append(f"Large Call Trade at {strike}")
-        if option["put_bid_qty"] >= 70 * 50:
-            alerts.append(f"Large Put Trade at {strike}")
-    
-    return alerts
+# Detect spikes
+def detect_spikes(symbol, expiry_date, strike, option_type, new_data):
+    intraday_data = load_intraday_data()
+    key = f"{symbol}_{expiry_date}_{strike}_{option_type}"
+    prev_data = intraday_data.get(key, {})
 
+    spikes = {}
+    for metric in ["volume", "oi", "iv"]:
+        if metric in prev_data and metric in new_data:
+            change = ((new_data[metric] - prev_data[metric]) / (prev_data[metric] + 1)) * 100
+            if change > SPIKE_THRESHOLDS[metric]:
+                spikes[f"{metric}_spike"] = True
+
+    # Update the latest data
+    intraday_data[key] = new_data
+    save_intraday_data(intraday_data)
+
+    return spikes
+
+# Function to check if the script should run
+def is_market_open():
+    now = datetime.datetime.now()
+    market_open = now.replace(hour=9, minute=15, second=0, microsecond=0)
+    market_close = now.replace(hour=15, minute=30, second=0, microsecond=0)
+
+    # Run only Monday to Friday within market hours
+    return now.weekday() < 5 and market_open <= now <= market_close
+
+# Function to monitor all F&O stocks continuously
 def monitor_all_fno_stocks():
-    fno_stocks = get_fno_stocks()  # Get list of all F&O stocks
-    previous_data = load_previous_data()
+    fno_stocks = get_fno_stocks()
 
     while True:
-        all_stock_alerts = {}
-        for stock in fno_stocks:
-            expiry_date = get_nearest_expiry(stock)  # Fetch nearest expiry date dynamically
-            current_data = get_option_chain(stock, expiry_date)
+        if is_market_open():
+            print("Market is open. Fetching data...")
+            intraday_data = load_intraday_data()
+            all_stock_alerts = {}
 
-            if not current_data:
-                print(f"No data found for {stock}")
-                continue
+            for stock in fno_stocks:
+                expiry_date = get_nearest_expiry(stock)
+                current_data = get_option_chain(stock, expiry_date)
 
-            # Detect spikes
-            alerts = detect_spikes(previous_data.get(stock, {}), current_data)
-            if alerts:
-                all_stock_alerts[stock] = alerts
-                print(f"ALERTS for {stock}:")
-                for alert in alerts:
-                    print(alert)
+                if not current_data:
+                    print(f"No data found for {stock}")
+                    continue
 
-            # Store latest data
-            previous_data[stock] = {str(opt["strike"]): opt for opt in current_data}
+                for option in current_data:
+                    strike = option["strike_price"]
 
-        # Save alerts and latest data
-        save_data(previous_data)
+                    for option_type, key in [("CE", "call_options"), ("PE", "put_options")]:
+                        data = option[key]["market_data"]
+                        new_data = {
+                            "volume": data.get("volume", 0),
+                            "cmp": data.get("ltp", 0),
+                            "oi": data.get("oi", 0),
+                            "iv": data.get("iv", 0)
+                        }
 
-        time.sleep(60)  # Run every 60 seconds
+                        # Detect spikes
+                        spikes = detect_spikes(stock, expiry_date, strike, option_type, new_data)
+                        if spikes:
+                            alert_msg = f"Spike in {stock} {strike} {option_type} - {spikes}"
+                            all_stock_alerts.setdefault(stock, []).append(alert_msg)
+                            print(alert_msg)
 
-if __name__ == "__main__":
-    monitor_all_fno_stocks()
+            print("Sleeping for 60 seconds...")
+        else:
+            print("Market is closed. Script sleeping...")
+
+        time.sleep(60)  # Check every 60 seconds
+
+# Start monitoring when Render runs this file
+monitor_all_fno_stocks()
