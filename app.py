@@ -1,8 +1,10 @@
 from flask import Flask, request, jsonify
 from fetch_data import get_instrument_key, get_expiry_dates, get_option_chain
+from flask_cors import CORS
 import os
 
 app = Flask(__name__)
+CORS(app)  # Allow all origins (can be restricted to specific domains)
 
 @app.route("/expiry_dates", methods=["GET"])
 def expiry_dates():
@@ -28,7 +30,6 @@ def option_chain():
     if not options_data:
         return jsonify({"error": "No option chain data found"}), 404
 
-    # Extract required data
     formatted_data = [
         {
             "strike": option["strike_price"],
@@ -43,4 +44,3 @@ def option_chain():
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))  # Render provides PORT, default to 10000
     app.run(host="0.0.0.0", port=port)
-
