@@ -2,6 +2,7 @@ import os
 import json
 import time
 from fetch_data import get_option_chain, get_fno_stocks
+from fetch_data import get_nearest_expiry
 
 data_file = "intraday_data.json"
 
