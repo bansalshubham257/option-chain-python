@@ -71,6 +71,41 @@ def option_chain():
 
     return _build_actual_response({"options": formatted_data})
 
+@app.route("/option_details", methods=["GET"])
+def option_details():
+    symbol = request.args.get("symbol", "").upper()
+    expiry_date = request.args.get("expiry_date", "")
+    strike_price = request.args.get("strike", "")
+    option_type = request.args.get("option_type", "").upper()  # CE or PE
+
+    if not symbol or not expiry_date or not strike_price or not option_type:
+        return jsonify({"error": "Missing required parameters"}), 400
+
+    instrument_key = get_instrument_key(symbol)
+    if not instrument_key:
+        return jsonify({"error": "Invalid stock symbol"}), 400
+
+    options_data = get_option_chain(instrument_key, expiry_date)
+    if not options_data:
+        return jsonify({"error": "No option chain data found"}), 404
+
+    # Find the matching strike price
+    for option in options_data:
+        if option["strike_price"] == float(strike_price):
+            if option_type == "CE":
+                return jsonify({
+                    "volume": option["call_options"]["market_data"].get("volume", 0),
+                    "cmp": option["call_options"]["market_data"].get("ltp", 0)
+                })
+            elif option_type == "PE":
+                return jsonify({
+                    "volume": option["put_options"]["market_data"].get("volume", 0),
+                    "cmp": option["put_options"]["market_data"].get("ltp", 0)
+                })
+    
+    return jsonify({"error": "Strike price not found"}), 404
+
+
 # Function to handle CORS preflight requests
 def _build_cors_preflight_response():
     response = jsonify({"message": "CORS preflight success"})
