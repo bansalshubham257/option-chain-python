@@ -41,7 +41,29 @@ def option_chain():
     formatted_data = [
         {
             "strike": option["strike_price"],
+
+            # CALL SIDE
             "call_oi": option["call_options"]["market_data"].get("oi", 0),
+            "call_oi_change": option["call_options"]["market_data"].get("oi_change", 0),
+            "call_volume": option["call_options"]["market_data"].get("volume", 0),
+            "call_iv": option["call_options"]["market_data"].get("iv", 0),
+            "call_ltp": option["call_options"]["market_data"].get("ltp", 0),
+            "call_change": option["call_options"]["market_data"].get("ltp_change", 0),
+            "call_bid_qty": option["call_options"]["market_data"].get("bid_qty", 0),
+            "call_bid": option["call_options"]["market_data"].get("bid", 0),
+            "call_ask": option["call_options"]["market_data"].get("ask", 0),
+            "call_ask_qty": option["call_options"]["market_data"].get("ask_qty", 0),
+
+            # PUT SIDE
+            "put_bid_qty": option["put_options"]["market_data"].get("bid_qty", 0),
+            "put_bid": option["put_options"]["market_data"].get("bid", 0),
+            "put_ask": option["put_options"]["market_data"].get("ask", 0),
+            "put_ask_qty": option["put_options"]["market_data"].get("ask_qty", 0),
+            "put_change": option["put_options"]["market_data"].get("ltp_change", 0),
+            "put_ltp": option["put_options"]["market_data"].get("ltp", 0),
+            "put_iv": option["put_options"]["market_data"].get("iv", 0),
+            "put_volume": option["put_options"]["market_data"].get("volume", 0),
+            "put_oi_change": option["put_options"]["market_data"].get("oi_change", 0),
             "put_oi": option["put_options"]["market_data"].get("oi", 0),
         }
         for option in options_data
