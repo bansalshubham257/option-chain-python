@@ -111,6 +111,25 @@ def fno_stocks():
     stocks = get_fno_stocks()
     return jsonify({"stocks": stocks})
 
+@app.route("/strikes", methods=["GET"])
+def get_strikes():
+    symbol = request.args.get("symbol", "").upper()
+    expiry_date = request.args.get("expiry_date", "")
+
+    if not symbol or not expiry_date:
+        return jsonify({"error": "Missing required parameters"}), 400
+
+    instrument_key = get_instrument_key(symbol)
+    if not instrument_key:
+        return jsonify({"error": "Invalid stock symbol"}), 400
+
+    options_data = get_option_chain(instrument_key, expiry_date)
+    if not options_data:
+        return jsonify({"error": "No strikes found"}), 404
+
+    strikes = sorted(set(option["strike_price"] for option in options_data))
+    return jsonify({"strikes": strikes})
+
 # Function to handle CORS preflight requests
 def _build_cors_preflight_response():
     response = jsonify({"message": "CORS preflight success"})
