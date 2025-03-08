@@ -2,6 +2,7 @@ from flask import Flask, request, jsonify
 from fetch_data import get_instrument_key, get_expiry_dates, get_option_chain
 from flask_cors import CORS
 import os
+from fetch_data import get_fno_stocks
 
 app = Flask(__name__)
 
