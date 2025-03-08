@@ -106,11 +106,11 @@ def option_details():
     
     return jsonify({"error": "Strike price not found"}), 404
 
-@app.route("/fno_stocks", methods=["GET"])
+@app.route('/fno_stocks', methods=['GET'])
 def fno_stocks():
     stocks = get_fno_stocks()
     return jsonify({"stocks": stocks})
-    
+
 # Function to handle CORS preflight requests
 def _build_cors_preflight_response():
     response = jsonify({"message": "CORS preflight success"})
