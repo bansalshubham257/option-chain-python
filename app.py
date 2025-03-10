@@ -7,6 +7,7 @@ from flask_cors import CORS
 import ssl
 import yfinance as yf
 import os
+import time
 
 app = Flask(__name__)
 CORS(app, resources={r"/*": {"origins": ["https://swingtradingwithme.blogspot.com"]}})
@@ -15,14 +16,33 @@ ssl._create_default_https_context = ssl._create_unverified_context
 NSE_CSV_URL = "https://nsearchives.nseindia.com/content/equities/EQUITY_L.csv"
 
 # 📌 1️⃣ Fetch All NSE Stocks Dynamically
+CACHE = {"stocks": [], "timestamp": 0}
+
 def fetch_all_nse_stocks():
-    """Fetch all NSE-listed stocks dynamically from NSE CSV"""
+    """Fetch all NSE-listed stocks dynamically from NSE CSV (caches for 24 hours)."""
+    global CACHE
     headers = {"User-Agent": "Mozilla/5.0"}
+
+    # Check if cache is fresh (24-hour expiry)
+    if time.time() - CACHE["timestamp"] < 86400 and CACHE["stocks"]:
+        return CACHE["stocks"]  # Return cached list
+
     try:
         response = requests.get(NSE_CSV_URL, headers=headers)
         response.raise_for_status()
+
+        # Load CSV into pandas
         df = pd.read_csv(StringIO(response.text))
-        return df["SYMBOL"].tolist()
+
+        # Ensure 'SYMBOL' column exists before accessing it
+        if "SYMBOL" in df.columns:
+            stock_list = df["SYMBOL"].dropna().unique().tolist()  # Remove duplicates & NaN values
+            CACHE = {"stocks": stock_list, "timestamp": time.time()}  # Cache results
+            return stock_list
+        else:
+            print("Error: 'SYMBOL' column not found in NSE CSV")
+            return []
+
     except Exception as e:
         print(f"Error fetching NSE stocks: {e}")
         return []
