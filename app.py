@@ -16,7 +16,7 @@ ssl._create_default_https_context = ssl._create_unverified_context
 
 LOCAL_CSV_FILE = "nse_stocks.csv"
 
-def fetch_nse_stocks():
+def fetch_all_nse_stocks():
     """Read NSE-listed stocks from a locally saved CSV file"""
     try:
         df = pd.read_csv(LOCAL_CSV_FILE)
