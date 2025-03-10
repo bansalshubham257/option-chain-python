@@ -5,7 +5,7 @@ pandas
 gunicorn
 datetime
 numpy
-ta
+TA-Lib
 ssl
 yfinance
 io
