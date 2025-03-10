@@ -21,7 +21,10 @@ CACHE = {"stocks": [], "timestamp": 0}
 def fetch_all_nse_stocks():
     """Fetch all NSE-listed stocks dynamically from NSE CSV (caches for 24 hours)."""
     global CACHE
-    headers = {"User-Agent": "Mozilla/5.0"}
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+        "Referer": "https://www.nseindia.com/"
+    }
 
     # Check if cache is fresh (24-hour expiry)
     if time.time() - CACHE["timestamp"] < 86400 and CACHE["stocks"]:
