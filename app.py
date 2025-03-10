@@ -145,6 +145,3 @@ def _build_actual_response(response_data, status_code=200):
     return response
 
 
-if __name__ == "__main__":
-    port = int(os.environ.get("PORT", 10000))  # Render provides PORT, default to 10000
-    app.run(host="0.0.0.0", port=port)
