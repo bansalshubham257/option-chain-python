@@ -5,5 +5,5 @@ pandas
 gunicorn
 datetime
 numpy
-TA-Lib
+ta
 yfinance==0.2.54
