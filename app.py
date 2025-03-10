@@ -8,6 +8,7 @@ import ssl
 import yfinance as yf
 import os
 import time
+from io import StringIO
 
 app = Flask(__name__)
 CORS(app, resources={r"/*": {"origins": ["https://swingtradingwithme.blogspot.com"]}})
@@ -18,37 +19,35 @@ NSE_CSV_URL = "https://nsearchives.nseindia.com/content/equities/EQUITY_L.csv"
 # 📌 1️⃣ Fetch All NSE Stocks Dynamically
 CACHE = {"stocks": [], "timestamp": 0}
 
-def fetch_all_nse_stocks():
-    """Fetch all NSE-listed stocks dynamically from NSE CSV (caches for 24 hours)."""
-    global CACHE
+NSE_CSV_URL = "https://www.nseindia.com/market-data/securities-available-for-trading"
+CACHE_FILE = "nse_stocks.txt"
+
+def fetch_nse_stocks():
+    """Fetch and cache NSE-listed stocks to reduce memory usage"""
     headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
-        "Referer": "https://www.nseindia.com/"
+        "User-Agent": "Mozilla/5.0"
     }
 
-    # Check if cache is fresh (24-hour expiry)
-    if time.time() - CACHE["timestamp"] < 86400 and CACHE["stocks"]:
-        return CACHE["stocks"]  # Return cached list
+    # If cache file exists, read from it instead of downloading again
+    if os.path.exists(CACHE_FILE):
+        with open(CACHE_FILE, "r") as f:
+            return f.read().splitlines()
 
     try:
-        response = requests.get(NSE_CSV_URL, headers=headers)
+        response = requests.get(NSE_CSV_URL, headers=headers, timeout=10)
         response.raise_for_status()
-
-        # Load CSV into pandas
         df = pd.read_csv(StringIO(response.text))
+        stocks = df["SYMBOL"].tolist()
 
-        # Ensure 'SYMBOL' column exists before accessing it
-        if "SYMBOL" in df.columns:
-            stock_list = df["SYMBOL"].dropna().unique().tolist()  # Remove duplicates & NaN values
-            CACHE = {"stocks": stock_list, "timestamp": time.time()}  # Cache results
-            return stock_list
-        else:
-            print("Error: 'SYMBOL' column not found in NSE CSV")
-            return []
+        # Save to cache file
+        with open(CACHE_FILE, "w") as f:
+            f.write("\n".join(stocks))
 
+        return stocks
     except Exception as e:
         print(f"Error fetching NSE stocks: {e}")
         return []
+
 
 # 📌 3️⃣ Fetch Live Stock Data from NSE & Merge with Historical Data
 def get_stock_data(symbol):
