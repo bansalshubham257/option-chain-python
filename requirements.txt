@@ -6,6 +6,5 @@ gunicorn
 datetime
 numpy
 TA-Lib
-ssl
 yfinance
 io
