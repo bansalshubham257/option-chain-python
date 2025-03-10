@@ -4,3 +4,8 @@ requests
 pandas
 gunicorn
 datetime
+numpy
+ta
+ssl
+yfinance
+io
