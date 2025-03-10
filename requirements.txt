@@ -6,5 +6,4 @@ gunicorn
 datetime
 numpy
 TA-Lib
-yfinance
-io
+yfinance==0.2.54
