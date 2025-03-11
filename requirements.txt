@@ -7,3 +7,5 @@ datetime
 numpy
 ta
 yfinance==0.2.54
+scipy
+bokeh
