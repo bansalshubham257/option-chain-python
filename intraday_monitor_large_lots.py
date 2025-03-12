@@ -104,6 +104,10 @@ def get_market_data(instrument_key, symbol):
         "ask_orders": [],
     }  # Return empty in case of failure
 
+EXCLUDED_STOCKS = ["MOTHERSON", "011NSETEST", "021NSETEST", "031NSETEST", "041NSETEST", "051NSETEST", "061NSETEST",
+                   "071NSETEST", "081NSETEST", "091NSETEST", "101NSETEST", "111NSETEST", "121NSETEST", "131NSETEST"
+    , "141NSETEST", "151NSETEST", "161NSETEST", "171NSETEST", "181NSETEST", "IDEA", "YESBANK" ]
+
 def monitor_large_bid_orders():
     """Continuously check for large bid quantities in selected strikes."""
     fno_stocks = get_fno_stocks()  # Fetch F&O stocks
@@ -113,6 +117,8 @@ def monitor_large_bid_orders():
         print("🔎 Checking for large bid orders...")
 
         for stock in fno_stocks:
+            if stock in EXCLUDED_STOCKS:
+                continue
             expiry_date = get_nearest_expiry(stock)  # Fetch nearest expiry
             instrument_key = get_instrument_key(stock)  # Fetch instrument key
 
@@ -180,5 +186,80 @@ def monitor_large_bid_orders():
         print("⏳ Sleeping for 30 seconds...\n")
         time.sleep(30)  # Adjust polling time as needed
 
+def monitor_large_bid_orders_one():
+    """Continuously check for large bid or ask quantities in select strikes."""
+    fno_stocks = get_fno_stocks()  # Fetch F&O stocks
+    alert_data = load_alert_data()
+
+    while True:
+        print("🔎 Checking for large bid/ask orders...")
+
+        for stock in fno_stocks:
+            if stock in EXCLUDED_STOCKS:
+                continue
+            expiry_date = get_nearest_expiry(stock)  # Fetch nearest expiry
+            instrument_key = get_instrument_key(stock)  # Fetch instrument key
+
+            if not instrument_key:
+                print(f"⚠️ No instrument key found for {stock}")
+                continue
+
+            lot_size = get_lot_size(instrument_key)  # Fetch lot size
+            if not lot_size:
+                print(f"⚠️ No lot size found for {stock}")
+                continue
+
+            option_chain = get_option_chain(instrument_key, expiry_date)  # Fetch option data
+            if not option_chain:
+                print(f"⚠️ No option data for {stock}")
+                continue
+
+            # Filter top 3 OTM, top 3 ITM, and ATM strike prices
+            selected_strikes = filter_strikes(option_chain)
+
+            for option in option_chain:
+                if option["strike_price"] not in selected_strikes:
+                    continue  # Skip if not in selected strikes
+
+                strike = option["strike_price"]
+
+                for option_type, key in [("CE", "call_options"), ("PE", "put_options")]:
+                    data = option[key]["market_data"]
+                    bid_qty = data.get("bid_qty", 0)  # Bid quantity
+                    ask_qty = data.get("ask_qty", 0)  # Ask quantity
+                    cmp = data.get("ltp", 0)  # Last traded price (CMP)
+
+                    bid_lots = bid_qty / lot_size
+                    ask_lots = ask_qty / lot_size
+
+                    # Check alert condition
+                    bid_exceeds = bid_lots >= LOT_THRESHOLD
+                    ask_exceeds = ask_lots >= LOT_THRESHOLD
+
+                    if bid_exceeds != ask_exceeds:  # Alert if only one side exceeds the threshold
+                        alert = {
+                            "symbol": stock,
+                            "expiry": expiry_date,
+                            "strike_price": strike,
+                            "option_type": option_type,
+                            "bid_qty": bid_qty,
+                            "ask_qty": ask_qty,
+                            "lot_size": lot_size,
+                            "cmp": cmp
+                        }
+
+                        print(f"🚨 Large bid/ask detected: {alert}")
+
+                        # Immediately update file
+
+                        alert_data.append(alert)
+                        save_alert_data(alert_data)
+
+        print("⏳ Sleeping for 30 seconds...\n")
+        time.sleep(30)  # Adjust polling time as needed
+
 # Start monitoring
-monitor_large_bid_orders()
+monitor_large_bid_orders_one()
+
+# Start monitoring
+#monitor_large_bid_orders()
