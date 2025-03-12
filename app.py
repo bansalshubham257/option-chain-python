@@ -234,9 +234,6 @@ def generate_chart(df, active_indicators):
     p.vbar(df["timestamp"][inc], width=12*60*60*1000, top=df["Close"][inc], bottom=df["Open"][inc], fill_color="green", line_color="black")
     p.vbar(df["timestamp"][dec], width=12*60*60*1000, top=df["Open"][dec], bottom=df["Close"][dec], fill_color="red", line_color="black")
 
-    print("SMA_50 = ", df["SMA_50"])
-    print("SMA_200 = ", df["SMA_200"])
-
     if active_indicators.get("SMA_50"):
         p.line(df["timestamp"], df["SMA_50"], legend_label="SMA 50", line_width=2, color="blue")
     if active_indicators.get("SMA_200"):
