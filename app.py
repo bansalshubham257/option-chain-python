@@ -14,6 +14,7 @@ from bokeh.embed import components
 import pandas as pd
 from bokeh.layouts import column
 import json
+import threading
 
 from test import is_market_open, fno_stocks, fetch_option_chain, JSON_FILE
 
@@ -22,6 +23,7 @@ CORS(app, resources={r"/*": {"origins": ["https://swingtradingwithme.blogspot.co
 ssl._create_default_https_context = ssl._create_unverified_context
 
 LOCAL_CSV_FILE = "nse_stocks.csv"
+EXPIRY_DATE = "2025-03-27"
 
 def fetch_all_nse_stocks():
     """Read NSE-listed stocks from a locally saved CSV file"""
@@ -284,23 +286,35 @@ def get_orders():
         return jsonify({'data': data})
     return jsonify({'data': []})
 
-@app.route('/run-script', methods=['GET'])
-def run_script():
+def fetch_and_store_orders():
+    """ Fetch option chain data in a separate thread to prevent timeout """
     if not is_market_open():
-        return jsonify({'status': 'Market is closed'})
-
-    expiry_date = "2025-03-27"
+        print("Market is closed. Skipping script execution.")
+        return
+    
     all_orders = []
 
     for stock, lot_size in fno_stocks.items():
-        result = fetch_option_chain(stock, expiry_date, lot_size)
+        result = fetch_option_chain(stock, EXPIRY_DATE, lot_size)
         if result:
             all_orders.extend(result)
 
+    # Save to JSON file
     with open(JSON_FILE, 'w') as file:
         json.dump(all_orders, file)
+    
+    print("✅ Orders updated in JSON file")
 
-    return jsonify({'status': 'Script executed', 'data': all_orders})
+@app.route('/run-script', methods=['GET'])
+def run_script():
+    """ Trigger script asynchronously to avoid Render timeout """
+    if not is_market_open():
+        return jsonify({'status': 'Market is closed'})
+
+    thread = threading.Thread(target=fetch_and_store_orders)
+    thread.start()  # Start script in background
+
+    return jsonify({'status': 'Script is running in the background'}), 202
 
 
 # Run Flask
