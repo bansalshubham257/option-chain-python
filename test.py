@@ -59,6 +59,7 @@ def fetch_option_chain(stock_symbol, expiry_date, lot_size):
     params = {'instrument_key': instrument_key, 'expiry_date': expiry_date}
 
     response = requests.get(url, params=params, headers=headers)
+    print("response = ", response.json())
     if response.status_code != 200:
         return None
 
