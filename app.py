@@ -307,6 +307,8 @@ def fetch_and_store_orders():
     with open(JSON_FILE, 'w') as file:
         json.dump(all_orders, file)
     
+    print(f"✅ JSON saved at: {os.path.abspath(JSON_FILE)}")
+    print(f"🔹 JSON Content: {json.dumps(all_orders, indent=2)}")
     print("✅ Orders updated in JSON file")
 
 @app.route('/run-script', methods=['GET'])
