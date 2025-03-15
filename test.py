@@ -48,6 +48,8 @@ def fetch_market_quotes(instrument_keys):
     return response.json().get('data', {}) if response.status_code == 200 else {}
 
 def fetch_option_chain(stock_symbol, expiry_date, lot_size):
+    if stock_symbol in excluded_stocks:
+        return None
     instrument_key = getInstrumentKey(stock_symbol)
     if not instrument_key:
         return None
