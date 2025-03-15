@@ -120,7 +120,8 @@ def fetch_option_chain(stock_symbol, expiry_date, lot_size):
                 'ltp': data.get('last_price'),
                 'bid_qty': max((b['quantity'] for b in top_bids), default=0),
                 'ask_qty': max((a['quantity'] for a in top_asks), default=0),
-                'lot_size' : lot_size
+                'lot_size' : lot_size,
+                'timestamp' = datetime.datetime.now().strftime("%H:%M:%S")  # Add detection time
             })
 
     return large_orders
