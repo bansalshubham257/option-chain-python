@@ -301,7 +301,7 @@ def fetch_and_store_orders():
     for stock, lot_size in fno_stocks.items():
         print(f"Fetching data for {stock}...")
         
-        result = fetch_option_chain(stock, expiry_date, lot_size)
+        result = fetch_option_chain(stock, EXPIRY_DATE, lot_size)
 
         # 🔹 Debugging output
         print(f"📊 Data fetched for {stock}: {result}")
