@@ -58,10 +58,31 @@ def fetch_option_chain(stock_symbol, expiry_date, lot_size):
     headers = {'Authorization': f'Bearer {ACCESS_TOKEN}'}
     params = {'instrument_key': instrument_key, 'expiry_date': expiry_date}
 
-    response = requests.get(url, params=params, headers=headers)
-    print("response = ", response.json())
-    if response.status_code != 200:
+    import requests
+
+def fetch_option_chain(stock_symbol, expiry_date, lot_size):
+    instrument_key = getInstrumentKey(stock_symbol)
+    if not instrument_key:
+        print(f"⚠️ No instrument key for {stock_symbol}")
         return None
+
+    url = 'https://api.upstox.com/v2/option/chain'
+    headers = {'Authorization': f'Bearer {ACCESS_TOKEN}'}
+    params = {'instrument_key': instrument_key, 'expiry_date': expiry_date}
+
+    try:
+        response = requests.get(url, params=params, headers=headers, timeout=10)
+        response.raise_for_status()  # Raise exception for HTTP errors
+
+        data = response.json()
+        print(f"✅ API response for {stock_symbol}: {data}")  # Debugging
+
+        return data.get("data", [])  # Ensure data exists
+
+    except requests.exceptions.RequestException as e:
+        print(f"❌ API request failed for {stock_symbol}: {str(e)}")
+        return None
+
 
     data = response.json().get('data', [])
     if not data:
