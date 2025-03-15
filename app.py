@@ -299,13 +299,7 @@ def fetch_and_store_orders():
     all_orders = []
 
     for stock, lot_size in fno_stocks.items():
-        print(f"Fetching data for {stock}...")
-        
         result = fetch_option_chain(stock, EXPIRY_DATE, lot_size)
-
-        # 🔹 Debugging output
-        print(f"📊 Data fetched for {stock}: {result}")
-        
         if result:
             all_orders.extend(result)
 
