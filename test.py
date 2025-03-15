@@ -23,14 +23,14 @@ scripts = pd.read_json('https://assets.upstox.com/market-quote/instruments/excha
 df = pd.read_csv(url, compression='gzip')
 fno_stocks_raw = df[df['exchange'] == 'NSE_FO'][['tradingsymbol', 'lot_size']].dropna()
 
-excluded_stocks = {"NIFTYNXT", "NIFTY", "FINNIFTY", "YESBANK", "PNB", "IDEA", "IDFCFIRSTB", "TATASTEEL"}
+excluded_stocks = {"NIFTYNXT", "NIFTY", "FINNIFTY", "IDFCFIRSTB", "TATASTEEL"}
 
 fno_stocks = {re.split(r'\d', row['tradingsymbol'], 1)[0]: int(row['lot_size'])
               for _, row in fno_stocks_raw.iterrows() if row['tradingsymbol'] not in excluded_stocks}
 
 IST = pytz.timezone("Asia/Kolkata")
 MARKET_OPEN = datetime.strptime("09:15", "%H:%M").time()
-MARKET_CLOSE = datetime.strptime("20:00", "%H:%M").time()
+MARKET_CLOSE = datetime.strptime("20:30", "%H:%M").time()
 
 def is_market_open():
     now = datetime.now(IST)
