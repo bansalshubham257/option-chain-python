@@ -23,7 +23,7 @@ scripts = pd.read_json('https://assets.upstox.com/market-quote/instruments/excha
 df = pd.read_csv(url, compression='gzip')
 fno_stocks_raw = df[df['exchange'] == 'NSE_FO'][['tradingsymbol', 'lot_size']].dropna()
 
-excluded_stocks = {"NIFTYNXT", "NIFTY", "FINNIFTY", "YESBANK", "PNB", "IDEA", "IDFCFIRSTB"}
+excluded_stocks = {"NIFTYNXT", "NIFTY", "FINNIFTY", "YESBANK", "PNB", "IDEA", "IDFCFIRSTB", "TATASTEEL"}
 
 fno_stocks = {re.split(r'\d', row['tradingsymbol'], 1)[0]: int(row['lot_size'])
               for _, row in fno_stocks_raw.iterrows() if row['tradingsymbol'] not in excluded_stocks}
