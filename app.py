@@ -280,12 +280,16 @@ def analyze():
 
 @app.route('/get-orders', methods=['GET'])
 def get_orders():
-    if os.path.exists(JSON_FILE):
-        with open(JSON_FILE, 'r') as file:
-            data = json.load(file)
-        return jsonify({'data': data})
-    return jsonify({'data': []})
-
+    try:
+        if os.path.exists(JSON_FILE):
+            with open(JSON_FILE, 'r') as file:
+                data = json.load(file)
+                return jsonify(data)
+        else:
+            return jsonify([])  # Return empty list if file is missing
+    except Exception as e:
+        return jsonify({"error": str(e)})
+        
 def fetch_and_store_orders():
     """ Fetch option chain data in a separate thread to prevent timeout """
     if not is_market_open():
