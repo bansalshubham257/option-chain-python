@@ -111,8 +111,9 @@ def fetch_option_chain(stock_symbol, expiry_date, lot_size):
         threshold = lot_size * 80
         valid_bid = any(bid['quantity'] >= threshold for bid in top_bids)
         valid_ask = any(ask['quantity'] >= threshold for ask in top_asks)
-
+         
         if valid_bid or valid_ask:
+            timestamp = datetime.datetime.now().strftime("%H:%M:%S") # Add detection time
             large_orders.append({
                 'stock': stock_symbol,
                 'strike_price': strike_price,
@@ -121,7 +122,7 @@ def fetch_option_chain(stock_symbol, expiry_date, lot_size):
                 'bid_qty': max((b['quantity'] for b in top_bids), default=0),
                 'ask_qty': max((a['quantity'] for a in top_asks), default=0),
                 'lot_size' : lot_size,
-                'timestamp' = datetime.datetime.now().strftime("%H:%M:%S")  # Add detection time
+                'timestamp' : timestamp  
             })
 
     return large_orders
