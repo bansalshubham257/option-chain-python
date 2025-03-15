@@ -70,19 +70,9 @@ def fetch_option_chain(stock_symbol, expiry_date, lot_size):
     headers = {'Authorization': f'Bearer {ACCESS_TOKEN}'}
     params = {'instrument_key': instrument_key, 'expiry_date': expiry_date}
 
-    try:
-        response = requests.get(url, params=params, headers=headers, timeout=10)
-        response.raise_for_status()  # Raise exception for HTTP errors
-
-        data = response.json()
-        print(f"✅ API response for {stock_symbol}: {data}")  # Debugging
-
-        return data.get("data", [])  # Ensure data exists
-
-    except requests.exceptions.RequestException as e:
-        print(f"❌ API request failed for {stock_symbol}: {str(e)}")
+    response = requests.get(url, params=params, headers=headers)
+    if response.status_code != 200:
         return None
-
 
     data = response.json().get('data', [])
     if not data:
