@@ -14,7 +14,7 @@ app = Flask(__name__)
 ssl._create_default_https_context = ssl._create_unverified_context
 
 # JSON file to store detected orders
-JSON_FILE = "large_orders.json"
+JSON_FILE = "/tmp/large_orders.json"
 
 # Load all instruments
 url = "https://assets.upstox.com/market-quote/instruments/exchange/complete.csv.gz"
