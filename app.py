@@ -1,3 +1,4 @@
+import os
 from io import StringIO
 import requests
 import ta  # Technical Indicators
@@ -12,6 +13,9 @@ from bokeh.models import ColumnDataSource
 from bokeh.embed import components
 import pandas as pd
 from bokeh.layouts import column
+import json
+
+from test import is_market_open, fno_stocks, fetch_option_chain, JSON_FILE
 
 app = Flask(__name__)
 CORS(app, resources={r"/*": {"origins": ["https://swingtradingwithme.blogspot.com"]}})
@@ -271,6 +275,33 @@ def analyze():
     if not symbol:
         return jsonify({"error": "Stock symbol is required"}), 400
     return jsonify(analyze_stock(symbol))
+
+@app.route('/get-orders', methods=['GET'])
+def get_orders():
+    if os.path.exists(JSON_FILE):
+        with open(JSON_FILE, 'r') as file:
+            data = json.load(file)
+        return jsonify({'data': data})
+    return jsonify({'data': []})
+
+@app.route('/run-script', methods=['GET'])
+def run_script():
+    if not is_market_open():
+        return jsonify({'status': 'Market is closed'})
+
+    expiry_date = "2025-03-27"
+    all_orders = []
+
+    for stock, lot_size in fno_stocks.items():
+        result = fetch_option_chain(stock, expiry_date, lot_size)
+        if result:
+            all_orders.extend(result)
+
+    with open(JSON_FILE, 'w') as file:
+        json.dump(all_orders, file)
+
+    return jsonify({'status': 'Script executed', 'data': all_orders})
+
 
 # Run Flask
 if __name__ == "__main__":
