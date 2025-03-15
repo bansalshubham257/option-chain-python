@@ -68,7 +68,7 @@ def fetch_option_chain(stock_symbol, expiry_date, lot_size):
 
     spot_price = data[0].get('underlying_spot_price', 0)
     strikes = sorted(set(option['strike_price'] for option in data))
-    closest_strikes = [s for s in strikes if s <= spot_price][-2:] + [s for s in strikes if s >= spot_price][:3]
+    closest_strikes = [s for s in strikes if s <= spot_price][-3:] + [s for s in strikes if s >= spot_price][:3]
 
     instrument_keys = []
     for option in data:
@@ -93,8 +93,8 @@ def fetch_option_chain(stock_symbol, expiry_date, lot_size):
 
         strike_price = int(strike_price_match.group(1))
         depth_data = data.get('depth', {})
-        top_bids = depth_data.get('buy', [])[:3]
-        top_asks = depth_data.get('sell', [])[:3]
+        top_bids = depth_data.get('buy', [])[:5]
+        top_asks = depth_data.get('sell', [])[:5]
 
         threshold = lot_size * 70
         valid_bid = any(bid['quantity'] >= threshold for bid in top_bids)
