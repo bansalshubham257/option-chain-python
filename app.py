@@ -280,6 +280,8 @@ def analyze():
 
 @app.route('/get-orders', methods=['GET'])
 def get_orders():
+    if not is_market_open():
+        return jsonify({'status': 'Market is closed'})
     try:
         if os.path.exists(JSON_FILE):
             with open(JSON_FILE, 'r') as file:
