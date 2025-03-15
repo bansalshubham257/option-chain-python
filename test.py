@@ -108,7 +108,7 @@ def fetch_option_chain(stock_symbol, expiry_date, lot_size):
         top_bids = depth_data.get('buy', [])[:5]
         top_asks = depth_data.get('sell', [])[:5]
 
-        threshold = lot_size * 70
+        threshold = lot_size * 80
         valid_bid = any(bid['quantity'] >= threshold for bid in top_bids)
         valid_ask = any(ask['quantity'] >= threshold for ask in top_asks)
 
@@ -119,7 +119,8 @@ def fetch_option_chain(stock_symbol, expiry_date, lot_size):
                 'type': option_type,
                 'ltp': data.get('last_price'),
                 'bid_qty': max((b['quantity'] for b in top_bids), default=0),
-                'ask_qty': max((a['quantity'] for a in top_asks), default=0)
+                'ask_qty': max((a['quantity'] for a in top_asks), default=0),
+                'lot_size' : lot_size
             })
 
     return large_orders
