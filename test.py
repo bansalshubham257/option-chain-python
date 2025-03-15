@@ -52,17 +52,6 @@ def fetch_option_chain(stock_symbol, expiry_date, lot_size):
         return None
     instrument_key = getInstrumentKey(stock_symbol)
     if not instrument_key:
-        return None
-
-    url = 'https://api.upstox.com/v2/option/chain'
-    headers = {'Authorization': f'Bearer {ACCESS_TOKEN}'}
-    params = {'instrument_key': instrument_key, 'expiry_date': expiry_date}
-
-    import requests
-
-def fetch_option_chain(stock_symbol, expiry_date, lot_size):
-    instrument_key = getInstrumentKey(stock_symbol)
-    if not instrument_key:
         print(f"⚠️ No instrument key for {stock_symbol}")
         return None
 
