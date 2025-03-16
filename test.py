@@ -30,11 +30,11 @@ fno_stocks = {re.split(r'\d', row['tradingsymbol'], 1)[0]: int(row['lot_size'])
 
 IST = pytz.timezone("Asia/Kolkata")
 MARKET_OPEN = datetime.strptime("09:15", "%H:%M").time()
-MARKET_CLOSE = datetime.strptime("21:30", "%H:%M").time()
+MARKET_CLOSE = datetime.strptime("15:30", "%H:%M").time()
 
 def is_market_open():
     now = datetime.now(IST)
-    return now.weekday() < 7 and MARKET_OPEN <= now.time() <= MARKET_CLOSE
+    return now.weekday() < 5 and MARKET_OPEN <= now.time() <= MARKET_CLOSE
 
 def getInstrumentKey(symbol):
     key = scripts[scripts['trading_symbol'] == symbol]['instrument_key'].values
