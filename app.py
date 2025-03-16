@@ -311,12 +311,23 @@ def fetch_and_store_orders():
     
     print("✅ Orders updated in JSON file")
 
+last_run_time = 0
+CACHE_DURATION = 30  # Cache data for 30 seconds
+
 @app.route('/run-script', methods=['GET'])
 def run_script():
+    global last_run_time
     """ Trigger script asynchronously to avoid Render timeout """
     if not is_market_open():
         return jsonify({'status': 'Market is closed'})
 
+    current_time = time.time()
+    if current_time - last_run_time < CACHE_DURATION:
+        return jsonify({'status': 'Using cached result. Try again later.'}), 200
+
+    # Update last run time
+    last_run_time = current_time
+    
     thread = threading.Thread(target=fetch_and_store_orders)
     thread.start()  # Start script in background
 
