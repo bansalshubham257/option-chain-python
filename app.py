@@ -15,6 +15,7 @@ import pandas as pd
 from bokeh.layouts import column
 import json
 import threading
+import time
 
 from test import is_market_open, fno_stocks, fetch_option_chain, JSON_FILE
 
