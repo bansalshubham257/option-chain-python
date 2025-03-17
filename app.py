@@ -16,6 +16,8 @@ from bokeh.layouts import column
 import json
 import threading
 import time
+from datetime import datetime
+import pytz
 
 from test import is_market_open, fno_stocks, fetch_option_chain, JSON_FILE
 
@@ -292,24 +294,40 @@ def get_orders():
             return jsonify([])  # Return empty list if file is missing
     except Exception as e:
         return jsonify({"error": str(e)})
-        
+
+IST = pytz.timezone("Asia/Kolkata")
+MARKET_CLOSE = datetime.strptime("15:30", "%H:%M").time()
+
+def is_market_closed():
+    """ Check if the market is closed """
+    now = datetime.now(IST).time()
+    return now >= MARKET_CLOSE
+    
 def fetch_and_store_orders():
     """ Fetch option chain data in a separate thread to prevent timeout """
     if not is_market_open():
         print("Market is closed. Skipping script execution.")
         return
-    existing_data = {}
-    if os.path.exists(JSON_FILE):
-        with open(JSON_FILE, 'r') as file:
-            try:
-                existing_data = json.load(file)
-            except json.JSONDecodeError:
-                existing_data = {}
-    else:
-        existing_data = []
+        
+    # ✅ Load existing JSON safely
+    existing_data = {"status": "Market open - Orders updating", "orders": []}  # Default structure
 
-    existing_orders_set = {(order["stock"], order["strike_price"], order["type"]) for order in existing_data["orders"]}
-    
+    if os.path.exists(JSON_FILE):
+        try:
+            with open(JSON_FILE, 'r') as file:
+                loaded_data = json.load(file)
+                if isinstance(loaded_data, dict) and "orders" in loaded_data:
+                    existing_data = loaded_data  # Use only if properly structured
+        except json.JSONDecodeError:
+            print("⚠️ JSON file is corrupted, resetting data.")
+    else:
+        print("⚠️ JSON file is corrupted, resetting data.")
+
+    if is_market_closed():
+        existing_data = {"status": "Market closed", "orders": []}
+
+    existing_orders_set = {(order["stock"], order["strike_price"], order["type"]) for order in existing_data.get("orders", [])}
+
     # ✅ Step 2: Fetch new large orders
     new_orders = []
 
@@ -320,14 +338,14 @@ def fetch_and_store_orders():
                 order_key = (order["stock"], order["strike_price"], order["type"])
                 if order_key not in existing_orders_set:
                     new_orders.append(order)
-                    existing_orders_set.add(order_key)  # Add to set to prevent future duplicates
-    
-    # ✅ Append only **new unique** orders
+                    existing_orders_set.add(order_key)
+
+    # ✅ Append only new unique orders
     existing_data["orders"].extend(new_orders)
     
     # Save to JSON file
     with open(JSON_FILE, 'w') as file:
-        json.dump(all_orders, file)
+        json.dump(all_orders, file, indent=4)
     
     print(f"✅ Orders after update: {len(existing_data['orders'])} (New Orders Added: {len(new_orders)})")
 
