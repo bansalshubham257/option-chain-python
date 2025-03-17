@@ -138,7 +138,7 @@ def fetch_option_chain(stock_symbol, expiry_date, lot_size):
               })
   
       return large_orders
-  except requests.RequestException as e:
+    except requests.RequestException as e:
         print(f"❌ Request failed: {e}")
         return None
     except Exception as e:
