@@ -137,6 +137,7 @@ def fetch_option_chain(stock_symbol, expiry_date, lot_size):
                   'lot_size' : lot_size,
                   'timestamp' : formatted_time  
               })
+              print("large_orders - ", large_orders)
   
       return large_orders
     except requests.RequestException as e:
