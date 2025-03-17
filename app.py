@@ -308,25 +308,15 @@ def fetch_and_store_orders():
     if not is_market_open():
         print("Market is closed. Skipping script execution.")
         return
-        
-    # ✅ Load existing JSON safely
-    existing_data = {"status": "Market open - Orders updating", "orders": []}  # Default structure
 
     if os.path.exists(JSON_FILE):
-        try:
-            with open(JSON_FILE, 'r') as file:
-                loaded_data = json.load(file)
-                if isinstance(loaded_data, dict) and "orders" in loaded_data:
-                    existing_data = loaded_data  # Use only if properly structured
-        except json.JSONDecodeError:
-            print("⚠️ JSON file is corrupted, resetting data.")
+        with open(JSON_FILE, 'r') as file:
+            try:
+                all_orders = json.load(file)
+            except json.JSONDecodeError:
+                all_orders = []  # In case of file corruption
     else:
-        print("⚠️ JSON file is corrupted, resetting data.")
-
-    if is_market_closed():
-        existing_data = {"status": "Market closed", "orders": []}
-
-    existing_orders_set = {(order["stock"], order["strike_price"], order["type"]) for order in existing_data.get("orders", [])}
+        all_orders = []
 
     # ✅ Step 2: Fetch new large orders
     new_orders = []
@@ -334,20 +324,15 @@ def fetch_and_store_orders():
     for stock, lot_size in fno_stocks.items():
         result = fetch_option_chain(stock, EXPIRY_DATE, lot_size)
         if result:
-            for order in result:
-                order_key = (order["stock"], order["strike_price"], order["type"])
-                if order_key not in existing_orders_set:
-                    new_orders.append(order)
-                    existing_orders_set.add(order_key)
+            new_orders.extend(result)
 
-    # ✅ Append only new unique orders
-    existing_data["orders"].extend(new_orders)
+    all_orders.extend(new_orders)
     
     # Save to JSON file
     with open(JSON_FILE, 'w') as file:
-        json.dump(all_orders, file, indent=4)
+        json.dump(all_orders, file)
     
-    print(f"✅ Orders after update: {len(existing_data['orders'])} (New Orders Added: {len(new_orders)})")
+    print(f"✅ Orders after update: {len(all_orders)} (New Orders Added: {len(all_orders) - len(all_orders)})")
 
 last_run_time = 0
 CACHE_DURATION = 30  # Cache data for 30 seconds
