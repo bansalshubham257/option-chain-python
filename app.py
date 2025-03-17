@@ -299,18 +299,30 @@ def fetch_and_store_orders():
         print("Market is closed. Skipping script execution.")
         return
     
-    all_orders = []
+    if os.path.exists(JSON_FILE):
+        with open(JSON_FILE, 'r') as file:
+            try:
+                all_orders = json.load(file)
+            except json.JSONDecodeError:
+                all_orders = []  # In case of file corruption
+    else:
+        all_orders = []
+
+    # ✅ Step 2: Fetch new large orders
+    new_orders = []
 
     for stock, lot_size in fno_stocks.items():
         result = fetch_option_chain(stock, EXPIRY_DATE, lot_size)
         if result:
-            all_orders.extend(result)
+            new_orders.extend(result)
 
+    all_orders.extend(new_orders)
+    
     # Save to JSON file
     with open(JSON_FILE, 'w') as file:
         json.dump(all_orders, file)
     
-    print("✅ Orders updated in JSON file")
+    print(f"✅ Orders after update: {len(all_orders)} (New Orders Added: {len(all_orders) - len(all_orders)})")
 
 last_run_time = 0
 CACHE_DURATION = 30  # Cache data for 30 seconds
