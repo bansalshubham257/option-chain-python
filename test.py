@@ -28,7 +28,7 @@ except Exception as e:
     print(f"❌ Error loading instruments data: {e}")
     scripts, df, fno_stocks_raw = None, None, None  # Handle failure gracefully
 
-excluded_stocks = {"NIFTYNXT", "NIFTY", "FINNIFTY", "TATASTEEL", "IDEA", "YESBANK", "IDFCFIRSTB", "TATASTEEL"}
+excluded_stocks = {"NIFTYNXT", "NIFTY", "FINNIFTY", "TATASTEEL", "IDEA", "YESBANK", "IDFCFIRSTB", "TATASTEEL", "PNB"}
 
 fno_stocks = {re.split(r'\d', row['tradingsymbol'], 1)[0]: int(row['lot_size'])
               for _, row in fno_stocks_raw.iterrows() if row['tradingsymbol'] not in excluded_stocks}
@@ -116,7 +116,7 @@ def fetch_option_chain(stock_symbol, expiry_date, lot_size):
           top_bids = depth_data.get('buy', [])[:5]
           top_asks = depth_data.get('sell', [])[:5]
   
-          threshold = lot_size * 80
+          threshold = lot_size * 87
           valid_bid = any(bid['quantity'] >= threshold for bid in top_bids)
           valid_ask = any(ask['quantity'] >= threshold for ask in top_asks)
           
