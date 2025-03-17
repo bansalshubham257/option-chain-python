@@ -117,10 +117,11 @@ def fetch_option_chain(stock_symbol, expiry_date, lot_size):
           top_asks = depth_data.get('sell', [])[:5]
   
           threshold = lot_size * 87
+          ltp = data.get('last_price', 0)
           valid_bid = any(bid['quantity'] >= threshold for bid in top_bids)
           valid_ask = any(ask['quantity'] >= threshold for ask in top_asks)
           
-          if valid_bid or valid_ask:
+          if (valid_bid or valid_ask) and ltp > 2:
               utc_now = datetime.utcnow()  # Get current UTC time
               ist = pytz.timezone('Asia/Kolkata')  # Define IST timezone
               ist_now = utc_now.astimezone(ist)  # Convert UTC to IST
