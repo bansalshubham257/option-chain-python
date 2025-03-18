@@ -272,22 +272,45 @@ def detect_trendline_breakout(df):
 
 def calculate_donchian_channels(df, period=20):
     """
-    Calculate Donchian Channel Breakout Levels.
+    Calculate Donchian Channels (Upper, Lower, Middle) and return a user-friendly summary.
 
-    Parameters:
-        df (DataFrame): Stock data with 'high' and 'low' columns.
-        period (int): Lookback period for highest high and lowest low.
+    Args:
+        df (pd.DataFrame): DataFrame with 'High' and 'Low' columns.
+        period (int): Lookback period (default: 20).
 
     Returns:
-        dict: Contains Donchian Upper Band and Lower Band.
+        dict: Donchian Channel values and an easy-to-understand summary
     """
-    df['donchian_high'] = df['day_high'].rolling(period).max()
-    df['donchian_low'] = df['day_low'].rolling(period).min()
+    df['Upper'] = df['day_high'].rolling(window=period).max()
+    df['Lower'] = df['day_low'].rolling(window=period).min()
+    df['Middle'] = (df['Upper'] + df['Lower']) / 2
+
+    upper = round(df['Upper'].iloc[-1], 2)
+    lower = round(df['Lower'].iloc[-1], 2)
+    middle = round(df['Middle'].iloc[-1], 2)
+    current_price = round(df['Close'].iloc[-1], 2)
+
+    # Generate Summary for User
+    if current_price > upper:
+        trend = "Breakout above the Donchian Upper Band! Possible strong bullish momentum."
+    elif current_price < lower:
+        trend = "Breakdown below the Donchian Lower Band! Possible strong bearish momentum."
+    else:
+        trend = f"Price is currently between the Donchian range ({lower} - {upper}). Potential consolidation."
+
+    summary = (
+        f"Donchian Channel Levels:\n"
+        f"🔹 Upper Band: {upper}\n"
+        f"🔸 Middle Band: {middle}\n"
+        f"🔹 Lower Band: {lower}\n"
+        f"📌 Current Price: {current_price}\n"
+        f"📢 Trend Analysis: {trend}"
+    )
 
     return {
-        "Donchian_High": df['donchian_high'].iloc[-1],  # Upper band (Breakout level)
-        "Donchian_Low": df['donchian_low'].iloc[-1]  # Lower band (Breakdown level)
+        "Summary": summary  # ✅ User-friendly summary
     }
+
 
 def analyze_stock(symbol):
     df = get_stock_data(symbol)
@@ -524,7 +547,10 @@ def run_script():
     global last_run_time
     """ Trigger script asynchronously to avoid Render timeout """
     if not is_market_open():
-        return jsonify({'status': 'Market is closed'})
+        return jsonify({
+            'status': 'Market is closed',
+            'data': json.loads(redis_client.get("market_data") or "{}")  # Return cached data
+        })
 
     current_time = time.time()
     if current_time - last_run_time < CACHE_DURATION:
