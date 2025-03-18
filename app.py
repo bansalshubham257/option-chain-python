@@ -307,9 +307,11 @@ def calculate_donchian_channels(df, period=20):
         f"📢 Trend Analysis: {trend}"
     )
 
-    return {
-        "Summary": summary  # ✅ User-friendly summary
-    }
+    donchain = [
+        ("summary", summary)
+    ]
+
+    return donchain
 
 
 def analyze_stock(symbol):
