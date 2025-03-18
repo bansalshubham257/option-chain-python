@@ -510,10 +510,19 @@ def is_market_closed():
 def fetch_and_store_orders():
     """ Fetch option chain data and store it in Redis instead of a file """
 
+    # 🔹 Check if market is open
     if not is_market_open():
-        print("Market is closed. Skipping script execution.")
-        redis_client.set("orders", json.dumps({"status": "Market is closed"}))
-        return
+        print("Market is closed. Keeping today's data.")
+
+        # Store last update timestamp in Redis (if not already set)
+        last_update_time = redis_client.get("last_updated")
+        if not last_update_time:
+            redis_client.set("last_updated", time.time())  # Save timestamp only once
+
+        return  # ❌ Do not update orders when market is closed
+
+    # 🔹 Market opened! Reset last_updated timestamp
+    redis_client.set("last_updated", time.time())
 
     # 🔹 Fetch existing orders from Redis
     existing_orders_json = redis_client.get("orders")
@@ -521,7 +530,6 @@ def fetch_and_store_orders():
 
     # 🔹 Step 2: Fetch new large orders
     new_orders = []
-
     for stock, lot_size in fno_stocks.items():
         result = fetch_option_chain(stock, EXPIRY_DATE, lot_size)
         if result:
@@ -529,7 +537,6 @@ def fetch_and_store_orders():
 
     # 🔹 Step 3: Update orders (Replace old entries for same stock/strike/type)
     updated_orders = {f"{o['stock']}_{o['strike_price']}_{o['type']}": o for o in existing_orders}
-
     for order in new_orders:
         key = f"{order['stock']}_{order['strike_price']}_{order['type']}"
         updated_orders[key] = order  # Replace if already exists, otherwise add new
