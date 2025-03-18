@@ -15,7 +15,6 @@ import time
 from datetime import datetime
 import pytz
 import redis
-import talib
 import numpy as np
 from collections import Counter
 
@@ -172,30 +171,33 @@ def analyze_52_week_levels(df, latest_price):
 
 def calculate_supertrend(df, atr_period=10, factor=3):
     """
-    Calculate the Supertrend indicator using TA-Lib.
+    Calculate the Supertrend indicator without TA-Lib.
 
     Args:
-        df (pd.DataFrame): DataFrame containing 'High', 'Low', and 'Close' columns.
+        df (pd.DataFrame): DataFrame containing 'day_high', 'day_low', and 'day_close' columns.
         atr_period (int): ATR period (default: 10).
         factor (float): ATR multiplier (default: 3).
 
     Returns:
-        pd.Series: Supertrend values (Bullish/Bearish).
+        str: 'Bullish' or 'Bearish' trend.
     """
-    # Calculate ATR using TA-Lib
-    df['ATR'] = talib.ATR(df['day_high'], df['day_low'], df['Close'], timeperiod=atr_period)
 
-    # Calculate upper & lower bands
+    # Ensure columns exist
+    if not {'day_high', 'day_low', 'Close'}.issubset(df.columns):
+        raise ValueError("Missing required columns: 'day_high', 'day_low', 'Close'.")
+
+    # Compute ATR using pandas-ta
+    df['ATR'] = ta.volatility.average_true_range(df['day_high'], df['day_low'], df['Close'], window=atr_period)
+
+    # Compute upper & lower bands
     df['UpperBand'] = ((df['day_high'] + df['day_low']) / 2) + (factor * df['ATR'])
     df['LowerBand'] = ((df['day_high'] + df['day_low']) / 2) - (factor * df['ATR'])
 
-    # Initialize Supertrend column
+    # Initialize Supertrend
     df['Supertrend'] = np.nan
     df['Trend'] = np.nan
 
-    # First row of Supertrend
-    df.iloc[0, df.columns.get_loc('Supertrend')] = df.iloc[0]['UpperBand']
-
+    # Start Supertrend calculation
     for i in range(1, len(df)):
         prev_supertrend = df.iloc[i - 1]['Supertrend']
 
@@ -209,7 +211,8 @@ def calculate_supertrend(df, atr_period=10, factor=3):
         # Assign trend direction
         df.iloc[i, df.columns.get_loc('Trend')] = "Bullish" if df.iloc[i]['Close'] > df.iloc[i]['Supertrend'] else "Bearish"
 
-    return df['Trend'].iloc[-1]  # Return latest Bullish/Bearish trend
+    return df['Trend'].iloc[-1]  # Return latest trend
+
 
 def find_support_resistance(df):
     """Detect Major & Minor Support & Resistance Levels."""
@@ -278,8 +281,8 @@ def calculate_donchian_channels(df, period=20):
     Returns:
         dict: Contains Donchian Upper Band and Lower Band.
     """
-    df['donchian_high'] = df['high'].rolling(period).max()
-    df['donchian_low'] = df['low'].rolling(period).min()
+    df['donchian_high'] = df['day_high'].rolling(period).max()
+    df['donchian_low'] = df['day_low'].rolling(period).min()
 
     return {
         "Donchian_High": df['donchian_high'].iloc[-1],  # Upper band (Breakout level)
