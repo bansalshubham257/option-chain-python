@@ -306,7 +306,7 @@ def is_market_closed():
 def fetch_and_store_orders():
     """ Fetch option chain data and update JSON file, avoiding duplicates and handling market open/close conditions. """
 
-    if not is_market_open():
+    if is_market_closed():
         print("Market is closed. Skipping script execution.")
         return
 
@@ -327,24 +327,26 @@ def fetch_and_store_orders():
 
     # ✅ Step 2: Fetch new large orders
     new_orders = []
-
     for stock, lot_size in fno_stocks.items():
         result = fetch_option_chain(stock, EXPIRY_DATE, lot_size)
         if result:
             new_orders.extend(result)
 
-    # ✅ Step 3: Remove duplicates (replace old entries with new ones)
-    existing_orders_set = {(order["stock"], order["strike_price"], order["type"]) for order in all_orders}
-    filtered_new_orders = [order for order in new_orders if (order["stock"], order["strike_price"], order["type"]) not in existing_orders_set]
+    # ✅ Step 3: Create a dictionary for quick lookup and replacement
+    orders_dict = {(order["stock"], order["strike_price"], order["type"]): order for order in all_orders}
 
-    # ✅ Step 4: Append new unique orders to existing data
-    all_orders.extend(filtered_new_orders)
+    # ✅ Step 4: Update or Append Orders
+    for order in new_orders:
+        key = (order["stock"], order["strike_price"], order["type"])
+        orders_dict[key] = order  # If exists, it replaces old; otherwise, it appends
 
-    # ✅ Step 5: Save updated data to JSON file
+    # ✅ Step 5: Convert back to list and save
+    updated_orders = list(orders_dict.values())
+
     with open(JSON_FILE, 'w') as file:
-        json.dump(all_orders, file)
+        json.dump(updated_orders, file)
 
-    print(f"✅ Orders before update: {len(all_orders) - len(filtered_new_orders)}, Orders after update: {len(all_orders)}, New Orders Added: {len(filtered_new_orders)}")
+    print(f"✅ Orders before update: {len(all_orders)}, Orders after update: {len(updated_orders)}, New/Replaced Orders: {len(updated_orders) - len(all_orders)}")
 
 last_run_time = 0
 CACHE_DURATION = 30  # Cache data for 30 seconds
