@@ -512,19 +512,29 @@ def is_market_closed():
 def fetch_and_store_orders():
     """ Fetch option chain data and store it in Redis instead of a file """
 
+    # 🔹 Get today's date
+    today_date = datetime.now().strftime('%Y-%m-%d')
+
+    # 🔹 Get last updated date from Redis
+    last_updated_date = redis_client.get("last_updated_date")
+
     # 🔹 Check if market is open
     if not is_market_open():
         print("Market is closed. Keeping today's data.")
 
-        # Store last update timestamp in Redis (if not already set)
-        last_update_time = redis_client.get("last_updated")
-        if not last_update_time:
-            redis_client.set("last_updated", time.time())  # Save timestamp only once
+        # Store last updated date only if not already set
+        if not last_updated_date:
+            redis_client.set("last_updated_date", today_date)  # Save date only once
 
         return  # ❌ Do not update orders when market is closed
 
-    # 🔹 Market opened! Reset last_updated timestamp
-    redis_client.set("last_updated", time.time())
+    # 🔹 Market opened! Check if it's a new day
+    if last_updated_date != today_date:
+        print("🆕 New market day detected! Clearing old orders...")
+        redis_client.delete("orders")  # Clear old orders
+
+    # 🔹 Update last_updated_date in Redis
+    redis_client.set("last_updated_date", today_date)
 
     # 🔹 Fetch existing orders from Redis
     existing_orders_json = redis_client.get("orders")
@@ -546,7 +556,7 @@ def fetch_and_store_orders():
     # 🔹 Save updated orders in Redis
     redis_client.set("orders", json.dumps(list(updated_orders.values())))
 
-    print(f"✅ Orders updated. Total orders: {len(updated_orders)}")
+    print(f"✅ Orders updated for {today_date}. Total orders: {len(updated_orders)}")
 
 last_run_time = 0
 CACHE_DURATION = 30  # Cache data for 30 seconds
