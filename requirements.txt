@@ -6,7 +6,6 @@ gunicorn
 datetime
 numpy
 redis
-TA-Lib
 ta
 yfinance==0.2.54
 scipy
