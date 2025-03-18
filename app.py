@@ -1,13 +1,9 @@
 import os
-from io import StringIO
-import requests
 import ta  # Technical Indicators
 from flask import Flask, request, jsonify
 from flask_cors import CORS
 import ssl
 import yfinance as yf
-from scipy.signal import argrelextrema
-import numpy as np
 from bokeh.plotting import figure
 from bokeh.models import ColumnDataSource
 from bokeh.embed import components
@@ -18,12 +14,28 @@ import threading
 import time
 from datetime import datetime
 import pytz
+import redis
+import talib
+import numpy as np
+from collections import Counter
 
 from test import is_market_open, fno_stocks, fetch_option_chain, JSON_FILE
 
 app = Flask(__name__)
+
 CORS(app, resources={r"/*": {"origins": ["https://swingtradingwithme.blogspot.com"]}})
 ssl._create_default_https_context = ssl._create_unverified_context
+
+# Fetch values from Render environment variables
+REDIS_HOST = os.getenv("REDIS_HOST")
+REDIS_PORT = os.getenv("REDIS_PORT")
+REDIS_USER = os.getenv("REDIS_USER")
+REDIS_PASSWORD = os.getenv("REDIS_PASSWORD")
+
+# Construct the Redis URL dynamically
+REDIS_URL = f"redis://{REDIS_USER}:{REDIS_PASSWORD}@{REDIS_HOST}:{REDIS_PORT}"
+
+redis_client = redis.Redis.from_url(REDIS_URL, decode_responses=True)
 
 LOCAL_CSV_FILE = "nse_stocks.csv"
 EXPIRY_DATE = "2025-03-27"
@@ -88,60 +100,191 @@ def get_stock_data(symbol):
         # Drop temp cumulative columns
         df.drop(columns=["cumulative_vp", "cumulative_volume"], inplace=True)
 
-        df["consolidation_breakout"] = detect_consolidation_breakout(df)
-        df["cup_handle"] = detect_cup_handle(df)
-        df["head_shoulders"] = detect_head_shoulders(df)
-        df["double_top_bottom"] = detect_double_top_bottom(df)
-
         return df # Ensure only valid rows are returned
 
     except Exception as e:
         print(f"⚠️ Error fetching data for {symbol}: {e}")
         return None
 
+def calculate_fibonacci_levels(df, lookback=75):
+    """Calculate Fibonacci retracement levels based on recent swing high and low."""
+    recent_high = df["day_high"].tail(lookback).max()
+    recent_low = df["day_low"].tail(lookback).min()
 
-# ✅ Consolidation Breakout Detection
-def detect_consolidation_breakout(df, window=20, threshold=2):
-    """Detects if the stock is breaking out from a period of consolidation."""
-    rolling_std = df["last_price"].rolling(window=window).std()
-    breakout_signal = (rolling_std < threshold) & (df["last_price"] > df["upper_band"])
-    return breakout_signal.map({True: "Breakout", False: "No Breakout"})
+    levels = {
+        "0.236": recent_high - (0.236 * (recent_high - recent_low)),
+        "0.382": recent_high - (0.382 * (recent_high - recent_low)),
+        "0.5": recent_high - (0.5 * (recent_high - recent_low)),
+        "0.618": recent_high - (0.618 * (recent_high - recent_low)),
+        "0.786": recent_high - (0.786 * (recent_high - recent_low)),
+    }
 
-# ✅ Cup and Handle Pattern Detection
-def detect_cup_handle(df):
-    """Detects Cup and Handle pattern based on moving averages and price movement."""
-    df["slope_50"] = df["SMA_50"].diff()
-    is_cup_handle = (df["slope_50"] < 0).rolling(window=30).sum() > 20  # Identifying a rounded bottom
-    return is_cup_handle.map({True: "Cup & Handle", False: "No Pattern"})
+    return levels, recent_high, recent_low
 
-# ✅ Head and Shoulders Detection
-def detect_head_shoulders(df):
-    """Detects Head and Shoulders pattern based on peaks and troughs."""
-    df["local_max"] = df["last_price"].rolling(window=5, center=True).max()
-    df["local_min"] = df["last_price"].rolling(window=5, center=True).min()
+def get_fibonacci_analysis(latest_price, fib_levels):
+    """Analyze Fibonacci support/resistance and predict price movements."""
+    details = []
 
-    peaks = argrelextrema(df["last_price"].values, np.greater, order=5)[0]
-    troughs = argrelextrema(df["last_price"].values, np.less, order=5)[0]
+    # Sorting Fibonacci levels for easy comparison
+    sorted_levels = sorted(fib_levels.items(), key=lambda x: x[1], reverse=True)
 
-    if len(peaks) >= 3 and len(troughs) >= 2:
-        return "Head & Shoulders"
-    return "No Pattern"
+    current_position = None
+    next_resistance = None
+    next_support = None
 
-# ✅ Double Top & Double Bottom Detection
-def detect_double_top_bottom(df):
-    """Detects Double Top and Double Bottom patterns."""
-    peaks = argrelextrema(df["last_price"].values, np.greater, order=5)[0]
-    troughs = argrelextrema(df["last_price"].values, np.less, order=5)[0]
+    for i, (level, price) in enumerate(sorted_levels):
+        if latest_price > price:
+            current_position = f"Above {level} ({price:.2f})"
+            next_support = f"{sorted_levels[i][0]} ({sorted_levels[i][1]:.2f})" if i < len(sorted_levels) - 1 else "Recent Low"
+            break
+        else:
+            next_resistance = f"{level} ({price:.2f})"
 
-    if len(peaks) >= 2 and abs(df.iloc[peaks[-1]]["last_price"] - df.iloc[peaks[-2]]["last_price"]) < 0.02 * df.iloc[peaks[-1]]["last_price"]:
-        return "Double Top"
+    # If no resistance found, assume recent high
+    if not next_resistance:
+        next_resistance = f"Recent High ({max(fib_levels.values()):.2f})"
 
-    if len(troughs) >= 2 and abs(df.iloc[troughs[-1]]["last_price"] - df.iloc[troughs[-2]]["last_price"]) < 0.02 * df.iloc[troughs[-1]]["last_price"]:
-        return "Double Bottom"
+    details.append(f"Current Position: {current_position}")
+    details.append(f"Next Support Level: {next_support}")
+    details.append(f"Next Resistance Level: {next_resistance}")
 
-    return "No Pattern"
-
+    return details
 # 📌 2️⃣ Analyze Stock Signals
+
+def analyze_52_week_levels(df, latest_price):
+    """Check if stock is near its 52-week high or low and give predictions."""
+    high_52 = df["day_high"].max()  # 52-week high
+    low_52 = df["day_low"].min()  # 52-week low
+
+    threshold = 0.02  # 2% threshold to consider "near"
+
+    position = None
+    recommendation = None
+
+    if latest_price >= high_52 * (1 - threshold):  # Near 52-week high
+        position = f"Near 52-Week High ({high_52:.2f})"
+        recommendation = "⚠️ Caution: The stock is near its yearly high. Consider booking profits or waiting for a pullback."
+    elif latest_price <= low_52 * (1 + threshold):  # Near 52-week low
+        position = f"Near 52-Week Low ({low_52:.2f})"
+        recommendation = "✅ Opportunity: The stock is near its yearly low. Watch for potential reversal and accumulation."
+
+    return position, recommendation
+
+def calculate_supertrend(df, atr_period=10, factor=3):
+    """
+    Calculate the Supertrend indicator using TA-Lib.
+
+    Args:
+        df (pd.DataFrame): DataFrame containing 'High', 'Low', and 'Close' columns.
+        atr_period (int): ATR period (default: 10).
+        factor (float): ATR multiplier (default: 3).
+
+    Returns:
+        pd.Series: Supertrend values (Bullish/Bearish).
+    """
+    # Calculate ATR using TA-Lib
+    df['ATR'] = talib.ATR(df['day_high'], df['day_low'], df['Close'], timeperiod=atr_period)
+
+    # Calculate upper & lower bands
+    df['UpperBand'] = ((df['day_high'] + df['day_low']) / 2) + (factor * df['ATR'])
+    df['LowerBand'] = ((df['day_high'] + df['day_low']) / 2) - (factor * df['ATR'])
+
+    # Initialize Supertrend column
+    df['Supertrend'] = np.nan
+    df['Trend'] = np.nan
+
+    # First row of Supertrend
+    df.iloc[0, df.columns.get_loc('Supertrend')] = df.iloc[0]['UpperBand']
+
+    for i in range(1, len(df)):
+        prev_supertrend = df.iloc[i - 1]['Supertrend']
+
+        if df.iloc[i - 1]['Close'] > prev_supertrend:
+            df.iloc[i, df.columns.get_loc('Supertrend')] = df.iloc[i]['LowerBand'] \
+                if df.iloc[i]['Close'] > df.iloc[i]['LowerBand'] else prev_supertrend
+        else:
+            df.iloc[i, df.columns.get_loc('Supertrend')] = df.iloc[i]['UpperBand'] \
+                if df.iloc[i]['Close'] < df.iloc[i]['UpperBand'] else prev_supertrend
+
+        # Assign trend direction
+        df.iloc[i, df.columns.get_loc('Trend')] = "Bullish" if df.iloc[i]['Close'] > df.iloc[i]['Supertrend'] else "Bearish"
+
+    return df['Trend'].iloc[-1]  # Return latest Bullish/Bearish trend
+
+def find_support_resistance(df):
+    """Detect Major & Minor Support & Resistance Levels."""
+    high = df['day_high'].iloc[-2]  # Previous day's High
+    low = df['day_low'].iloc[-2]  # Previous day's Low
+    close = df['Close'].iloc[-2]  # Previous day's Close
+
+    # Calculate Pivot Point
+    pivot = (high + low + close) / 3
+
+    # Calculate Support & Resistance Levels
+    r1 = (2 * pivot) - low
+    r2 = pivot + (high - low)
+    s1 = (2 * pivot) - high
+    s2 = pivot - (high - low)
+
+    current_price = df['Close'].iloc[-1]
+
+    if current_price > pivot:
+        summary = f"Price ({current_price}) is above Pivot ({pivot:.2f}). If it breaks {r1:.2f}, it may touch {r2:.2f}."
+    elif current_price < pivot:
+        summary = f"Price ({current_price}) is below Pivot ({pivot:.2f}). If it breaks {s1:.2f}, it may drop to {s2:.2f}."
+    else:
+        summary = f"Price ({current_price}) is at the Pivot ({pivot:.2f}), indicating a neutral zone."
+
+
+    # Add Labels for Major/Minor Support & Resistance
+    pivots = [
+        ("Current Price", df['Close'].iloc[-1]),
+        ("(1D time Frame) Pivot Point", round(pivot, 2)),
+        ("Pivot Resistance 1 (R1)", round(r1, 2)),
+        ("Pivot Resistance 2 (R2)", round(r2, 2)),
+        ("Pivot Support 1 (S1)", round(s1, 2)),
+        ("Pivot Support 2 (S2)", round(s2, 2)),
+        ("summary", summary)
+    ]
+
+    return pivots
+
+def detect_trendline_breakout(df):
+    """Detect if price breaks above resistance or below support trendline."""
+
+    # Get the latest closing price
+    latest_price = df['Close'].iloc[-1]
+
+    # Assume we have already detected the trendline levels
+    support_trendline = df['day_low'].rolling(window=50).min().iloc[-1]  # Approximate support
+    resistance_trendline = df['day_high'].rolling(window=50).max().iloc[-1]  # Approximate resistance
+
+    # Check for breakout or breakdown
+    if latest_price > resistance_trendline:
+        return "Bullish Breakout"
+    elif latest_price < support_trendline:
+        return "Bearish Breakdown"
+    else:
+        return "No Breakout detected"
+
+def calculate_donchian_channels(df, period=20):
+    """
+    Calculate Donchian Channel Breakout Levels.
+
+    Parameters:
+        df (DataFrame): Stock data with 'high' and 'low' columns.
+        period (int): Lookback period for highest high and lowest low.
+
+    Returns:
+        dict: Contains Donchian Upper Band and Lower Band.
+    """
+    df['donchian_high'] = df['high'].rolling(period).max()
+    df['donchian_low'] = df['low'].rolling(period).min()
+
+    return {
+        "Donchian_High": df['donchian_high'].iloc[-1],  # Upper band (Breakout level)
+        "Donchian_Low": df['donchian_low'].iloc[-1]  # Lower band (Breakdown level)
+    }
 
 def analyze_stock(symbol):
     df = get_stock_data(symbol)
@@ -165,10 +308,52 @@ def analyze_stock(symbol):
     if len(df) == 0:
         return {"error": "No data available for the stock"}
 
+    fib_levels, fib_high, fib_low = calculate_fibonacci_levels(df)
+
+    latest_price = df.iloc[-1]["day_low"]  # Using Low for better accuracy
+
+    supertrend_data = calculate_supertrend(df)
+    pivots = find_support_resistance(df)
+    trendline_status = detect_trendline_breakout(df)
+
     latest = df.iloc[-1]
     bullish_signals = []
     bearish_signals = []
     active_indicators = {}
+
+    # 🔵 Compare price with 50% Fibonacci Level
+    if latest_price > fib_levels["0.5"]:
+        bullish_signals.append("Above 50% Fibonacci Level (Bullish)")
+        active_indicators["Fibonacci"] = True
+    else:
+        bearish_signals.append("Below 50% Fibonacci Level (Bearish)")
+        active_indicators["Fibonacci"] = True
+
+    # 🔵 Additional Fibonacci Analysis (Support/Resistance)
+    fibonacci_details = get_fibonacci_analysis(latest_price, fib_levels)
+
+    # ✅ 52-Week High/Low Analysis
+    position_52w, recommendation_52w = analyze_52_week_levels(df, latest_price)
+
+    donchian_data = calculate_donchian_channels(df)
+
+    # ✅ Combine all additional indicators into one dictionary
+
+    additional_details = {
+        "Supertrend": supertrend_data,
+        "Trendline_Breakout": trendline_status,
+        "Support_Resistance": pivots, # Show last 5 key levels
+        "Donchian_Channels": donchian_data  # ✅ Added Donchian Channels
+    }
+
+    if fibonacci_details:
+        additional_details["Fibonacci Analysis"] = fibonacci_details  # 🟢 Key as section title
+
+    if position_52w:
+        additional_details["52-Week High/Low"] = [
+            f"📍 Position: {position_52w}",
+            f"📝 Recommendation: {recommendation_52w}"
+        ]
 
     if latest["RSI"] > 70:
         bearish_signals.append("Overbought (RSI > 70)")
@@ -224,7 +409,8 @@ def analyze_stock(symbol):
         "bearish_signals": bearish_signals,
         "verdict": "Bullish" if len(bullish_signals) > len(bearish_signals) else "Bearish",
         "script": script,
-        "div": div
+        "div": div,
+        "additional_details": additional_details # New Section for Support/Resistance
     }
 
 def generate_chart(df, active_indicators):
@@ -283,17 +469,9 @@ def analyze():
 
 @app.route('/get-orders', methods=['GET'])
 def get_orders():
-    if not is_market_open():
-        return jsonify({'status': 'Market is closed'})
-    try:
-        if os.path.exists(JSON_FILE):
-            with open(JSON_FILE, 'r') as file:
-                data = json.load(file)
-                return jsonify(data)
-        else:
-            return jsonify([])  # Return empty list if file is missing
-    except Exception as e:
-        return jsonify({"error": str(e)})
+    """ Return orders from Redis """
+    orders_json = redis_client.get("orders")
+    return jsonify(json.loads(orders_json)) if orders_json else jsonify([])
 
 IST = pytz.timezone("Asia/Kolkata")
 MARKET_CLOSE = datetime.strptime("15:30", "%H:%M").time()
@@ -302,51 +480,38 @@ def is_market_closed():
     """ Check if the market is closed """
     now = datetime.now(IST).time()
     return now >= MARKET_CLOSE
-    
-def fetch_and_store_orders():
-    """ Fetch option chain data and update JSON file, avoiding duplicates and handling market open/close conditions. """
 
-    if is_market_closed():
+def fetch_and_store_orders():
+    """ Fetch option chain data and store it in Redis instead of a file """
+
+    if not is_market_open():
         print("Market is closed. Skipping script execution.")
+        redis_client.set("orders", json.dumps({"status": "Market is closed"}))
         return
 
-    # ✅ Step 1: Load existing data, handle "Market is closed" JSON
-    all_orders = []
-    if os.path.exists(JSON_FILE):
-        with open(JSON_FILE, 'r') as file:
-            try:
-                data = json.load(file)
-                if isinstance(data, list):
-                    all_orders = data  # Load existing orders if format is correct
-                elif isinstance(data, dict) and "status" in data:
-                    print("ℹ️ Market was closed previously. Starting fresh.")
-                    all_orders = []  # Reset when market opens
-            except json.JSONDecodeError:
-                print("⚠️ JSON file is corrupted. Resetting data.")
-                all_orders = []  # Reset in case of corruption
+    # 🔹 Fetch existing orders from Redis
+    existing_orders_json = redis_client.get("orders")
+    existing_orders = json.loads(existing_orders_json) if existing_orders_json else []
 
-    # ✅ Step 2: Fetch new large orders
+    # 🔹 Step 2: Fetch new large orders
     new_orders = []
+
     for stock, lot_size in fno_stocks.items():
         result = fetch_option_chain(stock, EXPIRY_DATE, lot_size)
         if result:
             new_orders.extend(result)
 
-    # ✅ Step 3: Create a dictionary for quick lookup and replacement
-    orders_dict = {(order["stock"], order["strike_price"], order["type"]): order for order in all_orders}
+    # 🔹 Step 3: Update orders (Replace old entries for same stock/strike/type)
+    updated_orders = {f"{o['stock']}_{o['strike_price']}_{o['type']}": o for o in existing_orders}
 
-    # ✅ Step 4: Update or Append Orders
     for order in new_orders:
-        key = (order["stock"], order["strike_price"], order["type"])
-        orders_dict[key] = order  # If exists, it replaces old; otherwise, it appends
+        key = f"{order['stock']}_{order['strike_price']}_{order['type']}"
+        updated_orders[key] = order  # Replace if already exists, otherwise add new
 
-    # ✅ Step 5: Convert back to list and save
-    updated_orders = list(orders_dict.values())
+    # 🔹 Save updated orders in Redis
+    redis_client.set("orders", json.dumps(list(updated_orders.values())))
 
-    with open(JSON_FILE, 'w') as file:
-        json.dump(updated_orders, file)
-
-    print(f"✅ Orders before update: {len(all_orders)}, Orders after update: {len(updated_orders)}, New/Replaced Orders: {len(updated_orders) - len(all_orders)}")
+    print(f"✅ Orders updated. Total orders: {len(updated_orders)}")
 
 last_run_time = 0
 CACHE_DURATION = 30  # Cache data for 30 seconds
@@ -364,7 +529,7 @@ def run_script():
 
     # Update last run time
     last_run_time = current_time
-    
+
     thread = threading.Thread(target=fetch_and_store_orders)
     thread.start()  # Start script in background
 
@@ -375,4 +540,3 @@ def run_script():
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))  # Render provides PORT, default to 10000
     app.run(host="0.0.0.0", port=port)
-
