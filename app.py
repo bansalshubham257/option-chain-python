@@ -313,10 +313,12 @@ def fetch_and_store_orders():
     # ✅ Step 1: Load existing data, handle "Market is closed" JSON
     all_orders = []
     if os.path.exists(JSON_FILE):
+        print("Fetching already existing data.. inside try")
         with open(JSON_FILE, 'r') as file:
             try:
                 data = json.load(file)
-                if isinstance(data, list):  
+                if isinstance(data, list):
+                    print("fetching order inside try if")
                     all_orders = data  # Load existing orders if format is correct
                 elif isinstance(data, dict) and "status" in data:
                     print("ℹ️ Market was closed previously. Starting fresh.")
