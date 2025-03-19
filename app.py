@@ -483,6 +483,46 @@ def generate_chart(df, active_indicators):
     return script, div
 
 
+def get_oi_volume_analysis(stock_symbol, expiry_date, strike_price, option_type):
+    """
+    Fetch OI and Volume analysis from Redis.
+    """
+    print("before oi_volume_key")
+    oi_volume_key = f"oi_volume_data:{stock_symbol}:{expiry_date}:{strike_price}:{option_type}"  # Changed key
+    print(oi_volume_key)
+    data = redis_client.get(oi_volume_key)
+    if data:
+        try:
+            data = json.loads(data)  # ✅ Convert JSON string to Python list/dict
+        except json.JSONDecodeError:
+            return {"error": "Corrupted JSON data in Redis"}  # Handle decode error
+    else:
+        data = []  # If no data found, return empty list
+
+    return {"data": data}
+
+# Flask API to fetch analysis
+from flask import Flask, request, jsonify
+
+app = Flask(__name__)
+
+@app.route('/get_oi_volume_analysis', methods=['GET'])
+def get_analysis():
+    try:
+        stock_symbol = request.args.get('stock')
+        expiry_date = request.args.get('expiry')
+        strike_price = request.args.get('strike')
+        option_type = request.args.get('option_type')
+    except Exception as e:
+        print(f"Error parsing query parameters: {e}")
+    if not all([stock_symbol, expiry_date, strike_price, option_type]):
+        return jsonify({"error": "Missing parameters"}), 400
+    data = get_oi_volume_analysis(stock_symbol, expiry_date, strike_price, option_type)
+    # Ensure data is a dictionary before returning
+    if not isinstance(data, dict):
+        return jsonify({"error": "Invalid data format returned from analysis function"}), 500
+    return jsonify(data)
+
 # 📌 5️⃣ API Routes
 @app.route("/stocks", methods=["GET"])
 def get_all_stocks():
@@ -542,6 +582,7 @@ def fetch_and_store_orders():
 
     # 🔹 Step 2: Fetch new large orders
     new_orders = []
+    print("🔍 Fetching new orders...")
     for stock, lot_size in fno_stocks.items():
         result = fetch_option_chain(stock, EXPIRY_DATE, lot_size)
         if result:
