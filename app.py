@@ -628,7 +628,9 @@ def get_fno_stocks():
 def get_fno_data():
     try:
         # Fetch stored F&O stocks from Redis
-        fno_data = redis_client.get("fno_stocks_data")
+        key = request.args.get("key")
+        # Fetch stored F&O stocks from Redis
+        fno_data = redis_client.get(key)
         if not fno_data:
             return jsonify({"error": "F&O stock data not found"}), 404
 
