@@ -1,20 +1,36 @@
 import ssl
 import json
 import os
+import time
+
 import pandas as pd
+import redis
 import requests
 import re
 import pytz
 from datetime import datetime
 from flask import Flask, jsonify
+from flask_cors import CORS
+
 from config import ACCESS_TOKEN  # Store securely
 
 app = Flask(__name__)
 
+CORS(app, resources={r"/*": {"origins": ["https://swingtradingwithme.blogspot.com"]}})
 ssl._create_default_https_context = ssl._create_unverified_context
 
 # JSON file to store detected orders
 JSON_FILE = "/tmp/large_orders.json"
+
+REDIS_HOST = os.getenv("REDIS_HOST")
+REDIS_PORT = os.getenv("REDIS_PORT")
+REDIS_USER = os.getenv("REDIS_USER")
+REDIS_PASSWORD = os.getenv("REDIS_PASSWORD")
+
+# Construct the Redis URL dynamically
+REDIS_URL = f"redis://{REDIS_USER}:{REDIS_PASSWORD}@{REDIS_HOST}:{REDIS_PORT}"
+
+redis_client = redis.Redis.from_url(REDIS_URL, decode_responses=True)
 
 # Load all instruments
 try:
@@ -35,7 +51,7 @@ fno_stocks = {re.split(r'\d', row['tradingsymbol'], 1)[0]: int(row['lot_size'])
 
 IST = pytz.timezone("Asia/Kolkata")
 MARKET_OPEN = datetime.strptime("09:15", "%H:%M").time()
-MARKET_CLOSE = datetime.strptime("15:30", "%H:%M").time()
+MARKET_CLOSE = datetime.strptime("22:30", "%H:%M").time()
 
 def is_market_open():
     now = datetime.now(IST)
@@ -102,6 +118,7 @@ def fetch_option_chain(stock_symbol, expiry_date, lot_size):
         large_orders = []
 
         for key, data in market_quotes.items():
+
             symbol = data.get('symbol', '')
             option_type = "CE" if symbol.endswith("CE") else "PE" if symbol.endswith("PE") else None
             if not option_type:
@@ -138,6 +155,27 @@ def fetch_option_chain(stock_symbol, expiry_date, lot_size):
                     'timestamp' : formatted_time
                 })
                 print("large_orders - ", large_orders)
+
+            oi = data.get('oi', 0)
+            volume = data.get('volume', 0)
+            price = data.get('last_price', 0)
+            oi_volume_key = f"oi_volume_data:{stock_symbol}:{expiry_date}:{strike_price}:{option_type}"  # Changed key
+            # Create timestamped data entry
+            timestamp = datetime.now().strftime("%H:%M")  # Store only time for intraday tracking
+            new_entry = {"time": timestamp, "oi": oi, "volume": volume, "price": price}
+
+            # Fetch existing data (if available)
+            existing_data = redis_client.get(oi_volume_key)
+            if existing_data:
+                data_list = json.loads(existing_data)
+            else:
+                data_list = []
+
+            # Append new entry to existing list
+            data_list.append(new_entry)
+            # Store updated list back in Redis
+            redis_client.set(oi_volume_key, json.dumps(data_list))
+
 
         return large_orders
     except requests.RequestException as e:
