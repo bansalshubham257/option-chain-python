@@ -501,11 +501,6 @@ def get_oi_volume_analysis(stock_symbol, expiry_date, strike_price, option_type)
 
     return {"data": data}
 
-# Flask API to fetch analysis
-from flask import Flask, request, jsonify
-
-app = Flask(__name__)
-
 @app.route('/get_oi_volume_analysis', methods=['GET'])
 def get_analysis():
     try:
