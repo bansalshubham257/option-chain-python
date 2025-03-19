@@ -628,8 +628,15 @@ def get_fno_stocks():
 def get_fno_data():
     try:
         # Fetch stored F&O stocks from Redis
-        key = request.args.get("key")
-        # Fetch stored F&O stocks from Redis
+        stock = request.args.get('stock')
+        expiry = request.args.get('expiry')
+        strike = request.args.get('strike')
+        option_type = request.args.get('option_type')  # 'CE' or 'PE'
+
+        if not (stock and expiry and strike and option_type):
+            return jsonify({"error": "Missing parameters"}), 400
+
+        key = f"oi_volume_data:{stock}:{expiry}:{strike}:{option_type}"
         fno_data = redis_client.get(key)
         if not fno_data:
             return jsonify({"error": "F&O stock data not found"}), 404
