@@ -619,7 +619,39 @@ def run_script():
 
     return jsonify({'status': 'Script is running in the background'}), 202
 
+@app.route('/get_fno_stocks', methods=['GET'])
+def get_fno_stocks():
+    """API to return the list of F&O stocks"""
+    return jsonify(fno_stocks)
 
+@app.route('/get_fno_data', methods=['GET'])
+def get_fno_data():
+    try:
+        # Fetch stored F&O stocks from Redis
+        fno_data = redis_client.get("fno_stocks_data")
+        if not fno_data:
+            return jsonify({"error": "F&O stock data not found"}), 404
+
+        return jsonify(json.loads(fno_data))
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/get_option_data', methods=['GET'])
+def get_option_data():
+    stock = request.args.get('stock')
+    if not stock:
+        return jsonify({"error": "Stock symbol is required"}), 400
+
+    try:
+        # Fetch stored strike prices and expiries from Redis
+        option_data = redis_client.hget("option_chain_data", stock)
+        if not option_data:
+            return jsonify({"error": "Option data not found for this stock"}), 404
+
+        return jsonify(json.loads(option_data))
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+    
 # Run Flask
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))  # Render provides PORT, default to 10000
