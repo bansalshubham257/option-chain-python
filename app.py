@@ -644,11 +644,16 @@ def get_option_data():
 
     try:
         # Fetch stored strike prices and expiries from Redis
-        option_data = redis_client.hget("option_chain_data", stock)
-        if not option_data:
+        pattern = f"oi_volume_data:{stock}:*"
+        matching_keys = redis_client.keys(pattern)
+    
+        if not matching_keys:
             return jsonify({"error": "Option data not found for this stock"}), 404
-
-        return jsonify(json.loads(option_data))
+        
+        # Fetch data for all matching keys
+        option_data = {key: redis_client.get(key) for key in matching_keys}
+    
+        return jsonify({"data": option_data})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
     
