@@ -2,6 +2,7 @@ import ssl
 import json
 import os
 import time
+from decimal import Decimal
 
 import pandas as pd
 import redis
@@ -51,7 +52,7 @@ fno_stocks = {re.split(r'\d', row['tradingsymbol'], 1)[0]: int(row['lot_size'])
 
 IST = pytz.timezone("Asia/Kolkata")
 MARKET_OPEN = datetime.strptime("09:15", "%H:%M").time()
-MARKET_CLOSE = datetime.strptime("15:30", "%H:%M").time()
+MARKET_CLOSE = datetime.strptime("20:30", "%H:%M").time()
 
 def is_market_open():
     now = datetime.now(IST)
@@ -82,7 +83,7 @@ def fetch_market_quotes(instrument_keys):
         print(f"❌ Request failed: {e}")
         return {}
 
-def fetch_option_chain(stock_symbol, expiry_date, lot_size):
+def fetch_option_chain(stock_symbol, expiry_date, lot_size, table):
     if stock_symbol in excluded_stocks:
         return None
     instrument_key = getInstrumentKey(stock_symbol)
@@ -156,26 +157,32 @@ def fetch_option_chain(stock_symbol, expiry_date, lot_size):
                 })
                 print("large_orders - ", large_orders)
 
-            oi = data.get('oi', 0)
-            volume = data.get('volume', 0)
-            price = data.get('last_price', 0)
+            oi = Decimal(str(data.get('oi', 0)))  # Convert float to Decimal
+            volume = Decimal(str(data.get('volume', 0)))  # Convert float to Decimal
+            price = Decimal(str(data.get('last_price', 0)))  # Convert float to Decimal
             oi_volume_key = f"oi_volume_data:{stock_symbol}:{expiry_date}:{strike_price}:{option_type}"  # Changed key
             # Create timestamped data entry
             timestamp = datetime.now().strftime("%H:%M")  # Store only time for intraday tracking
             new_entry = {"time": timestamp, "oi": oi, "volume": volume, "price": price}
 
             # Fetch existing data (if available)
-            existing_data = redis_client.get(oi_volume_key)
-            if existing_data:
-                data_list = json.loads(existing_data)
-            else:
-                data_list = []
+            response = table.get_item(Key={"oi_volume_key": oi_volume_key})
+            existing_data = response.get("Item", {}).get("data", [])
+            existing_data.append(new_entry)
 
-            # Append new entry to existing list
-            data_list.append(new_entry)
-            # Store updated list back in Redis
-            #redis_client.set(oi_volume_key, json.dumps(data_list))
+            def convert_floats(obj):
+                if isinstance(obj, float):
+                    return Decimal(str(obj))  # Convert float to Decimal
+                elif isinstance(obj, list):
+                    return [convert_floats(i) for i in obj]  # Convert list elements
+                elif isinstance(obj, dict):
+                    return {k: convert_floats(v) for k, v in obj.items()}  # Convert dict elements
+                return obj
 
+            existing_data = convert_floats(existing_data)  # Ensure all numbers are Decimal
+
+            # Store updated list in DynamoDB
+            table.put_item(Item={"oi_volume_key": oi_volume_key, "data": existing_data})
 
         return large_orders
     except requests.RequestException as e:
