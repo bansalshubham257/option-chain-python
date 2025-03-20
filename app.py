@@ -687,7 +687,7 @@ def get_option_data():
         return jsonify({"error": str(e)}), 500
 
 MARKET_OPEN_TIME = time.strftime("%H:%M", time.strptime("09:15", "%H:%M"))
-CLEAR_DATA_START_TIME = time.strftime("%H:%M", time.strptime("08:15", "%H:%M"))
+CLEAR_DATA_START_TIME = time.strftime("%H:%M", time.strptime("08:55", "%H:%M"))
 
 def clear_old_data():
     """Delete previous day’s data when the market reopens."""
