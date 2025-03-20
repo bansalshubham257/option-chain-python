@@ -16,6 +16,7 @@ from datetime import datetime
 import pytz
 import redis
 import numpy as np
+import boto3
 from collections import Counter
 
 from test import is_market_open, fno_stocks, fetch_option_chain, JSON_FILE
@@ -30,6 +31,14 @@ REDIS_HOST = os.getenv("REDIS_HOST")
 REDIS_PORT = os.getenv("REDIS_PORT")
 REDIS_USER = os.getenv("REDIS_USER")
 REDIS_PASSWORD = os.getenv("REDIS_PASSWORD")
+
+dynamodb = boto3.resource(
+    'dynamodb',
+    region_name=os.getenv('AWS_REGION'),
+    aws_access_key_id=os.getenv('AWS_ACCESS_KEY_ID'),
+    aws_secret_access_key=os.getenv('AWS_SECRET_ACCESS_KEY')
+)  # Change to your region
+table = dynamodb.Table('oi_volume_data')  # Replace with your actual table name
 
 # Construct the Redis URL dynamically
 REDIS_URL = f"redis://{REDIS_USER}:{REDIS_PASSWORD}@{REDIS_HOST}:{REDIS_PORT}"
@@ -545,7 +554,7 @@ def get_orders():
         return jsonify({"error": str(e)})
 
 IST = pytz.timezone("Asia/Kolkata")
-MARKET_CLOSE = datetime.strptime("15:30", "%H:%M").time()
+MARKET_CLOSE = datetime.strptime("20:30", "%H:%M").time()
 
 def is_market_closed():
     """ Check if the market is closed """
@@ -583,7 +592,7 @@ def fetch_and_store_orders():
     new_orders = []
     print("🔍 Fetching new orders...")
     for stock, lot_size in fno_stocks.items():
-        result = fetch_option_chain(stock, EXPIRY_DATE, lot_size)
+        result = fetch_option_chain(stock, EXPIRY_DATE, lot_size, table)
         if result:
             new_orders.extend(result)
 
@@ -642,11 +651,13 @@ def get_fno_data():
             return jsonify({"error": "Missing parameters"}), 400
 
         key = f"oi_volume_data:{stock}:{expiry}:{strike}:{option_type}"
-        fno_data = redis_client.get(key)
+        response = table.get_item(Key={"oi_volume_key": key})
+        fno_data = response.get("Item", {}).get("data")
+
         if not fno_data:
             return jsonify({"error": "F&O stock data not found"}), 404
 
-        return jsonify(json.loads(fno_data))
+        return jsonify({"data": fno_data})  # Wrap list inside a dictionary
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
@@ -658,19 +669,21 @@ def get_option_data():
 
     try:
         # Fetch stored strike prices and expiries from Redis
-        pattern = f"oi_volume_data:{stock}:*"
-        matching_keys = redis_client.keys(pattern)
-    
-        if not matching_keys:
+        response = table.scan(
+            FilterExpression="begins_with(oi_volume_key, :stock)",
+            ExpressionAttributeValues={":stock": f"oi_volume_data:{stock}:"}
+        )
+
+        if "Items" not in response or not response["Items"]:
             return jsonify({"error": "Option data not found for this stock"}), 404
-        
-        # Fetch data for all matching keys
-        option_data = {key: redis_client.get(key) for key in matching_keys}
-    
+
+    # Format response properly
+        option_data = {item["oi_volume_key"]: item["data"] for item in response["Items"]}
+
         return jsonify({"data": option_data})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
-    
+
 # Run Flask
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))  # Render provides PORT, default to 10000
