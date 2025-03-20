@@ -22,6 +22,7 @@ ssl._create_default_https_context = ssl._create_unverified_context
 
 # JSON file to store detected orders
 JSON_FILE = "/tmp/large_orders.json"
+FUTURES_JSON_FILE = "/tmp/futures_large_orders.json"
 
 REDIS_HOST = os.getenv("REDIS_HOST")
 REDIS_PORT = os.getenv("REDIS_PORT")
@@ -52,7 +53,7 @@ fno_stocks = {re.split(r'\d', row['tradingsymbol'], 1)[0]: int(row['lot_size'])
 
 IST = pytz.timezone("Asia/Kolkata")
 MARKET_OPEN = datetime.strptime("09:15", "%H:%M").time()
-MARKET_CLOSE = datetime.strptime("15:30", "%H:%M").time()
+MARKET_CLOSE = datetime.strptime("23:30", "%H:%M").time()
 
 def is_market_open():
     now = datetime.now(IST)
@@ -66,6 +67,15 @@ def getInstrumentKey(symbol):
         print(f"⚠️ Error getting instrument key for {symbol}: {e}")
         return None
 
+def getFuturesInstrumentKey(symbol):
+    """Fetch the instrument key for futures contracts"""
+    try:
+        # ✅ Filter for FUTURES contracts only
+        key = scripts[(scripts['asset_symbol'] == symbol) & (scripts['instrument_type'] == "FUT")]['instrument_key'].values
+        return key[0] if len(key) > 0 else None
+    except Exception as e:
+        print(f"⚠️ Error getting futures instrument key for {symbol}: {e}")
+        return None
 def fetch_market_quotes(instrument_keys):
     try:
         url = 'https://api.upstox.com/v2/market-quote/quotes'
@@ -83,13 +93,76 @@ def fetch_market_quotes(instrument_keys):
         print(f"❌ Request failed: {e}")
         return {}
 
+def process_large_futures_orders(market_quotes, stock_symbol, lot_size, fut_instrument_key):
+    """Detect large futures orders from market_quotes data"""
+    large_orders = []
+
+    if fut_instrument_key not in market_quotes:
+        return large_orders  # ✅ No futures data found, return empty list
+
+    futures_data = market_quotes[fut_instrument_key]
+    depth_data = futures_data.get('depth', {})
+    top_bids = depth_data.get('buy', [])[:5]
+    top_asks = depth_data.get('sell', [])[:5]
+
+    threshold = lot_size * 87
+    ltp = futures_data.get('last_price', 0)
+    valid_bid = any(bid['quantity'] >= threshold for bid in top_bids)
+    valid_ask = any(ask['quantity'] >= threshold for ask in top_asks)
+
+    if (valid_bid or valid_ask) and ltp > 2:
+        ist_now = datetime.utcnow().astimezone(pytz.timezone('Asia/Kolkata')).strftime("%H:%M:%S")
+
+        large_orders.append({
+            'stock': stock_symbol,
+            'ltp': ltp,
+            'bid_qty': max((b['quantity'] for b in top_bids), default=0),
+            'ask_qty': max((a['quantity'] for a in top_asks), default=0),
+            'lot_size': lot_size,
+            'timestamp': ist_now
+        })
+
+    return large_orders
+
+def store_large_futures_orders(large_orders_futures):
+    """Load existing futures orders from JSON, append new ones, and store back"""
+    if not large_orders_futures:
+        print("ℹ️ No new large futures orders detected. Skipping storage.")
+        return  # ✅ If no new large orders, do nothing
+
+    try:
+        # ✅ Step 1: Load Existing Data
+        existing_orders = []
+        if os.path.exists(FUTURES_JSON_FILE):
+            with open(FUTURES_JSON_FILE, "r") as file:
+                existing_orders = json.load(file)
+
+        # ✅ Step 2: Append New Large Orders
+        existing_orders.extend(large_orders_futures)
+
+        # ✅ Step 3: Save Updated Data
+        with open(FUTURES_JSON_FILE, "w") as file:
+            json.dump(existing_orders, file, indent=4)
+
+        print(f"✅ Stored {len(large_orders_futures)} new futures orders. Total: {len(existing_orders)}")
+
+    except Exception as e:
+        print(f"❌ Error storing futures orders: {e}")
+
 def fetch_option_chain(stock_symbol, expiry_date, lot_size, table):
     if stock_symbol in excluded_stocks:
         return None
     instrument_key = getInstrumentKey(stock_symbol)
+    fut_instrument_key = getFuturesInstrumentKey(stock_symbol)
+
     if not instrument_key:
         print(f"⚠️ No instrument key for {stock_symbol}")
         return None
+
+    if not fut_instrument_key:
+        print(f"⚠️ No Fut instrument key key for {stock_symbol}")
+        return None
+
     try:
         url = 'https://api.upstox.com/v2/option/chain'
         headers = {'Authorization': f'Bearer {ACCESS_TOKEN}'}
@@ -115,7 +188,14 @@ def fetch_option_chain(stock_symbol, expiry_date, lot_size, table):
                 if option['put_options'].get('instrument_key'):
                     instrument_keys.append(option['put_options']['instrument_key'])
 
+        instrument_keys.append(fut_instrument_key)
         market_quotes = fetch_market_quotes(instrument_keys)
+
+        large_orders_futures = process_large_futures_orders(market_quotes, stock_symbol, lot_size, fut_instrument_key)
+
+        if large_orders_futures:
+            store_large_futures_orders(large_orders_futures)
+
         large_orders = []
 
         for key, data in market_quotes.items():
