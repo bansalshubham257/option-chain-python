@@ -174,7 +174,7 @@ def fetch_option_chain(stock_symbol, expiry_date, lot_size):
             # Append new entry to existing list
             data_list.append(new_entry)
             # Store updated list back in Redis
-            redis_client.set(oi_volume_key, json.dumps(data_list))
+            #redis_client.set(oi_volume_key, json.dumps(data_list))
 
 
         return large_orders
