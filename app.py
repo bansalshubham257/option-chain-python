@@ -12,6 +12,7 @@ from bokeh.layouts import column
 import json
 import threading
 import time
+from datetime import datetime, timedelta
 from datetime import datetime
 import pytz
 import redis
@@ -614,6 +615,7 @@ CACHE_DURATION = 30  # Cache data for 30 seconds
 
 @app.route('/run-script', methods=['GET'])
 def run_script():
+    clear_old_data()  # Clear old data if market reopens
     global last_run_time
     """ Trigger script asynchronously to avoid Render timeout """
     if not is_market_open():
@@ -683,6 +685,36 @@ def get_option_data():
         return jsonify({"data": option_data})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+MARKET_OPEN_TIME = time.strftime("%H:%M", time.strptime("09:15", "%H:%M"))
+CLEAR_DATA_START_TIME = time.strftime("%H:%M", time.strptime("08:15", "%H:%M"))
+
+def clear_old_data():
+    """Delete previous day’s data when the market reopens."""
+    now = datetime.now()
+    current_time = now.strftime("%H:%M")  # ✅ Convert time to string format HH:MM
+
+    # ✅ Check if we are between 8:15 - 9:15 AM
+    if CLEAR_DATA_START_TIME <= current_time <= MARKET_OPEN_TIME:
+        print("🧹 Clearing old market data...")
+
+        # ✅ Get yesterday's date
+        yesterday = (now - timedelta(days=1)).strftime("%Y-%m-%d")
+
+        try:
+            # ✅ Scan and delete all items with yesterday's date
+            scan = table.scan()
+            with table.batch_writer() as batch:
+                for item in scan.get("Items", []):
+                    if yesterday in item.get("oi_volume_key", ""):
+                        batch.delete_item(Key={"oi_volume_key": item["oi_volume_key"]})
+
+            print("✅ Old market data cleared successfully.")
+        except Exception as e:
+            print(f"❌ Error clearing old data: {e}")
+    else:
+        print("⏳ Market not open yet, skipping data clearing.")
+
 
 # Run Flask
 if __name__ == "__main__":
