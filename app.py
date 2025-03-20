@@ -532,9 +532,17 @@ def analyze():
 
 @app.route('/get-orders', methods=['GET'])
 def get_orders():
-    """ Return orders from Redis """
-    orders_json = redis_client.get("orders")
-    return jsonify(json.loads(orders_json)) if orders_json else jsonify([])
+    if not is_market_open():
+        return jsonify({'status': 'Market is closed'})
+    try:
+        if os.path.exists(JSON_FILE):
+            with open(JSON_FILE, 'r') as file:
+                data = json.load(file)
+                return jsonify(data)
+        else:
+            return jsonify([])  # Return empty list if file is missing
+    except Exception as e:
+        return jsonify({"error": str(e)})
 
 IST = pytz.timezone("Asia/Kolkata")
 MARKET_CLOSE = datetime.strptime("15:30", "%H:%M").time()
@@ -547,33 +555,29 @@ def is_market_closed():
 def fetch_and_store_orders():
     """ Fetch option chain data and store it in Redis instead of a file """
 
-    # 🔹 Get today's date
-    today_date = datetime.now().strftime('%Y-%m-%d')
-
-    # 🔹 Get last updated date from Redis
-    last_updated_date = redis_client.get("last_updated_date")
+    # 🔹 Get today's dat
 
     # 🔹 Check if market is open
-    if not is_market_open():
-        print("Market is closed. Keeping today's data.")
+    if is_market_closed():
+        print("Market is closed. Skipping script execution.")
+        return  # ❌ Do not update orders when market is close
 
-        # Store last updated date only if not already set
-        if not last_updated_date:
-            redis_client.set("last_updated_date", today_date)  # Save date only once
+    # ✅ Step 1: Load existing data, handle "Market is closed" JSON
+    all_orders = []
+    if os.path.exists(JSON_FILE):
+        with open(JSON_FILE, 'r') as file:
+            try:
+                data = json.load(file)
+                if isinstance(data, list):
+                    all_orders = data  # Load existing orders if format is correct
+                elif isinstance(data, dict) and "status" in data:
+                    print("ℹ️ Market was closed previously. Starting fresh.")
+                    all_orders = []  # Reset when market opens
+            except json.JSONDecodeError:
+                print("⚠️ JSON file is corrupted. Resetting data.")
+                all_orders = []  # Reset in case of corruption
 
-        return  # ❌ Do not update orders when market is closed
-
-    # 🔹 Market opened! Check if it's a new day
-    if last_updated_date != today_date:
-        print("🆕 New market day detected! Clearing old orders...")
-        redis_client.delete("orders")  # Clear old orders
-
-    # 🔹 Update last_updated_date in Redis
-    redis_client.set("last_updated_date", today_date)
-
-    # 🔹 Fetch existing orders from Redis
-    existing_orders_json = redis_client.get("orders")
-    existing_orders = json.loads(existing_orders_json) if existing_orders_json else []
+    # ✅ Step 2: Fetch new large orders
 
     # 🔹 Step 2: Fetch new large orders
     new_orders = []
@@ -583,16 +587,14 @@ def fetch_and_store_orders():
         if result:
             new_orders.extend(result)
 
-    # 🔹 Step 3: Update orders (Replace old entries for same stock/strike/type)
-    updated_orders = {f"{o['stock']}_{o['strike_price']}_{o['type']}": o for o in existing_orders}
+    # ✅ Step 3: Create a dictionary for quick lookup and replacement
+    orders_dict = {(order["stock"], order["strike_price"], order["type"]): order for order in all_orders}
     for order in new_orders:
-        key = f"{order['stock']}_{order['strike_price']}_{order['type']}"
-        updated_orders[key] = order  # Replace if already exists, otherwise add new
+        key = (order["stock"], order["strike_price"], order["type"])
+        orders_dict[key] = order  # If exists, it replaces old; otherwise, it appends
 
-    # 🔹 Save updated orders in Redis
-    redis_client.set("orders", json.dumps(list(updated_orders.values())))
-
-    print(f"✅ Orders updated for {today_date}. Total orders: {len(updated_orders)}")
+    # ✅ Step 5: Convert back to list and save
+    updated_orders = list(orders_dict.values())
 
 last_run_time = 0
 CACHE_DURATION = 30  # Cache data for 30 seconds
@@ -604,7 +606,6 @@ def run_script():
     if not is_market_open():
         return jsonify({
             'status': 'Market is closed',
-            'data': json.loads(redis_client.get("market_data") or "{}")  # Return cached data
         })
 
     current_time = time.time()
