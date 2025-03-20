@@ -554,7 +554,7 @@ def get_orders():
         return jsonify({"error": str(e)})
 
 IST = pytz.timezone("Asia/Kolkata")
-MARKET_CLOSE = datetime.strptime("20:30", "%H:%M").time()
+MARKET_CLOSE = datetime.strptime("15:30", "%H:%M").time()
 
 def is_market_closed():
     """ Check if the market is closed """
