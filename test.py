@@ -53,7 +53,7 @@ fno_stocks = {re.split(r'\d', row['tradingsymbol'], 1)[0]: int(row['lot_size'])
 
 IST = pytz.timezone("Asia/Kolkata")
 MARKET_OPEN = datetime.strptime("09:15", "%H:%M").time()
-MARKET_CLOSE = datetime.strptime("23:30", "%H:%M").time()
+MARKET_CLOSE = datetime.strptime("15:30", "%H:%M").time()
 
 def is_market_open():
     now = datetime.now(IST)
