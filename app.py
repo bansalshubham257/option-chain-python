@@ -595,6 +595,10 @@ def fetch_and_store_orders():
 
     # ✅ Step 5: Convert back to list and save
     updated_orders = list(orders_dict.values())
+    with open(JSON_FILE, 'w') as file:
+        json.dump(updated_orders, file)
+
+    print(f"✅ Orders before update: {len(all_orders)}, Orders after update: {len(updated_orders)}, New/Replaced Orders: {len(updated_orders) - len(all_orders)}")
 
 last_run_time = 0
 CACHE_DURATION = 30  # Cache data for 30 seconds
