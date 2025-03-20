@@ -13,14 +13,13 @@ import json
 import threading
 import time
 from datetime import datetime, timedelta
-from datetime import datetime
 import pytz
 import redis
 import numpy as np
 import boto3
 from collections import Counter
 
-from test import is_market_open, fno_stocks, fetch_option_chain, JSON_FILE
+from test import is_market_open, fno_stocks, fetch_option_chain, JSON_FILE, FUTURES_JSON_FILE
 
 app = Flask(__name__)
 
@@ -42,9 +41,9 @@ dynamodb = boto3.resource(
 table = dynamodb.Table('oi_volume_data')  # Replace with your actual table name
 
 # Construct the Redis URL dynamically
-REDIS_URL = f"redis://{REDIS_USER}:{REDIS_PASSWORD}@{REDIS_HOST}:{REDIS_PORT}"
+#REDIS_URL = f"redis://{REDIS_USER}:{REDIS_PASSWORD}@{REDIS_HOST}:{REDIS_PORT}"
 
-redis_client = redis.Redis.from_url(REDIS_URL, decode_responses=True)
+#redis_client = redis.Redis.from_url(REDIS_URL, decode_responses=True)
 
 LOCAL_CSV_FILE = "nse_stocks.csv"
 EXPIRY_DATE = "2025-03-27"
@@ -492,42 +491,6 @@ def generate_chart(df, active_indicators):
     script, div = components(column(p, p_rsi, p_macd))
     return script, div
 
-
-def get_oi_volume_analysis(stock_symbol, expiry_date, strike_price, option_type):
-    """
-    Fetch OI and Volume analysis from Redis.
-    """
-    print("before oi_volume_key")
-    oi_volume_key = f"oi_volume_data:{stock_symbol}:{expiry_date}:{strike_price}:{option_type}"  # Changed key
-    print(oi_volume_key)
-    data = redis_client.get(oi_volume_key)
-    if data:
-        try:
-            data = json.loads(data)  # ✅ Convert JSON string to Python list/dict
-        except json.JSONDecodeError:
-            return {"error": "Corrupted JSON data in Redis"}  # Handle decode error
-    else:
-        data = []  # If no data found, return empty list
-
-    return {"data": data}
-
-@app.route('/get_oi_volume_analysis', methods=['GET'])
-def get_analysis():
-    try:
-        stock_symbol = request.args.get('stock')
-        expiry_date = request.args.get('expiry')
-        strike_price = request.args.get('strike')
-        option_type = request.args.get('option_type')
-    except Exception as e:
-        print(f"Error parsing query parameters: {e}")
-    if not all([stock_symbol, expiry_date, strike_price, option_type]):
-        return jsonify({"error": "Missing parameters"}), 400
-    data = get_oi_volume_analysis(stock_symbol, expiry_date, strike_price, option_type)
-    # Ensure data is a dictionary before returning
-    if not isinstance(data, dict):
-        return jsonify({"error": "Invalid data format returned from analysis function"}), 500
-    return jsonify(data)
-
 # 📌 5️⃣ API Routes
 @app.route("/stocks", methods=["GET"])
 def get_all_stocks():
@@ -554,8 +517,23 @@ def get_orders():
     except Exception as e:
         return jsonify({"error": str(e)})
 
+@app.route('/get-futures-orders', methods=['GET'])
+def get_futures_orders():
+    """API to fetch large futures orders"""
+    if not is_market_open():
+        return jsonify({'status': 'Market is closed'})
+    try:
+        if os.path.exists(FUTURES_JSON_FILE):
+            with open(FUTURES_JSON_FILE, 'r') as file:
+                data = json.load(file)
+                return jsonify(data)  # ✅ Return futures large orders
+        else:
+            return jsonify([])  # ✅ Return empty list if file doesn't exist
+    except Exception as e:
+        return jsonify({"error": str(e)})
+
 IST = pytz.timezone("Asia/Kolkata")
-MARKET_CLOSE = datetime.strptime("15:30", "%H:%M").time()
+MARKET_CLOSE = datetime.strptime("23:30", "%H:%M").time()
 
 def is_market_closed():
     """ Check if the market is closed """
@@ -687,7 +665,7 @@ def get_option_data():
         return jsonify({"error": str(e)}), 500
 
 MARKET_OPEN_TIME = time.strftime("%H:%M", time.strptime("09:15", "%H:%M"))
-CLEAR_DATA_START_TIME = time.strftime("%H:%M", time.strptime("08:55", "%H:%M"))
+CLEAR_DATA_START_TIME = time.strftime("%H:%M", time.strptime("08:15", "%H:%M"))
 
 def clear_old_data():
     """Delete previous day’s data when the market reopens."""
@@ -714,7 +692,6 @@ def clear_old_data():
             print(f"❌ Error clearing old data: {e}")
     else:
         print("⏳ Market not open yet, skipping data clearing.")
-
 
 # Run Flask
 if __name__ == "__main__":
