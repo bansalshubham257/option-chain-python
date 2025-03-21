@@ -95,17 +95,26 @@ def fetch_market_quotes(instrument_keys):
 
 def process_large_futures_orders(market_quotes, stock_symbol, lot_size, fut_instrument_key):
     """Detect large futures orders from market_quotes data"""
+    
+    expiry_date1 = "2025-03-25"
+    expiry_date2 = "2025-03-27"
+    
+    fut_instrument_key = getFuturesInstrumentKeyMarket(stock_symbol, expiry_date1)
+    
     large_orders = []
-
+    
     if fut_instrument_key not in market_quotes:
-        return large_orders  # ✅ No futures data found, return empty list
+        fut_instrument_key = getFuturesInstrumentKeyMarket(stock_symbol, expiry_date2)
+        if fut_instrument_key not in market_quotes:
+            print(f"⚠️ No data found for {stock_symbol} futures")
+            return large_orders  # ✅ No futures data found, return empty list
 
     futures_data = market_quotes[fut_instrument_key]
     depth_data = futures_data.get('depth', {})
     top_bids = depth_data.get('buy', [])[:5]
     top_asks = depth_data.get('sell', [])[:5]
 
-    threshold = lot_size * 14
+    threshold = lot_size * 9
     ltp = futures_data.get('last_price', 0)
     valid_bid = any(bid['quantity'] >= threshold for bid in top_bids)
     valid_ask = any(ask['quantity'] >= threshold for ask in top_asks)
@@ -191,7 +200,7 @@ def fetch_option_chain(stock_symbol, expiry_date, lot_size, table):
         instrument_keys.append(fut_instrument_key)
         market_quotes = fetch_market_quotes(instrument_keys)
 
-        large_orders_futures = process_large_futures_orders(market_quotes, stock_symbol, lot_size, getFuturesInstrumentKeyMarket(stock_symbol, expiry_date))
+        large_orders_futures = process_large_futures_orders(market_quotes, stock_symbol, lot_size, expiry_date)
 
         if large_orders_futures:
             store_large_futures_orders(large_orders_futures)
