@@ -24,15 +24,15 @@ ssl._create_default_https_context = ssl._create_unverified_context
 JSON_FILE = "/tmp/large_orders.json"
 FUTURES_JSON_FILE = "/tmp/futures_large_orders.json"
 
-REDIS_HOST = os.getenv("REDIS_HOST")
-REDIS_PORT = os.getenv("REDIS_PORT")
-REDIS_USER = os.getenv("REDIS_USER")
-REDIS_PASSWORD = os.getenv("REDIS_PASSWORD")
+#REDIS_HOST = os.getenv("REDIS_HOST")
+#REDIS_PORT = os.getenv("REDIS_PORT")
+#REDIS_USER = os.getenv("REDIS_USER")
+#REDIS_PASSWORD = os.getenv("REDIS_PASSWORD")
 
 # Construct the Redis URL dynamically
-REDIS_URL = f"redis://{REDIS_USER}:{REDIS_PASSWORD}@{REDIS_HOST}:{REDIS_PORT}"
+#REDIS_URL = f"redis://{REDIS_USER}:{REDIS_PASSWORD}@{REDIS_HOST}:{REDIS_PORT}"
 
-redis_client = redis.Redis.from_url(REDIS_URL, decode_responses=True)
+#redis_client = redis.Redis.from_url(REDIS_URL, decode_responses=True)
 
 # Load all instruments
 try:
@@ -237,32 +237,32 @@ def fetch_option_chain(stock_symbol, expiry_date, lot_size, table):
                 })
                 print("large_orders - ", large_orders)
 
-            oi = Decimal(str(data.get('oi', 0)))  # Convert float to Decimal
-            volume = Decimal(str(data.get('volume', 0)))  # Convert float to Decimal
-            price = Decimal(str(data.get('last_price', 0)))  # Convert float to Decimal
-            oi_volume_key = f"oi_volume_data:{stock_symbol}:{expiry_date}:{strike_price}:{option_type}"  # Changed key
+            #oi = Decimal(str(data.get('oi', 0)))  # Convert float to Decimal
+            #volume = Decimal(str(data.get('volume', 0)))  # Convert float to Decimal
+            #price = Decimal(str(data.get('last_price', 0)))  # Convert float to Decimal
+            #oi_volume_key = f"oi_volume_data:{stock_symbol}:{expiry_date}:{strike_price}:{option_type}"  # Changed key
             # Create timestamped data entry
-            timestamp = datetime.now().strftime("%H:%M")  # Store only time for intraday tracking
-            new_entry = {"time": timestamp, "oi": oi, "volume": volume, "price": price}
+            #timestamp = datetime.now().strftime("%H:%M")  # Store only time for intraday tracking
+            #new_entry = {"time": timestamp, "oi": oi, "volume": volume, "price": price}
 
             # Fetch existing data (if available)
-            response = table.get_item(Key={"oi_volume_key": oi_volume_key})
-            existing_data = response.get("Item", {}).get("data", [])
-            existing_data.append(new_entry)
+            #response = table.get_item(Key={"oi_volume_key": oi_volume_key})
+            #existing_data = response.get("Item", {}).get("data", [])
+            #existing_data.append(new_entry)
 
-            def convert_floats(obj):
-                if isinstance(obj, float):
-                    return Decimal(str(obj))  # Convert float to Decimal
-                elif isinstance(obj, list):
-                    return [convert_floats(i) for i in obj]  # Convert list elements
-                elif isinstance(obj, dict):
-                    return {k: convert_floats(v) for k, v in obj.items()}  # Convert dict elements
-                return obj
+            #def convert_floats(obj):
+            #    if isinstance(obj, float):
+            #        return Decimal(str(obj))  # Convert float to Decimal
+            #    elif isinstance(obj, list):
+            #        return [convert_floats(i) for i in obj]  # Convert list elements
+            #    elif isinstance(obj, dict):
+            #        return {k: convert_floats(v) for k, v in obj.items()}  # Convert dict elements
+            #    return obj
 
-            existing_data = convert_floats(existing_data)  # Ensure all numbers are Decimal
+            #existing_data = convert_floats(existing_data)  # Ensure all numbers are Decimal
 
             # Store updated list in DynamoDB
-            table.put_item(Item={"oi_volume_key": oi_volume_key, "data": existing_data})
+            #table.put_item(Item={"oi_volume_key": oi_volume_key, "data": existing_data})
 
         return large_orders
     except requests.RequestException as e:
