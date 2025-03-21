@@ -134,27 +134,44 @@ def process_large_futures_orders(market_quotes, stock_symbol, lot_size, fut_inst
     return large_orders
 
 def store_large_futures_orders(large_orders_futures):
-    """Load existing futures orders from JSON, append new ones, and store back"""
+    """Load existing futures orders, avoid duplicates, and store new ones."""
     if not large_orders_futures:
         print("ℹ️ No new large futures orders detected. Skipping storage.")
-        return  # ✅ If no new large orders, do nothing
+        return  # ✅ Skip if no new orders
 
     try:
         # ✅ Step 1: Load Existing Data
         existing_orders = []
+        existing_stocks_set = set()  # Use a set to track stock names
         if os.path.exists(FUTURES_JSON_FILE):
             with open(FUTURES_JSON_FILE, "r") as file:
                 existing_orders = json.load(file)
 
-        # ✅ Step 2: Append New Large Orders
-        existing_orders.extend(large_orders_futures)
+            # ✅ Convert existing orders to a set of stock names
+            existing_stocks_set = {order['stock'] for order in existing_orders}
+
+        # ✅ Step 2: Append Only New Unique Orders
+        new_orders = []
+        new_orders = []
+        for order in large_orders_futures:
+            if order['stock'] not in existing_stocks_set:  # ✅ Only add if stock is new
+                new_orders.append(order)
+                existing_stocks_set.add(order['stock'])  # Update set to avoid re-adding
+
+        if not new_orders:
+            print("ℹ️ No new unique orders to add. Skipping storage.")
+            return  # ✅ Exit if no new data to add
+
+        existing_orders.extend(new_orders)  # ✅ Append only new data
 
         # ✅ Step 3: Save Updated Data
         with open(FUTURES_JSON_FILE, "w") as file:
             json.dump(existing_orders, file, indent=4)
 
-        print(f"✅ Stored {len(large_orders_futures)} new futures orders. Total: {len(existing_orders)}")
+        print(f"✅ Stored {len(new_orders)} new unique futures orders. Total: {len(existing_orders)}")
 
+    except Exception as e:
+        print(f"❌ Error storing futures orders: {e}")
     except Exception as e:
         print(f"❌ Error storing futures orders: {e}")
 
