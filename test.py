@@ -1,17 +1,15 @@
 import ssl
 import json
 import os
-import time
 from decimal import Decimal
-
 import pandas as pd
-import redis
 import requests
 import re
 import pytz
 from datetime import datetime
-from flask import Flask, jsonify
+from flask import Flask
 from flask_cors import CORS
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from config import ACCESS_TOKEN  # Store securely
 
@@ -23,16 +21,6 @@ ssl._create_default_https_context = ssl._create_unverified_context
 # JSON file to store detected orders
 JSON_FILE = "/tmp/large_orders.json"
 FUTURES_JSON_FILE = "/tmp/futures_large_orders.json"
-
-#REDIS_HOST = os.getenv("REDIS_HOST")
-#REDIS_PORT = os.getenv("REDIS_PORT")
-#REDIS_USER = os.getenv("REDIS_USER")
-#REDIS_PASSWORD = os.getenv("REDIS_PASSWORD")
-
-# Construct the Redis URL dynamically
-#REDIS_URL = f"redis://{REDIS_USER}:{REDIS_PASSWORD}@{REDIS_HOST}:{REDIS_PORT}"
-
-#redis_client = redis.Redis.from_url(REDIS_URL, decode_responses=True)
 
 # Load all instruments
 try:
@@ -53,7 +41,7 @@ fno_stocks = {re.split(r'\d', row['tradingsymbol'], 1)[0]: int(row['lot_size'])
 
 IST = pytz.timezone("Asia/Kolkata")
 MARKET_OPEN = datetime.strptime("09:15", "%H:%M").time()
-MARKET_CLOSE = datetime.strptime("15:30", "%H:%M").time()
+MARKET_CLOSE = datetime.strptime("23:30", "%H:%M").time()
 
 def is_market_open():
     now = datetime.now(IST)
@@ -69,13 +57,16 @@ def getInstrumentKey(symbol):
 
 def getFuturesInstrumentKey(symbol):
     """Fetch the instrument key for futures contracts"""
+    expiry = "FUT 27 MAR 25"
+    symbol = symbol + " " + expiry
     try:
         # ✅ Filter for FUTURES contracts only
-        key = scripts[(scripts['asset_symbol'] == symbol) & (scripts['instrument_type'] == "FUT")]['instrument_key'].values
+        key = scripts[(scripts['trading_symbol'] == symbol) & (scripts['instrument_type'] == "FUT")]['instrument_key'].values
         return key[0] if len(key) > 0 else None
     except Exception as e:
         print(f"⚠️ Error getting futures instrument key for {symbol}: {e}")
         return None
+
 def fetch_market_quotes(instrument_keys):
     try:
         url = 'https://api.upstox.com/v2/market-quote/quotes'
@@ -93,21 +84,16 @@ def fetch_market_quotes(instrument_keys):
         print(f"❌ Request failed: {e}")
         return {}
 
-def process_large_futures_orders(market_quotes, stock_symbol, lot_size, fut_instrument_key):
+def process_large_futures_orders(market_quotes, stock_symbol, lot_size, expiry_date):
     """Detect large futures orders from market_quotes data"""
-    
-    expiry_date1 = "2025-03-25"
-    expiry_date2 = "2025-03-27"
-    
-    fut_instrument_key = getFuturesInstrumentKeyMarket(stock_symbol, expiry_date1)
-    
+
+    fut_instrument_key = getFuturesInstrumentKeyMarket(stock_symbol, expiry_date)
+
     large_orders = []
-    
+
     if fut_instrument_key not in market_quotes:
-        fut_instrument_key = getFuturesInstrumentKeyMarket(stock_symbol, expiry_date2)
-        if fut_instrument_key not in market_quotes:
-            print(f"⚠️ No data found for {stock_symbol} futures")
-            return large_orders  # ✅ No futures data found, return empty list
+        print(f"⚠️ No data found for {stock_symbol} futures")
+        return large_orders  # ✅ No futures data found, return empty list
 
     futures_data = market_quotes[fut_instrument_key]
     depth_data = futures_data.get('depth', {})
@@ -130,7 +116,7 @@ def process_large_futures_orders(market_quotes, stock_symbol, lot_size, fut_inst
             'lot_size': lot_size,
             'timestamp': ist_now
         })
-
+        print("Future large_orders - ", large_orders)
     return large_orders
 
 def store_large_futures_orders(large_orders_futures):
@@ -152,7 +138,6 @@ def store_large_futures_orders(large_orders_futures):
 
         # ✅ Step 2: Append Only New Unique Orders
         new_orders = []
-        new_orders = []
         for order in large_orders_futures:
             if order['stock'] not in existing_stocks_set:  # ✅ Only add if stock is new
                 new_orders.append(order)
@@ -170,8 +155,6 @@ def store_large_futures_orders(large_orders_futures):
 
         print(f"✅ Stored {len(new_orders)} new unique futures orders. Total: {len(existing_orders)}")
 
-    except Exception as e:
-        print(f"❌ Error storing futures orders: {e}")
     except Exception as e:
         print(f"❌ Error storing futures orders: {e}")
 
@@ -263,32 +246,32 @@ def fetch_option_chain(stock_symbol, expiry_date, lot_size, table):
                 })
                 print("large_orders - ", large_orders)
 
-            #oi = Decimal(str(data.get('oi', 0)))  # Convert float to Decimal
-            #volume = Decimal(str(data.get('volume', 0)))  # Convert float to Decimal
-            #price = Decimal(str(data.get('last_price', 0)))  # Convert float to Decimal
-            #oi_volume_key = f"oi_volume_data:{stock_symbol}:{expiry_date}:{strike_price}:{option_type}"  # Changed key
+            oi = Decimal(str(data.get('oi', 0)))  # Convert float to Decimal
+            volume = Decimal(str(data.get('volume', 0)))  # Convert float to Decimal
+            price = Decimal(str(data.get('last_price', 0)))  # Convert float to Decimal
+            oi_volume_key = f"oi_volume_data:{stock_symbol}:{expiry_date}:{strike_price}:{option_type}"  # Changed key
             # Create timestamped data entry
-            #timestamp = datetime.now().strftime("%H:%M")  # Store only time for intraday tracking
-            #new_entry = {"time": timestamp, "oi": oi, "volume": volume, "price": price}
+            timestamp = datetime.now().strftime("%H:%M")  # Store only time for intraday tracking
+            new_entry = {"time": timestamp, "oi": oi, "volume": volume, "price": price}
 
             # Fetch existing data (if available)
-            #response = table.get_item(Key={"oi_volume_key": oi_volume_key})
-            #existing_data = response.get("Item", {}).get("data", [])
-            #existing_data.append(new_entry)
+            response = table.get_item(Key={"oi_volume_key": oi_volume_key})
+            existing_data = response.get("Item", {}).get("data", [])
+            existing_data.append(new_entry)
 
-            #def convert_floats(obj):
-            #    if isinstance(obj, float):
-            #        return Decimal(str(obj))  # Convert float to Decimal
-            #    elif isinstance(obj, list):
-            #        return [convert_floats(i) for i in obj]  # Convert list elements
-            #    elif isinstance(obj, dict):
-            #        return {k: convert_floats(v) for k, v in obj.items()}  # Convert dict elements
-            #    return obj
+            def convert_floats(obj):
+                if isinstance(obj, float):
+                    return Decimal(str(obj))  # Convert float to Decimal
+                elif isinstance(obj, list):
+                    return [convert_floats(i) for i in obj]  # Convert list elements
+                elif isinstance(obj, dict):
+                    return {k: convert_floats(v) for k, v in obj.items()}  # Convert dict elements
+                return obj
 
-            #existing_data = convert_floats(existing_data)  # Ensure all numbers are Decimal
+            existing_data = convert_floats(existing_data)  # Ensure all numbers are Decimal
 
             # Store updated list in DynamoDB
-            #table.put_item(Item={"oi_volume_key": oi_volume_key, "data": existing_data})
+            table.put_item(Item={"oi_volume_key": oi_volume_key, "data": existing_data})
 
         return large_orders
     except requests.RequestException as e:
@@ -297,7 +280,7 @@ def fetch_option_chain(stock_symbol, expiry_date, lot_size, table):
     except Exception as e:
         print(f"❌ Unexpected error: {e}")
         return None
-        
+
 def getFuturesInstrumentKeyMarket(symbol, expiry_date):
     """Convert expiry date format and generate futures instrument key."""
     try:
@@ -311,6 +294,3 @@ def getFuturesInstrumentKeyMarket(symbol, expiry_date):
     except Exception as e:
         print(f"⚠️ Error getting futures instrument key for {symbol}: {e}")
         return None
-        
-if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000)
