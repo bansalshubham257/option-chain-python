@@ -593,7 +593,7 @@ CACHE_DURATION = 30  # Cache data for 30 seconds
 
 @app.route('/run-script', methods=['GET'])
 def run_script():
-    clear_old_data()  # Clear old data if market reopens
+    #clear_old_data()  # Clear old data if market reopens
     global last_run_time
     """ Trigger script asynchronously to avoid Render timeout """
     if not is_market_open():
