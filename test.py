@@ -105,7 +105,7 @@ def process_large_futures_orders(market_quotes, stock_symbol, lot_size, fut_inst
     top_bids = depth_data.get('buy', [])[:5]
     top_asks = depth_data.get('sell', [])[:5]
 
-    threshold = lot_size * 17
+    threshold = lot_size * 14
     ltp = futures_data.get('last_price', 0)
     valid_bid = any(bid['quantity'] >= threshold for bid in top_bids)
     valid_ask = any(ask['quantity'] >= threshold for ask in top_asks)
@@ -191,7 +191,7 @@ def fetch_option_chain(stock_symbol, expiry_date, lot_size, table):
         instrument_keys.append(fut_instrument_key)
         market_quotes = fetch_market_quotes(instrument_keys)
 
-        large_orders_futures = process_large_futures_orders(market_quotes, stock_symbol, lot_size, fut_instrument_key)
+        large_orders_futures = process_large_futures_orders(market_quotes, stock_symbol, lot_size, getFuturesInstrumentKeyMarket(stock_symbol, expiry_date))
 
         if large_orders_futures:
             store_large_futures_orders(large_orders_futures)
@@ -271,6 +271,20 @@ def fetch_option_chain(stock_symbol, expiry_date, lot_size, table):
     except Exception as e:
         print(f"❌ Unexpected error: {e}")
         return None
+        
+def getFuturesInstrumentKeyMarket(symbol, expiry_date):
+    """Convert expiry date format and generate futures instrument key."""
+    try:
+        # ✅ Convert expiry_date "2025-03-27" → "27MAR"
+        expiry_str = datetime.strptime(expiry_date, "%Y-%m-%d").strftime("%d%b").upper()
 
+        # ✅ Construct the futures instrument key
+        futures_key = f"NSE_FO:{symbol}{expiry_str}FUT"
+
+        return futures_key
+    except Exception as e:
+        print(f"⚠️ Error getting futures instrument key for {symbol}: {e}")
+        return None
+        
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000)
