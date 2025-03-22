@@ -12,3 +12,4 @@ scipy
 bokeh
 pytz
 boto3
+ratelimit
