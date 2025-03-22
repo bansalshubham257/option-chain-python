@@ -11,7 +11,7 @@ import boto3
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from utils import fetch_all_nse_stocks, analyze_stock
-from test import is_market_open, fno_stocks, fetch_option_chain, JSON_FILE, FUTURES_JSON_FILE
+from test import is_market_open, fno_stocks, fetch_option_chain, fetch_futures_orders, JSON_FILE, FUTURES_JSON_FILE
 
 app = Flask(__name__)
 
@@ -27,8 +27,9 @@ dynamodb = boto3.resource(
 table = dynamodb.Table('oi_volume_data')  # Replace with your actual table name
 
 EXPIRY_DATE = "2025-03-27"
+MARKET_CLOSE = datetime.strptime("15:30", "%H:%M").time()
 
-# 📌 5️⃣ API Routes
+# 📌 API Routes
 @app.route("/stocks", methods=["GET"])
 def get_all_stocks():
     return jsonify(fetch_all_nse_stocks())
@@ -70,7 +71,7 @@ def get_futures_orders():
         return jsonify({"error": str(e)})
 
 IST = pytz.timezone("Asia/Kolkata")
-MARKET_CLOSE = datetime.strptime("15:30", "%H:%M").time()
+
 
 def is_market_closed():
     """ Check if the market is closed """
@@ -78,59 +79,48 @@ def is_market_closed():
     return now >= MARKET_CLOSE
 
 def fetch_and_store_orders():
-    """ Fetch option chain data and store it in Redis instead of a file """
-
-    # 🔹 Get today's date
-
-    # 🔹 Check if market is open
+    """Fetch and store large orders for both options and futures."""
     if is_market_closed():
         print("Market is closed. Skipping script execution.")
-        return  # ❌ Do not update orders when market is close
+        return
 
-    # ✅ Step 1: Load existing data, handle "Market is closed" JSON
-    all_orders = []
-    if os.path.exists(JSON_FILE):
-        with open(JSON_FILE, 'r') as file:
+    # Step 1: Fetch and store large orders in parallel
+    with ThreadPoolExecutor(max_workers=5) as executor:  # Reduced thread count
+        futures_tasks = {
+            executor.submit(fetch_futures_orders, stock, EXPIRY_DATE, lot_size, table): stock
+            for stock, lot_size in fno_stocks.items()
+        }
+        options_tasks = {
+            executor.submit(fetch_option_chain, stock, EXPIRY_DATE, lot_size, table): stock
+            for stock, lot_size in fno_stocks.items()
+        }
+
+
+""""
+        # Combine all tasks
+        all_tasks = {**futures_tasks, **options_tasks}
+
+        # Process results as they complete
+        for future in as_completed(all_tasks):
+            stock = all_tasks[future]
             try:
-                data = json.load(file)
-                if isinstance(data, list):
-                    all_orders = data  # Load existing orders if format is correct
-                elif isinstance(data, dict) and "status" in data:
-                    print("ℹ️ Market was closed previously. Starting fresh.")
-                    all_orders = []  # Reset when market opens
-            except json.JSONDecodeError:
-                print("⚠️ JSON file is corrupted. Resetting data.")
-                all_orders = []  # Reset in case of corruption
-
-    # ✅ Step 2: Fetch new large orders in parallel
-    new_orders = []
-    print("🔍 Fetching new orders...")
-    with ThreadPoolExecutor(max_workers=10) as executor:
-        futures = {executor.submit(fetch_option_chain, stock, EXPIRY_DATE, lot_size, table): stock for stock, lot_size in fno_stocks.items()}
-        for future in as_completed(futures):
-            result = future.result()
-            if result:
-                new_orders.extend(result)
-
-    # ✅ Step 3: Create a dictionary for quick lookup and replacement
-    orders_dict = {(order["stock"], order["strike_price"], order["type"]): order for order in all_orders}
-    for order in new_orders:
-        key = (order["stock"], order["strike_price"], order["type"])
-        orders_dict[key] = order  # If exists, it replaces old; otherwise, it appends
-
-    # ✅ Step 5: Convert back to list and save
-    updated_orders = list(orders_dict.values())
-    with open(JSON_FILE, 'w') as file:
-        json.dump(updated_orders, file)
-
-    print(f"✅ Orders before update: {len(all_orders)}, Orders after update: {len(updated_orders)}, New/Replaced Orders: {len(updated_orders) - len(all_orders)}")
+                result = future.result()
+                if result:
+                    print(f"✅ Processed large orders for {stock}")
+            except Exception as e:
+                print(f"❌ Error processing orders for {stock}: {e}")
+                # Retry the failed task
+                print(f"🔄 Retrying task for {stock}...")
+                time.sleep(5)  # Add a delay before retrying
+                executor.submit(fetch_futures_orders if stock in futures_tasks else fetch_option_chain,
+                                stock, EXPIRY_DATE, lot_size, table)
+"""
 
 last_run_time = 0
 CACHE_DURATION = 30  # Cache data for 30 seconds
 
 @app.route('/run-script', methods=['GET'])
 def run_script():
-    #clear_old_data()  # Clear old data if market reopens
     global last_run_time
     """ Trigger script asynchronously to avoid Render timeout """
     if not is_market_open():
@@ -147,7 +137,7 @@ def run_script():
 
     thread = threading.Thread(target=fetch_and_store_orders)
     thread.start()  # Start script in background
-
+    print("✅ New Round Started....")
     return jsonify({'status': 'Script is running in the background'}), 202
 
 @app.route('/get_fno_stocks', methods=['GET'])
@@ -201,36 +191,21 @@ def get_option_data():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-MARKET_OPEN_TIME = time.strftime("%H:%M", time.strptime("09:15", "%H:%M"))
-CLEAR_DATA_START_TIME = time.strftime("%H:%M", time.strptime("08:15", "%H:%M"))
-
 def clear_old_data():
     """Delete previous day’s data when the market reopens."""
-    now = datetime.now()
-    current_time = now.strftime("%H:%M")  # ✅ Convert time to string format HH:MM
-
     # ✅ Check if we are between 8:15 - 9:15 AM
-    if CLEAR_DATA_START_TIME <= current_time <= MARKET_OPEN_TIME:
-        print("🧹 Clearing old market data...")
-
-        # ✅ Get yesterday's date
-        yesterday = (now - timedelta(days=1)).strftime("%Y-%m-%d")
-
-        try:
-            # ✅ Scan and delete all items with yesterday's date
-            scan = table.scan()
-            with table.batch_writer() as batch:
-                for item in scan.get("Items", []):
-                    if yesterday in item.get("oi_volume_key", ""):
-                        batch.delete_item(Key={"oi_volume_key": item["oi_volume_key"]})
-
-            print("✅ Old market data cleared successfully.")
-        except Exception as e:
-            print(f"❌ Error clearing old data: {e}")
-    else:
-        print("⏳ Market not open yet, skipping data clearing.")
+    try:
+        # ✅ Scan and delete all items with yesterday's date
+        scan = table.scan()
+        with table.batch_writer() as batch:
+            for item in scan.get("Items", []):
+                batch.delete_item(Key={"oi_volume_key": item["oi_volume_key"]})
+        print("✅ Old market data cleared successfully.")
+    except Exception as e:
+        print(f"❌ Error clearing old data: {e}")
 
 # Run Flask
 if __name__ == "__main__":
+    #clear_old_data()
     port = int(os.environ.get("PORT", 10000))  # Render provides PORT, default to 10000
     app.run(host="0.0.0.0", port=port)
