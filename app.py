@@ -191,6 +191,21 @@ def get_option_data():
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
+@app.route('/api/fii-dii', methods=['GET'])
+def get_fii_dii_data():
+    year_month = request.args.get('year_month')  # e.g., "2025-03"
+    if not year_month:
+        return jsonify({"error": "year_month parameter is required"}), 400
+
+    # Fetch FII/DII data from the external API
+    api_url = f"https://webapi.niftytrader.in/webapi/Resource/fii-dii-activity-data?request_type=monthly&year_month={year_month}"
+    response = requests.get(api_url)
+
+    if response.status_code == 200:
+        return jsonify(response.json())
+    else:
+        return jsonify({"error": "Failed to fetch data from the external API"}), 500
+
 def clear_old_data():
     """Delete previous day’s data when the market reopens."""
     # ✅ Check if we are between 8:15 - 9:15 AM
