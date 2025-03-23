@@ -8,6 +8,7 @@ import time
 from datetime import datetime, timedelta
 import pytz
 import boto3
+import requests
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from utils import fetch_all_nse_stocks, analyze_stock
