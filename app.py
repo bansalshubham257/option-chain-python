@@ -208,6 +208,36 @@ def get_fii_dii_data():
     else:
         return jsonify({"error": "Failed to fetch data from the external API"}), 500
 
+NSE_BASE_URL = "https://www.nseindia.com/api"
+
+# Route to fetch sector heatmap data
+@app.route('/api/heatmap', methods=['GET'])
+def get_heatmap():
+    sector = request.args.get('sector')  # Get sector from query parameters
+    if not sector:
+        return jsonify({"error": "Sector parameter is required"}), 400
+
+    try:
+        # Fetch data from NSE API
+        url = f"{NSE_BASE_URL}/heatmap-symbols?type=Sectoral%20Indices&indices={sector}"
+        response = requests.get(url)
+        response.raise_for_status()  # Raise an error for bad responses (4xx, 5xx)
+        return jsonify(response.json())
+    except requests.exceptions.RequestException as e:
+        return jsonify({"error": str(e)}), 500
+
+# Route to fetch sectoral indices heatmap data
+@app.route('/api/sectoral-indices', methods=['GET'])
+def get_sectoral_indices():
+    try:
+        # Fetch data from NSE API
+        url = f"{NSE_BASE_URL}/heatmap-index?type=Sectoral%20Indices"
+        response = requests.get(url)
+        response.raise_for_status()  # Raise an error for bad responses (4xx, 5xx)
+        return jsonify(response.json())
+    except requests.exceptions.RequestException as e:
+        return jsonify({"error": str(e)}), 500
+
 def clear_old_data():
     """Delete previous day’s data when the market reopens."""
     # ✅ Check if we are between 8:15 - 9:15 AM
