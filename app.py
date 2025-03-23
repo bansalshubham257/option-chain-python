@@ -210,6 +210,16 @@ def get_fii_dii_data():
 
 NSE_BASE_URL = "https://www.nseindia.com/api"
 
+HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+    "Accept-Language": "en-US,en;q=0.9",
+    "Accept-Encoding": "gzip, deflate, br",
+    "Connection": "keep-alive",
+    "Referer": "https://www.nseindia.com/",
+    "Accept": "*/*",
+    "X-Requested-With": "XMLHttpRequest"
+}
+
 # Route to fetch sector heatmap data
 @app.route('/api/heatmap', methods=['GET'])
 def get_heatmap():
@@ -220,7 +230,7 @@ def get_heatmap():
     try:
         # Fetch data from NSE API
         url = f"{NSE_BASE_URL}/heatmap-symbols?type=Sectoral%20Indices&indices={sector}"
-        response = requests.get(url)
+        response = requests.get(url, headers=HEADERS)
         response.raise_for_status()  # Raise an error for bad responses (4xx, 5xx)
         return jsonify(response.json())
     except requests.exceptions.RequestException as e:
@@ -232,7 +242,7 @@ def get_sectoral_indices():
     try:
         # Fetch data from NSE API
         url = f"{NSE_BASE_URL}/heatmap-index?type=Sectoral%20Indices"
-        response = requests.get(url)
+        response = requests.get(url, headers=HEADERS)
         response.raise_for_status()  # Raise an error for bad responses (4xx, 5xx)
         return jsonify(response.json())
     except requests.exceptions.RequestException as e:
