@@ -98,19 +98,18 @@ def fetch_market_quotes(instrument_keys):
 def process_large_futures_orders(market_quotes, stock_symbol, lot_size, fut_instrument_key):
     """Detect large futures orders from market_quotes data"""
     
-    expiry_date1 = "2025-03-25"
-    expiry_date2 = "2025-03-27"
-    
-    fut_instrument_key = getFuturesInstrumentKeyMarket(stock_symbol, expiry_date1)
-    
-    large_orders = []
-    
-    if fut_instrument_key not in market_quotes:
-        fut_instrument_key = getFuturesInstrumentKeyMarket(stock_symbol, expiry_date2)
-        if fut_instrument_key not in market_quotes:
-            print(f"⚠️ No data found for {stock_symbol} futures")
-            return large_orders  # ✅ No futures data found, return empty list
+    prefix = f"NSE_FO:{stock_symbol}"  # stock_symbol is dynamic
+    suffix = "MARFUT"
 
+    # Search for the correct futures instrument key dynamically
+    pattern = re.compile(rf"{prefix}\d+{suffix}")
+    fut_instrument_key = next((key for key in market_quotes if pattern.match(key)), None)
+
+    if not fut_instrument_key:
+        print(f"⚠️ No data found for {stock_symbol} futures")
+        return large_orders  # ✅ No futures data found, return empty list
+
+    # ✅ Now, `fut_instrument_key` is dynamically selected
     futures_data = market_quotes[fut_instrument_key]
     depth_data = futures_data.get('depth', {})
     top_bids = depth_data.get('buy', [])[:5]
