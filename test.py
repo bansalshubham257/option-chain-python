@@ -73,7 +73,7 @@ def getFuturesInstrumentKey(symbol):
         expiry = "FUT 27 MAR 25"
         symbol = symbol + " " + expiry
         # ✅ Filter for FUTURES contracts only
-        key = scripts[(scripts['asset_symbol'] == symbol) & (scripts['instrument_type'] == "FUT")]['instrument_key'].values
+        key = scripts[(scripts['trading_symbol'] == symbol) & (scripts['instrument_type'] == "FUT")]['instrument_key'].values
         return key[0] if len(key) > 0 else None
     except Exception as e:
         print(f"⚠️ Error getting futures instrument key for {symbol}: {e}")
