@@ -75,7 +75,7 @@ def getFuturesInstrumentKey(symbol):
 
 # Define the rate limit (e.g., 10 requests per second)
 ONE_SECOND = 1
-MAX_CALLS_PER_SECOND = 10
+MAX_CALLS_PER_SECOND = 5
 
 @sleep_and_retry
 @limits(calls=MAX_CALLS_PER_SECOND, period=ONE_SECOND)
