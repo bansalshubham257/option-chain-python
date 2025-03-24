@@ -114,7 +114,7 @@ def process_large_futures_orders(market_quotes, stock_symbol, lot_size, fut_inst
     top_bids = depth_data.get('buy', [])[:5]
     top_asks = depth_data.get('sell', [])[:5]
 
-    threshold = lot_size * 17
+    threshold = lot_size * 28
     ltp = futures_data.get('last_price', 0)
     valid_bid = any(bid['quantity'] >= threshold for bid in top_bids)
     valid_ask = any(ask['quantity'] >= threshold for ask in top_asks)
