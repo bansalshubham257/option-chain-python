@@ -70,6 +70,8 @@ def getInstrumentKey(symbol):
 def getFuturesInstrumentKey(symbol):
     """Fetch the instrument key for futures contracts"""
     try:
+        expiry = "FUT 27 MAR 25"
+        symbol = symbol + " " + expiry
         # ✅ Filter for FUTURES contracts only
         key = scripts[(scripts['asset_symbol'] == symbol) & (scripts['instrument_type'] == "FUT")]['instrument_key'].values
         return key[0] if len(key) > 0 else None
