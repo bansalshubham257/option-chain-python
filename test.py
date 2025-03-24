@@ -97,6 +97,8 @@ def fetch_market_quotes(instrument_keys):
 
 def process_large_futures_orders(market_quotes, stock_symbol, lot_size, fut_instrument_key):
     """Detect large futures orders from market_quotes data"""
+
+    large_orders = []
     
     prefix = f"NSE_FO:{stock_symbol}"  # stock_symbol is dynamic
     suffix = "MARFUT"
