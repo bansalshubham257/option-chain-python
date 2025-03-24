@@ -86,7 +86,7 @@ def fetch_and_store_orders():
         return
 
     # Step 1: Fetch and store large orders in parallel
-    with ThreadPoolExecutor(max_workers=5) as executor:  # Reduced thread count
+    with ThreadPoolExecutor(max_workers=3) as executor:  # Reduced thread count
         futures_tasks = {
             executor.submit(fetch_futures_orders, stock, EXPIRY_DATE, lot_size, table): stock
             for stock, lot_size in fno_stocks.items()
