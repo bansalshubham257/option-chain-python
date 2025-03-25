@@ -7,7 +7,6 @@ import threading
 import time
 from datetime import datetime, timedelta
 import pytz
-import boto3
 import requests
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
