@@ -11,7 +11,7 @@ import requests
 
 from utils import fetch_all_nse_stocks, analyze_stock
 
-from test import (is_market_open, fno_stocks, clear_old_data, fetch_futures_orders, fetch_option_chain,
+from test import (is_market_open, fno_stocks, clear_old_data, fetch_option_chain,
                   db_cursor)
 
 app = Flask(__name__)
