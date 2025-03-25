@@ -102,14 +102,14 @@ def fetch_and_store_orders():
     # Process each stock sequentially with delay
     for stock, lot_size in fno_stocks.items():
         try:
-            
+            print(f"✅ validating for {stock}")
             # Then process options
             options_result = fetch_option_chain(stock, EXPIRY_DATE, lot_size)
             if options_result:
                 print(f"✅ Processed options orders for {stock}")
             
             # Add delay between stocks (e.g., 2 seconds)
-            time.sleep(2)
+            #time.sleep(2)
             
         except Exception as e:
             print(f"❌ Error processing orders for {stock}: {e}")
