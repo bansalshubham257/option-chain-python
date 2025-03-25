@@ -392,12 +392,6 @@ def clear_old_data():
         WHERE timestamp < CURRENT_DATE
         """)
 
-        # Archive then clear OI data
-        cur.execute("""
-        INSERT INTO oi_volume_archive
-        SELECT * FROM oi_volume
-        WHERE timestamp < CURRENT_DATE
-        """)
         cur.execute("""
         DELETE FROM oi_volume 
         WHERE timestamp < CURRENT_DATE
