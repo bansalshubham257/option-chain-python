@@ -109,7 +109,7 @@ def fetch_and_store_orders():
     if is_market_closed():
         return
 
-    with ThreadPoolExecutor(max_workers=3) as executor:  # Increased workers
+    with ThreadPoolExecutor(max_workers=2) as executor:  # Increased workers
         # Process futures and options in parallel
         futures = []
 
