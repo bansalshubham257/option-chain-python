@@ -160,7 +160,7 @@ def get_fno_data():
 
         with db_cursor() as cur:
             cur.execute("""
-            SELECT display_time, oi, volume, price
+            SELECT display_time, oi, volume, price, symbol, strike_price, option_type
             FROM oi_volume_history
             WHERE symbol = %s AND expiry_date = %s
               AND strike_price = %s AND option_type = %s
