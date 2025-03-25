@@ -9,6 +9,11 @@ from datetime import datetime, timedelta
 import pytz
 import requests
 
+# Add these at the top of your files:
+import concurrent.futures  # For ThreadPoolExecutor
+from psycopg2.extras import execute_batch  # For batch database inserts
+from decimal import Decimal  # If not already imported
+
 from utils import fetch_all_nse_stocks, analyze_stock
 
 from test import (is_market_open, fno_stocks, clear_old_data, fetch_option_chain,
