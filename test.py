@@ -323,7 +323,7 @@ def save_options_data(symbol: str, orders: list):
             INSERT INTO options_orders 
             (symbol, strike_price, option_type, ltp, bid_qty, ask_qty, lot_size, timestamp)
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-            ON CONFLICT (symbol, strike_price, option_type, timestamp) 
+            ON CONFLICT (symbol, strike_price, option_type) 
             DO NOTHING
             """, (
                 order['stock'],
@@ -344,7 +344,7 @@ def save_futures_data(symbol: str, orders: list):
             INSERT INTO futures_orders 
             (symbol, ltp, bid_qty, ask_qty, lot_size, timestamp)
             VALUES (%s, %s, %s, %s, %s, %s)
-            ON CONFLICT (symbol, timestamp) 
+            ON CONFLICT (symbol) 
             DO NOTHING
             """, (
                 order['stock'],
