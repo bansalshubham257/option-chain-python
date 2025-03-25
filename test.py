@@ -15,6 +15,8 @@ from decimal import Decimal
 from file_utils import atomic_json_read, atomic_json_write
 import time
 import random
+from decimal import Decimal
+import json
 
 from config import ACCESS_TOKEN  # Store securely
 
@@ -336,15 +338,32 @@ def fetch_option_chain(stock_symbol, expiry_date, lot_size):
         print(f"❌ Error processing options orders for {stock_symbol}: {e}")
         return None
 
+class DecimalEncoder(json.JSONEncoder):
+    def default(self, obj):
+        if isinstance(obj, Decimal):
+            return float(str(obj))  # Convert Decimal to float
+        return super().default(obj)
 
 def save_oi_volume_data(data_key, data):
-    """Save OI volume data to JSON file"""
+    """Save OI volume data to JSON file with Decimal support"""
     try:
-        existing_data = atomic_json_read(OI_VOLUME_JSON_FILE) or {}
-        existing_data[data_key] = data
-        atomic_json_write(OI_VOLUME_JSON_FILE, existing_data)
+        # Load existing data
+        existing_data = {}
+        if os.path.exists(OI_VOLUME_JSON_FILE):
+            with open(OI_VOLUME_JSON_FILE, 'r') as f:
+                existing_data = json.load(f)
+
+        # Update with new data (converting Decimals)
+        existing_data[data_key] = json.loads(
+            json.dumps(data, cls=DecimalEncoder)
+        )
+
+        # Save back to file
+        with open(OI_VOLUME_JSON_FILE, 'w') as f:
+            json.dump(existing_data, f, indent=4, cls=DecimalEncoder)
+
     except Exception as e:
-        print(f"Error saving OI data: {e}")
+        print(f"Error saving OI volume data: {e}")
 
 def load_oi_volume_data(data_key):
     """Load specific OI volume data from JSON file"""
