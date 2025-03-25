@@ -160,7 +160,7 @@ def get_fno_data():
 
         with db_cursor() as cur:
             cur.execute("""
-            SELECT display_time, oi, volume, price, symbol, strike_price, option_type
+            SELECT display_time, oi, volume, price, strike_price, option_type
             FROM oi_volume_history
             WHERE symbol = %s AND expiry_date = %s
               AND strike_price = %s AND option_type = %s
@@ -172,6 +172,8 @@ def get_fno_data():
                 'oi': float(r[1]) if r[1] else 0,
                 'volume': float(r[2]) if r[2] else 0,
                 'price': float(r[3]) if r[3] else 0
+                'strike': str(r[4]),  # Ensure strike price is returned
+                'optionType': r[5]  # Ensure option type (CE/PE) is included
             } for r in cur.fetchall()]
 
             return jsonify({"data": data})
