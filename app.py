@@ -12,18 +12,26 @@ import requests
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from utils import fetch_all_nse_stocks, analyze_stock
-from file_utils import atomic_json_read
-from test import (is_market_open, fno_stocks, clear_old_data_files, fetch_option_chain,
-                  fetch_futures_orders, JSON_FILE, FUTURES_JSON_FILE, OI_VOLUME_JSON_FILE)
+
+from test import (is_market_open, fno_stocks, clear_old_data, fetch_futures_orders, fetch_option_chain,
+                  db_cursor)
 
 app = Flask(__name__)
 
 CORS(app, resources={r"/*": {"origins": ["https://swingtradingwithme.blogspot.com"]}})
 ssl._create_default_https_context = ssl._create_unverified_context
 
+dynamodb = boto3.resource(
+    'dynamodb',
+    region_name=os.getenv('AWS_REGION'),
+    aws_access_key_id=os.getenv('AWS_ACCESS_KEY_ID'),
+    aws_secret_access_key=os.getenv('AWS_SECRET_ACCESS_KEY')
+)  # Change to your region
+table = dynamodb.Table('oi_volume_data')  # Replace with your actual table name
+
 EXPIRY_DATE = "2025-03-27"
 MARKET_OPEN = datetime.strptime("09:10", "%H:%M").time()
-MARKET_CLOSE = datetime.strptime("16:30", "%H:%M").time()
+MARKET_CLOSE = datetime.strptime("15:30", "%H:%M").time()
 
 # 📌 API Routes
 @app.route("/stocks", methods=["GET"])
@@ -42,23 +50,50 @@ def get_orders():
     if not is_market_open():
         return jsonify({'status': 'Market is closed'})
     try:
-        data = atomic_json_read(JSON_FILE)
-        return jsonify(data if data else [])
+        with db_cursor() as cur:
+            cur.execute("""
+            SELECT symbol, strike_price, option_type, ltp, bid_qty, ask_qty, lot_size, timestamp
+            FROM options_orders
+            WHERE timestamp >= CURRENT_DATE
+            ORDER BY timestamp DESC
+            """)
+            results = cur.fetchall()
+            orders = [{
+                'stock': r[0],
+                'strike_price': r[1],
+                'type': r[2],
+                'ltp': r[3],
+                'bid_qty': r[4],
+                'ask_qty': r[5],
+                'lot_size': r[6],
+                'timestamp': r[7].isoformat()
+            } for r in results]
+            return jsonify(orders)
     except Exception as e:
         return jsonify({"error": str(e)})
 
 @app.route('/get-futures-orders', methods=['GET'])
 def get_futures_orders():
-    """API to fetch large futures orders"""
     if not is_market_open():
         return jsonify({'status': 'Market is closed'})
     try:
-        if os.path.exists(FUTURES_JSON_FILE):
-            with open(FUTURES_JSON_FILE, 'r') as file:
-                data = json.load(file)
-                return jsonify(data)  # ✅ Return futures large orders
-        else:
-            return jsonify([])  # ✅ Return empty list if file doesn't exist
+        with db_cursor() as cur:
+            cur.execute("""
+            SELECT symbol, ltp, bid_qty, ask_qty, lot_size, timestamp
+            FROM futures_orders
+            WHERE timestamp >= CURRENT_DATE
+            ORDER BY timestamp DESC
+            """)
+            results = cur.fetchall()
+            orders = [{
+                'stock': r[0],
+                'ltp': r[1],
+                'bid_qty': r[2],
+                'ask_qty': r[3],
+                'lot_size': r[4],
+                'timestamp': r[5].isoformat()
+            } for r in results]
+            return jsonify(orders)
     except Exception as e:
         return jsonify({"error": str(e)})
 
@@ -74,7 +109,7 @@ def fetch_and_store_orders():
     if is_market_closed():
         return
 
-    with ThreadPoolExecutor(max_workers=1) as executor:  # Increased workers
+    with ThreadPoolExecutor(max_workers=3) as executor:  # Increased workers
         # Process futures and options in parallel
         futures = []
 
@@ -111,7 +146,7 @@ def run_script():
                 (last_clear_date is None or last_clear_date != now.date())):
 
             try:
-                clear_old_data_files()
+                clear_old_data()
                 last_clear_date = now.date()
                 print("🔄 Cleared all previous day's data")
             except Exception as e:
@@ -141,12 +176,26 @@ def get_fno_data():
         strike = request.args.get('strike')
         option_type = request.args.get('option_type')
 
-        key = f"oi_volume_data:{stock}:{expiry}:{strike}:{option_type}"
-        data = atomic_json_read(OI_VOLUME_JSON_FILE) or {}
-        return jsonify({"data": data.get(key, [])})
+        with db_cursor() as cur:
+            cur.execute("""
+            SELECT display_time, oi, volume, price
+            FROM oi_volume_history
+            WHERE symbol = %s AND expiry_date = %s
+              AND strike_price = %s AND option_type = %s
+            ORDER BY display_time
+            """, (stock, expiry, strike, option_type))
+
+            data = [{
+                'time': r[0],
+                'oi': float(r[1]) if r[1] else 0,
+                'volume': float(r[2]) if r[2] else 0,
+                'price': float(r[3]) if r[3] else 0
+            } for r in cur.fetchall()]
+
+            return jsonify({"data": data})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
-
+    
 @app.route('/get_option_data', methods=['GET'])
 def get_option_data():
     stock = request.args.get('stock')
@@ -154,22 +203,55 @@ def get_option_data():
         return jsonify({"error": "Stock symbol is required"}), 400
 
     try:
-        # Use atomic read
-        all_data = atomic_json_read(OI_VOLUME_JSON_FILE)
-        if not all_data:
-            return jsonify({"error": "Option data not available yet"}), 404
-        
-        # Rest of the function remains the same...
-        option_data = {
-            key: data for key, data in all_data.items() 
-            if key.startswith(f"oi_volume_data:{stock}:")
-        }
-        
-        if not option_data:
-            return jsonify({"error": "Option data not found for this stock"}), 404
+        with db_cursor() as cur:
+            # Get all unique expiries for the stock
+            cur.execute("""
+            SELECT DISTINCT expiry_date 
+            FROM oi_volume_history
+            WHERE symbol = %s
+            ORDER BY expiry_date
+            """, (stock,))
+            expiries = [r[0].strftime('%Y-%m-%d') for r in cur.fetchall()]
 
-        return jsonify({"data": option_data})
-    
+            # Get all strike prices for the stock
+            cur.execute("""
+            SELECT DISTINCT strike_price
+            FROM oi_volume_history
+            WHERE symbol = %s
+            ORDER BY strike_price
+            """, (stock,))
+            strikes = [float(r[0]) for r in cur.fetchall()]
+
+            # Get all option chains data
+            cur.execute("""
+            SELECT 
+                expiry_date,
+                strike_price,
+                option_type,
+                json_agg(
+                    json_build_object(
+                        'time', display_time,
+                        'oi', oi,
+                        'volume', volume,
+                        'price', price
+                    )
+                ) as history
+            FROM oi_volume_history
+            WHERE symbol = %s
+            GROUP BY expiry_date, strike_price, option_type
+            """, (stock,))
+
+            option_data = {}
+            for expiry_date, strike_price, option_type, history in cur.fetchall():
+                key = f"oi_volume_data:{stock}:{expiry_date}:{strike_price}:{option_type}"
+                option_data[key] = history
+
+            return jsonify({
+                "expiries": expiries,
+                "strikes": strikes,
+                "data": option_data
+            })
+
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
