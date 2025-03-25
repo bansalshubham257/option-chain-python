@@ -80,13 +80,13 @@ def fetch_and_store_orders():
 
         # Submit futures tasks
         futures.extend(
-            executor.submit(fetch_futures_orders, stock, EXPIRY_DATE, lot_size, None)
+            executor.submit(fetch_futures_orders, stock, EXPIRY_DATE, lot_size)
             for stock, lot_size in fno_stocks.items()
         )
 
         # Submit options tasks
         futures.extend(
-            executor.submit(fetch_option_chain, stock, EXPIRY_DATE, lot_size, None)
+            executor.submit(fetch_option_chain, stock, EXPIRY_DATE, lot_size)
             for stock, lot_size in fno_stocks.items()
         )
 
