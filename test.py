@@ -100,7 +100,6 @@ def fetch_market_quotes(instrument_keys):
         if response.status_code == 200:
             data = response.json()
             return data.get('data', {})
-        time.sleep(1)
         print(f"⚠️ API error {response.status_code}: {response.text}")
         return {}
 
@@ -224,7 +223,6 @@ def fetch_option_chain(stock_symbol, expiry_date, lot_size):
         data = response.json().get('data', [])
         if not data:
             return None
-        time.sleep(1)
         # Process the option chain data
         spot_price = data[0].get('underlying_spot_price', 0)
         strikes = sorted(set(option['strike_price'] for option in data))
