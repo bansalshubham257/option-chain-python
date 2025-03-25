@@ -382,7 +382,7 @@ def save_futures_data(symbol: str, orders: list):
         """, data, page_size=100)
 
 def save_oi_volume_batch(records: list):
-    """Save OI volume data with conflict handling"""
+    """Save OI volume data without conflict handling (allows multiple entries)"""
     if not records:
         return
         
@@ -392,12 +392,6 @@ def save_oi_volume_batch(records: list):
                 symbol, expiry_date, strike_price, option_type,
                 oi, volume, price, display_time
             ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-            ON CONFLICT (symbol, expiry_date, strike_price, option_type) 
-            DO UPDATE SET
-                oi = EXCLUDED.oi,
-                volume = EXCLUDED.volume,
-                price = EXCLUDED.price,
-                display_time = EXCLUDED.display_time
         """, [
             (r['symbol'], r['expiry'], r['strike'], r['option_type'],
              r['oi'], r['volume'], r['price'], r['timestamp']) 
