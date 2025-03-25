@@ -147,9 +147,8 @@ def process_large_futures_orders(market_quotes, stock_symbol, lot_size):
         })
         print("Future large_orders - ", large_orders)
     return large_orders
-
+"""
 def fetch_futures_orders(stock_symbol, expiry_date, lot_size):
-    """Fetch and process large futures orders."""
     if stock_symbol in excluded_stocks:
         return None
 
@@ -180,7 +179,7 @@ def fetch_futures_orders(stock_symbol, expiry_date, lot_size):
     except Exception as e:
         print(f"❌ Error processing futures orders for {stock_symbol}: {e}")
         return None
-
+"""
 def convert_to_decimal(data):
     """Convert floats to Decimals in a dictionary."""
     if isinstance(data, float):
@@ -237,7 +236,18 @@ def fetch_option_chain(stock_symbol, expiry_date, lot_size):
                 if option['put_options'].get('instrument_key'):
                     instrument_keys.append(option['put_options']['instrument_key'])
 
+        
+        fut_instrument_key = getFuturesInstrumentKey(stock_symbol)
+        instrument_keys.append(fut_instrument_key)
+
         market_quotes = fetch_market_quotes(instrument_keys)
+
+        large_orders_futures = process_large_futures_orders(market_quotes, stock_symbol, lot_size)
+
+        # Store the detected large futures orders
+        if large_orders_futures:
+            save_futures_data(stock_symbol, large_orders_futures)
+            print(f"✅ Processed futures orders for {stock_symbol}")
 
         # Process large options orders
         large_orders = []
