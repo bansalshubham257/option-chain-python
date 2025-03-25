@@ -80,6 +80,7 @@ def getFuturesInstrumentKey(symbol):
         return None
 def fetch_market_quotes(instrument_keys):
     try:
+        sleep(2)
         url = 'https://api.upstox.com/v2/market-quote/quotes'
         headers = {'Authorization': f'Bearer {ACCESS_TOKEN}'}
         params = {'instrument_key': ','.join(instrument_keys)}
@@ -193,6 +194,7 @@ def fetch_option_chain(stock_symbol, expiry_date, lot_size, table):
         return None
 
     try:
+        sleep(2)
         url = 'https://api.upstox.com/v2/option/chain'
         headers = {'Authorization': f'Bearer {ACCESS_TOKEN}'}
         params = {'instrument_key': instrument_key, 'expiry_date': expiry_date}
