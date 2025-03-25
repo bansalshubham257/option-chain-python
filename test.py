@@ -188,8 +188,6 @@ def fetch_futures_orders(stock_symbol, expiry_date, lot_size):
         print(f"❌ Error processing futures orders for {stock_symbol}: {e}")
         return None
 
-serializer = TypeSerializer()
-
 def convert_to_decimal(data):
     """Convert floats to Decimals in a dictionary."""
     if isinstance(data, float):
