@@ -382,25 +382,29 @@ def save_futures_data(symbol: str, orders: list):
         """, data, page_size=100)
 
 def save_oi_volume_batch(records: list):
-    """BULK INSERT OI data (critical for performance)"""
+    """Save OI volume data with conflict handling"""
     if not records:
         return
         
     with db_cursor() as cur:
-        data = [(r['symbol'], r['expiry'], r['strike'], r['option_type'],
-                r['oi'], r['volume'], r['price'], r['timestamp']) for r in records]
-        
+        # Batch insert all records
         execute_batch(cur, """
-                INSERT INTO oi_volume_history (
-                    symbol, expiry_date, strike_price, option_type,
-                    oi, volume, price, display_time
-                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-                ON CONFLICT (symbol, expiry_date, strike_price, option_type, display_time) 
-                DO UPDATE SET
-                    oi = EXCLUDED.oi,
-                    volume = EXCLUDED.volume,
-                    price = EXCLUDED.price
-            """, data, page_size=100)
+            INSERT INTO oi_volume_history (
+                symbol, expiry_date, strike_price, option_type,
+                oi, volume, price, display_time
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+            ON CONFLICT (symbol, expiry_date, strike_price, option_type, display_time) 
+            DO UPDATE SET
+                oi = EXCLUDED.oi,
+                volume = EXCLUDED.volume,
+                price = EXCLUDED.price
+        """, [
+            (r['symbol'], r['expiry'], r['strike'], r['option_type'],
+             r['oi'], r['volume'], r['price'], r['timestamp']) 
+            for r in records
+        ], page_size=100)
+        
+        print(f"📊 Saved {len(records)} OI records")
 
 def clear_old_data():
     """Delete previous day's data at market open"""
