@@ -31,7 +31,7 @@ table = dynamodb.Table('oi_volume_data')  # Replace with your actual table name
 
 EXPIRY_DATE = "2025-03-27"
 MARKET_OPEN = datetime.strptime("09:10", "%H:%M").time()
-MARKET_CLOSE = datetime.strptime("15:30", "%H:%M").time()
+MARKET_CLOSE = datetime.strptime("16:30", "%H:%M").time()
 
 # 📌 API Routes
 @app.route("/stocks", methods=["GET"])
