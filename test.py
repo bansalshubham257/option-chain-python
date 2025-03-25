@@ -21,8 +21,8 @@ CORS(app, resources={r"/*": {"origins": ["https://swingtradingwithme.blogspot.co
 ssl._create_default_https_context = ssl._create_unverified_context
 
 # JSON file to store detected orders
-JSON_FILE = "/tmp/large_orders.json"
-FUTURES_JSON_FILE = "/tmp/futures_large_orders.json"
+JSON_FILE = "/persistent/data/large_orders.json"
+FUTURES_JSON_FILE = "/persistent/data/futures_large_orders.json"
 
 #REDIS_HOST = os.getenv("REDIS_HOST")
 #REDIS_PORT = os.getenv("REDIS_PORT")
@@ -80,7 +80,6 @@ def getFuturesInstrumentKey(symbol):
         return None
 def fetch_market_quotes(instrument_keys):
     try:
-        time.sleep(2)
         url = 'https://api.upstox.com/v2/market-quote/quotes'
         headers = {'Authorization': f'Bearer {ACCESS_TOKEN}'}
         params = {'instrument_key': ','.join(instrument_keys)}
@@ -194,7 +193,6 @@ def fetch_option_chain(stock_symbol, expiry_date, lot_size, table):
         return None
 
     try:
-        time.sleep(2)
         url = 'https://api.upstox.com/v2/option/chain'
         headers = {'Authorization': f'Bearer {ACCESS_TOKEN}'}
         params = {'instrument_key': instrument_key, 'expiry_date': expiry_date}
