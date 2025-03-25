@@ -72,7 +72,7 @@ fno_stocks = {re.split(r'\d', row['tradingsymbol'], 1)[0]: int(row['lot_size'])
 
 IST = pytz.timezone("Asia/Kolkata")
 MARKET_OPEN = datetime.strptime("09:15", "%H:%M").time()
-MARKET_CLOSE = datetime.strptime("23:30", "%H:%M").time()
+MARKET_CLOSE = datetime.strptime("23:55", "%H:%M").time()
 
 def is_market_open():
     now = datetime.now(IST)
@@ -269,6 +269,7 @@ def fetch_option_chain(stock_symbol, expiry_date, lot_size):
         futures_orders = process_large_futures_orders(market_quotes, stock_symbol, lot_size)
         if futures_orders:
             result['futures_orders'] = futures_orders
+            print("futures_orders = ", futures_orders)
 
         # Process options and OI data
         for key, quote_data in market_quotes.items():
@@ -314,6 +315,7 @@ def fetch_option_chain(stock_symbol, expiry_date, lot_size):
                     'lot_size': lot_size,
                     'timestamp': formatted_time
                 })
+                print("options_orders recorded")
 
             # Prepare OI volume data (for batch insert)
             result['oi_records'].append({
