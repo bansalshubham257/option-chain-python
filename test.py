@@ -387,17 +387,17 @@ def save_oi_volume_batch(records: list):
         return
         
     with db_cursor() as cur:
-        # Batch insert all records
         execute_batch(cur, """
             INSERT INTO oi_volume_history (
                 symbol, expiry_date, strike_price, option_type,
                 oi, volume, price, display_time
             ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-            ON CONFLICT (symbol, expiry_date, strike_price, option_type, display_time) 
+            ON CONFLICT (symbol, expiry_date, strike_price, option_type) 
             DO UPDATE SET
                 oi = EXCLUDED.oi,
                 volume = EXCLUDED.volume,
-                price = EXCLUDED.price
+                price = EXCLUDED.price,
+                display_time = EXCLUDED.display_time
         """, [
             (r['symbol'], r['expiry'], r['strike'], r['option_type'],
              r['oi'], r['volume'], r['price'], r['timestamp']) 
