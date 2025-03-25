@@ -21,14 +21,6 @@ app = Flask(__name__)
 CORS(app, resources={r"/*": {"origins": ["https://swingtradingwithme.blogspot.com"]}})
 ssl._create_default_https_context = ssl._create_unverified_context
 
-dynamodb = boto3.resource(
-    'dynamodb',
-    region_name=os.getenv('AWS_REGION'),
-    aws_access_key_id=os.getenv('AWS_ACCESS_KEY_ID'),
-    aws_secret_access_key=os.getenv('AWS_SECRET_ACCESS_KEY')
-)  # Change to your region
-table = dynamodb.Table('oi_volume_data')  # Replace with your actual table name
-
 EXPIRY_DATE = "2025-03-27"
 MARKET_OPEN = datetime.strptime("09:10", "%H:%M").time()
 MARKET_CLOSE = datetime.strptime("15:30", "%H:%M").time()
@@ -162,19 +154,22 @@ def get_option_data():
         return jsonify({"error": "Stock symbol is required"}), 400
 
     try:
-        # Fetch stored strike prices and expiries from Redis
-        response = table.scan(
-            FilterExpression="begins_with(oi_volume_key, :stock)",
-            ExpressionAttributeValues={":stock": f"oi_volume_data:{stock}:"}
-        )
-
-        if "Items" not in response or not response["Items"]:
+        # Use atomic read
+        all_data = atomic_json_read(OI_VOLUME_JSON_FILE)
+        if not all_data:
+            return jsonify({"error": "Option data not available yet"}), 404
+        
+        # Rest of the function remains the same...
+        option_data = {
+            key: data for key, data in all_data.items() 
+            if key.startswith(f"oi_volume_data:{stock}:")
+        }
+        
+        if not option_data:
             return jsonify({"error": "Option data not found for this stock"}), 404
 
-        # Format response properly
-        option_data = {item["oi_volume_key"]: item["data"] for item in response["Items"]}
-
         return jsonify({"data": option_data})
+    
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
