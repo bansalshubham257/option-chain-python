@@ -96,25 +96,70 @@ def is_market_closed():
     return now >= MARKET_CLOSE
 
 def fetch_and_store_orders():
+    """Optimized version with parallel DB writes and API rate control"""
     if is_market_closed():
+        print("⏸️ Market is closed")
         return
 
-    # Process each stock sequentially with delay
+    total_start = time.time()
+    processed_stocks = 0
+    db_time_total = 0
+    api_time_total = 0
+
+    # Rate limiting control (200 requests/minute max)
+    MIN_REQUEST_INTERVAL = 0.3  # 60/200 = 0.3s between requests
+    last_api_call = 0
+
     for stock, lot_size in fno_stocks.items():
         try:
-            print(f"✅ validating for {stock}")
-            # Then process options
-            options_result = fetch_option_chain(stock, EXPIRY_DATE, lot_size)
-            if options_result:
-                print(f"✅ Processed options orders for {stock}")
-            
-            # Add delay between stocks (e.g., 2 seconds)
-            #time.sleep(2)
-            
+            # Rate limiting
+            elapsed = time.time() - last_api_call
+            if elapsed < MIN_REQUEST_INTERVAL:
+                time.sleep(MIN_REQUEST_INTERVAL - elapsed)
+
+            print(f"\n🔍 Processing {stock}...")
+            api_start = time.time()
+            last_api_call = time.time()  # Update immediately after sleep
+
+            # Get data (single-threaded for API safety)
+            result = fetch_option_chain(stock, EXPIRY_DATE, lot_size)
+            api_time = time.time() - api_start
+            api_time_total += api_time
+
+            if not result:
+                continue
+
+            # Parallel database writes
+            db_start = time.time()
+            with concurrent.futures.ThreadPoolExecutor(max_workers=3) as executor:
+                # Submit all DB operations in parallel
+                futures = [
+                    executor.submit(save_options_data, stock, result['options_orders']),
+                    executor.submit(save_futures_data, stock, result['futures_orders']),
+                    executor.submit(save_oi_volume_batch, result['oi_records'])
+                ]
+                concurrent.futures.wait(futures)
+                
+                # Check for exceptions
+                for future in futures:
+                    if future.exception():
+                        raise future.exception()
+
+            db_time = time.time() - db_start
+            db_time_total += db_time
+            processed_stocks += 1
+
+            print(f"✅ Saved {stock} | API: {api_time:.1f}s | DB: {db_time:.1f}s")
+
         except Exception as e:
-            print(f"❌ Error processing orders for {stock}: {e}")
-            # Continue with next stock even if one fails
+            print(f"❌ Failed {stock}: {type(e).__name__} - {str(e)}")
             continue
+
+    # Performance summary
+    total_time = time.time() - total_start
+    print(f"\n🏁 Completed {processed_stocks}/{len(fno_stocks)} stocks")
+    print(f"⏱️  Total: {total_time:.1f}s | API: {api_time_total:.1f}s ({api_time_total/processed_stocks:.1f}s/stock) | DB: {db_time_total:.1f}s ({db_time_total/processed_stocks:.1f}s/stock)")
+    print(f"🚀 DB speedup: {(db_time_total/processed_stocks):.1f}s/stock (vs ~4s before)")
 
 def run_script():
     last_clear_date = None
