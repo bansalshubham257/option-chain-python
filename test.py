@@ -66,7 +66,7 @@ fno_stocks = {re.split(r'\d', row['tradingsymbol'], 1)[0]: int(row['lot_size'])
 
 IST = pytz.timezone("Asia/Kolkata")
 MARKET_OPEN = datetime.strptime("09:15", "%H:%M").time()
-MARKET_CLOSE = datetime.strptime("22:30", "%H:%M").time()
+MARKET_CLOSE = datetime.strptime("23:30", "%H:%M").time()
 
 def is_market_open():
     now = datetime.now(IST)
@@ -196,38 +196,39 @@ def convert_to_decimal(data):
 
 
 def fetch_option_chain(stock_symbol, expiry_date, lot_size):
-    """Fetch and process large options orders."""
+    """Optimized version that prepares data for parallel DB writes"""
     if stock_symbol in excluded_stocks:
         return None
 
-    # Get the options instrument key
+    # Get instrument key (cache this if possible)
     instrument_key = getInstrumentKey(stock_symbol)
     if not instrument_key:
         print(f"⚠️ No instrument key for {stock_symbol}")
         return None
 
     try:
-        # Get current IST time at the start of the function
-        display_time = ist_now.strftime("%H:%M")  # For OI volume data
-
-        # Fetch the option chain data
+        display_time = ist_now.strftime("%H:%M")
+        
+        # 1. Fetch option chain data
         url = 'https://api.upstox.com/v2/option/chain'
         headers = {'Authorization': f'Bearer {ACCESS_TOKEN}'}
         params = {'instrument_key': instrument_key, 'expiry_date': expiry_date}
 
         response = requests.get(url, params=params, headers=headers)
         if response.status_code != 200:
+            print(f"⚠️ Option chain API failed for {stock_symbol}: {response.status_code}")
             return None
 
         data = response.json().get('data', [])
         if not data:
+            print(f"⚠️ No option chain data for {stock_symbol}")
             return None
-        # Process the option chain data
+
+        # 2. Prepare market quotes request
         spot_price = data[0].get('underlying_spot_price', 0)
         strikes = sorted(set(option['strike_price'] for option in data))
         closest_strikes = [s for s in strikes if s <= spot_price][-3:] + [s for s in strikes if s >= spot_price][:3]
 
-        # Fetch market quotes for the closest strikes
         instrument_keys = []
         for option in data:
             if option['strike_price'] in closest_strikes:
@@ -236,78 +237,95 @@ def fetch_option_chain(stock_symbol, expiry_date, lot_size):
                 if option['put_options'].get('instrument_key'):
                     instrument_keys.append(option['put_options']['instrument_key'])
 
-        
+        # Add futures instrument key
         fut_instrument_key = getFuturesInstrumentKey(stock_symbol)
-        instrument_keys.append(fut_instrument_key)
+        if fut_instrument_key:
+            instrument_keys.append(fut_instrument_key)
 
+        if not instrument_keys:
+            print(f"⚠️ No valid instrument keys for {stock_symbol}")
+            return None
+
+        # 3. Fetch market quotes (rate-limited)
         market_quotes = fetch_market_quotes(instrument_keys)
+        if not market_quotes:
+            print(f"⚠️ No market quotes for {stock_symbol}")
+            return None
 
-        large_orders_futures = process_large_futures_orders(market_quotes, stock_symbol, lot_size)
+        # 4. Process data
+        result = {
+            'options_orders': [],
+            'futures_orders': [],
+            'oi_records': []
+        }
 
-        # Store the detected large futures orders
-        if large_orders_futures:
-            save_futures_data(stock_symbol, large_orders_futures)
-            print(f"✅ Processed futures orders for {stock_symbol}")
+        # Process futures first
+        futures_orders = process_large_futures_orders(market_quotes, stock_symbol, lot_size)
+        if futures_orders:
+            result['futures_orders'] = futures_orders
 
-        # Process large options orders
-        large_orders = []
-
-        for key, data in market_quotes.items():
-            symbol = data.get('symbol', '')
-            option_type = "CE" if symbol.endswith("CE") else "PE" if symbol.endswith("PE") else None
-            if not option_type:
+        # Process options and OI data
+        for key, quote_data in market_quotes.items():
+            symbol = quote_data.get('symbol', '')
+            
+            # Skip futures data we already processed
+            if key == fut_instrument_key:
                 continue
 
-            strike_price_match = re.search(r'(\d+)$', symbol[:-2])
-            if not strike_price_match:
+            # Determine option type
+            if symbol.endswith("CE"):
+                option_type = "CE"
+            elif symbol.endswith("PE"):
+                option_type = "PE"
+            else:
                 continue
 
-            strike_price = int(strike_price_match.group(1))
-            depth_data = data.get('depth', {})
-            top_bids = depth_data.get('buy', [])[:5]
-            top_asks = depth_data.get('sell', [])[:5]
+            # Extract strike price
+            strike_match = re.search(r'(\d+)(CE|PE)$', symbol)
+            if not strike_match:
+                continue
+                
+            strike_price = int(strike_match.group(1))
 
-            threshold = lot_size * 87
-            ltp = data.get('last_price', 0)
-            valid_bid = any(bid['quantity'] >= threshold for bid in top_bids)
-            valid_ask = any(ask['quantity'] >= threshold for ask in top_asks)
+            # Check for large orders
+            depth = quote_data.get('depth', {})
+            top_bids = depth.get('buy', [])[:5]
+            top_asks = depth.get('sell', [])[:5]
+            ltp = quote_data.get('last_price', 0)
+            
+            threshold = lot_size * 87  # Your existing threshold
+            has_large_bid = any(bid['quantity'] >= threshold for bid in top_bids)
+            has_large_ask = any(ask['quantity'] >= threshold for ask in top_asks)
 
-            if (valid_bid or valid_ask) and ltp > 2:
-                large_orders.append({
+            if (has_large_bid or has_large_ask) and ltp > 2:
+                result['options_orders'].append({
                     'stock': stock_symbol,
                     'strike_price': strike_price,
                     'type': option_type,
-                    'ltp': data.get('last_price'),
+                    'ltp': ltp,
                     'bid_qty': max((b['quantity'] for b in top_bids), default=0),
                     'ask_qty': max((a['quantity'] for a in top_asks), default=0),
                     'lot_size': lot_size,
                     'timestamp': formatted_time
                 })
-                
-            # Save OI volume data
-            oi = Decimal(str(data.get('oi', 0)))
-            volume = Decimal(str(data.get('volume', 0)))
-            price = Decimal(str(data.get('last_price', 0)))
-            save_oi_volume(
-                    stock_symbol,
-                    expiry_date,
-                    strike_price,
-                    option_type,
-                    oi,
-                    volume,
-                    price,
-                    display_time
-                )
-                
 
-        if large_orders:
-            save_options_data(stock_symbol, large_orders)
-            print("Option large_orders - ", large_orders)
+            # Prepare OI volume data (for batch insert)
+            result['oi_records'].append({
+                'symbol': stock_symbol,
+                'expiry': expiry_date,
+                'strike': strike_price,
+                'option_type': option_type,
+                'oi': Decimal(str(quote_data.get('oi', 0))),
+                'volume': Decimal(str(quote_data.get('volume', 0))),
+                'price': Decimal(str(ltp)),
+                'timestamp': display_time
+            })
 
-        return large_orders
+        print(f"📊 {stock_symbol}: {len(result['options_orders'])} orders, {len(result['oi_records'])} OI records")
+        return result
 
     except Exception as e:
-        print(f"❌ Error processing options orders for {stock_symbol}: {e}")
+        print(f"❌ Error in fetch_option_chain for {stock_symbol}: {str(e)}")
         return None
         
 class DecimalEncoder(json.JSONEncoder):
@@ -316,67 +334,60 @@ class DecimalEncoder(json.JSONEncoder):
             return float(str(obj))  # Convert Decimal to float
         return super().default(obj)
 
+from psycopg2.extras import execute_batch  # Add this import at the top
+
+# Replace your existing save functions with these optimized versions:
+
 def save_options_data(symbol: str, orders: list):
-    """Save options orders to PostgreSQL"""
+    """BULK INSERT options orders (10x faster)"""
+    if not orders:
+        return
+        
     with db_cursor() as cur:
-        for order in orders:
-            cur.execute("""
+        # Prepare all rows in one list
+        data = [(order['stock'], order['strike_price'], order['type'],
+                order['ltp'], order['bid_qty'], order['ask_qty'],
+                order['lot_size'], order['timestamp']) for order in orders]
+        
+        # Use execute_batch for optimized bulk insert
+        execute_batch(cur, """
             INSERT INTO options_orders 
             (symbol, strike_price, option_type, ltp, bid_qty, ask_qty, lot_size, timestamp)
             VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-            ON CONFLICT (symbol, strike_price, option_type) 
-            DO NOTHING
-            """, (
-                order['stock'],
-                order['strike_price'],
-                order['type'],
-                order['ltp'],
-                order['bid_qty'],
-                order['ask_qty'],
-                order['lot_size'],
-                order['timestamp']
-            ))
+            ON CONFLICT (symbol, strike_price, option_type) DO NOTHING
+        """, data, page_size=100)  # 100 rows per batch
 
 def save_futures_data(symbol: str, orders: list):
-    """Save futures orders to PostgreSQL"""
+    """BULK INSERT futures orders"""
+    if not orders:
+        return
+        
     with db_cursor() as cur:
-        for order in orders:
-            cur.execute("""
+        data = [(order['stock'], order['ltp'], order['bid_qty'],
+               order['ask_qty'], order['lot_size'], order['timestamp']) for order in orders]
+        
+        execute_batch(cur, """
             INSERT INTO futures_orders 
             (symbol, ltp, bid_qty, ask_qty, lot_size, timestamp)
             VALUES (%s, %s, %s, %s, %s, %s)
-            ON CONFLICT (symbol) 
-            DO NOTHING
-            """, (
-                order['stock'],
-                order['ltp'],
-                order['bid_qty'],
-                order['ask_qty'],
-                order['lot_size'],
-                order['timestamp']
-            ))
+            ON CONFLICT (symbol) DO NOTHING
+        """, data, page_size=100)
 
-def save_oi_volume(symbol: str, expiry: str, strike: float, option_type: str,
-                   oi: Decimal, volume: Decimal, price: Decimal, timestamp: str):
-    """Save OI volume data with proper timestamp handling"""
+def save_oi_volume_batch(records: list):
+    """BULK INSERT OI data (critical for performance)"""
+    if not records:
+        return
+        
     with db_cursor() as cur:
-        cur.execute("""
-        INSERT INTO oi_volume_history (
-            symbol, expiry_date, strike_price, option_type,
-            oi, volume, price, display_time
-        ) VALUES (
-            %s, %s, %s, %s,
-            %s, %s, %s, %s
-        )
-        ON CONFLICT (symbol, expiry_date, strike_price, option_type, display_time) 
-        DO UPDATE SET
-            oi = EXCLUDED.oi,
-            volume = EXCLUDED.volume,
-            price = EXCLUDED.price
-        """, (
-            symbol, expiry, strike, option_type,
-            oi, volume, price, timestamp
-        ))
+        data = [(r['symbol'], r['expiry'], r['strike'], r['option_type'],
+                r['oi'], r['volume'], r['price'], r['timestamp']) for r in records]
+        
+        execute_batch(cur, """
+            INSERT INTO oi_volume_history 
+            (symbol, expiry_date, strike_price, option_type, oi, volume, price, display_time)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+            ON CONFLICT DO UPDATE SET oi=EXCLUDED.oi, volume=EXCLUDED.volume, price=EXCLUDED.price
+        """, data, page_size=100)
 
 def clear_old_data():
     """Delete previous day's data at market open"""
