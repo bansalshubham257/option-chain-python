@@ -14,6 +14,12 @@ from decimal import Decimal
 import psycopg2
 from contextlib import contextmanager
 
+# Add these at the top of your files:
+import concurrent.futures  # For ThreadPoolExecutor
+from psycopg2.extras import execute_batch  # For batch database inserts
+from decimal import Decimal  # If not already imported
+import time  # For rate limiting sleeps
+
 from decimal import Decimal
 import json
 
