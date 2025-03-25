@@ -12,11 +12,12 @@ from boto3.dynamodb.types import TypeSerializer
 from flask import Flask
 from flask_cors import CORS
 from decimal import Decimal
-from file_utils import atomic_json_read, atomic_json_write
-import time
-import random
+import psycopg2
+from contextlib import contextmanager
+
 from decimal import Decimal
 import json
+
 
 from config import ACCESS_TOKEN  # Store securely
 
@@ -25,12 +26,23 @@ app = Flask(__name__)
 CORS(app, resources={r"/*": {"origins": ["https://swingtradingwithme.blogspot.com"]}})
 ssl._create_default_https_context = ssl._create_unverified_context
 
-# JSON file to store detected orders
-PERSISTENT_STORAGE_PATH = "/persistent/data"
 
-JSON_FILE = os.path.join(PERSISTENT_STORAGE_PATH, "large_orders.json")
-FUTURES_JSON_FILE = os.path.join(PERSISTENT_STORAGE_PATH, "futures_large_orders.json")
-OI_VOLUME_JSON_FILE =  os.path.join(PERSISTENT_STORAGE_PATH, "oi_volume_data.json")
+# Database connection setup
+def get_db_connection():
+    return psycopg2.connect(os.getenv('DATABASE_URL'))
+
+@contextmanager
+def db_cursor():
+    conn = get_db_connection()
+    try:
+        with conn.cursor() as cur:
+            yield cur
+        conn.commit()
+    except:
+        conn.rollback()
+        raise
+    finally:
+        conn.close()
 
 # Load all instruments
 try:
@@ -51,7 +63,7 @@ fno_stocks = {re.split(r'\d', row['tradingsymbol'], 1)[0]: int(row['lot_size'])
 
 IST = pytz.timezone("Asia/Kolkata")
 MARKET_OPEN = datetime.strptime("09:15", "%H:%M").time()
-MARKET_CLOSE = datetime.strptime("16:30", "%H:%M").time()
+MARKET_CLOSE = datetime.strptime("15:30", "%H:%M").time()
 
 def is_market_open():
     now = datetime.now(IST)
@@ -76,6 +88,10 @@ def getFuturesInstrumentKey(symbol):
     except Exception as e:
         print(f"⚠️ Error getting futures instrument key for {symbol}: {e}")
         return None
+
+# Define the rate limit (e.g., 10 requests per second)
+ONE_SECOND = 1
+MAX_CALLS_PER_SECOND = 5
 
 def fetch_market_quotes(instrument_keys):
     """Fetch market quotes with rate limiting and retry logic."""
@@ -138,55 +154,6 @@ def process_large_futures_orders(market_quotes, stock_symbol, lot_size):
         print("Future large_orders - ", large_orders)
     return large_orders
 
-def store_large_options_orders(large_orders_options):
-    """Load existing options orders, avoid duplicates, and store new ones."""
-    if not large_orders_options:
-        print("ℹ️ No new large options orders detected. Skipping storage.")
-        return  # Skip if no new orders
-
-    try:
-        # Step 1: Load Existing Data
-        existing_orders = atomic_json_read(JSON_FILE) or []
-        existing_stocks = {o['stock'] for o in existing_orders}
-
-        # Step 2: Append Only New Unique Orders
-        new_orders = [o for o in large_orders_options
-                      if o['stock'] not in existing_stocks]
-
-        if new_orders:
-            atomic_json_write(JSON_FILE, existing_orders + new_orders)
-            print(f"✅ Stored {len(new_orders)} new options orders")
-
-    except Exception as e:
-        print(f"❌ Error storing options: {e}")
-
-
-def store_large_futures_orders(large_orders_futures):
-    """Thread-safe storage of futures orders with atomic file operations"""
-    if not large_orders_futures:
-        return
-
-    try:
-        # Load existing orders atomically
-        existing_orders = atomic_json_read(FUTURES_JSON_FILE) or []
-        existing_stocks = {o['stock'] for o in existing_orders}
-
-        # Filter only new unique orders
-        new_orders = [
-            order for order in large_orders_futures
-            if order['stock'] not in existing_stocks
-        ]
-
-        if new_orders:
-            # Store combined data atomically
-            atomic_json_write(FUTURES_JSON_FILE, existing_orders + new_orders)
-            print(f"✅ Stored {len(new_orders)} new futures orders (Total: {len(existing_orders) + len(new_orders)})")
-        else:
-            print("ℹ️ No new unique futures orders to store")
-
-    except Exception as e:
-        print(f"❌ Error storing futures orders: {e}")
-
 def fetch_futures_orders(stock_symbol, expiry_date, lot_size):
     """Fetch and process large futures orders."""
     if stock_symbol in excluded_stocks:
@@ -194,6 +161,8 @@ def fetch_futures_orders(stock_symbol, expiry_date, lot_size):
 
     # Get the futures instrument key
     fut_instrument_key = getFuturesInstrumentKey(stock_symbol)
+    print("stock_symbol - ", stock_symbol)
+    print("fut_instrument_key - ", fut_instrument_key)
 
     if not fut_instrument_key:
         print(f"⚠️ No futures instrument key for {stock_symbol}")
@@ -212,7 +181,7 @@ def fetch_futures_orders(stock_symbol, expiry_date, lot_size):
 
         # Store the detected large futures orders
         if large_orders_futures:
-            store_large_futures_orders(large_orders_futures)
+            save_futures_data(stock_symbol, large_orders_futures)
 
         return large_orders_futures
 
@@ -315,22 +284,23 @@ def fetch_option_chain(stock_symbol, expiry_date, lot_size):
                     'timestamp': formatted_time
                 })
                 print("Option large_orders - ", large_orders)
-                store_large_options_orders(large_orders)
+                save_options_data(stock_symbol, large_orders)
 
                 # Prepare data for DynamoDB batch write
         oi = Decimal(str(data.get('oi', 0)))  # Convert float to Decimal
         volume = Decimal(str(data.get('volume', 0)))  # Convert float to Decimal
         price = Decimal(str(data.get('last_price', 0)))  # Convert float to Decimal
-        oi_volume_key = f"oi_volume_data:{stock_symbol}:{expiry_date}:{strike_price}:{option_type}"
-        timestamp = datetime.now().strftime("%H:%M")
-        new_entry = {"time": timestamp, "oi": oi, "volume": volume, "price": price}
-
-        # Fetch existing data (if available)
-        existing_data = load_oi_volume_data(oi_volume_key)
-        existing_data.append(new_entry)
-
-        # Save updated data
-        save_oi_volume_data(oi_volume_key, existing_data)
+        # In fetch_option_chain(), ensure you're passing the formatted time:
+        save_oi_volume(
+            stock_symbol,
+            expiry_date,
+            strike_price,
+            option_type,
+            oi,
+            volume,
+            price,
+            ist_now.strftime("%H:%M")  # Formatted IST time
+        )
 
         return large_orders
 
@@ -344,52 +314,92 @@ class DecimalEncoder(json.JSONEncoder):
             return float(str(obj))  # Convert Decimal to float
         return super().default(obj)
 
-def save_oi_volume_data(data_key, data):
-    """Save OI volume data to JSON file with Decimal support"""
-    try:
-        # Load existing data
-        existing_data = {}
-        if os.path.exists(OI_VOLUME_JSON_FILE):
-            with open(OI_VOLUME_JSON_FILE, 'r') as f:
-                existing_data = json.load(f)
+def save_options_data(symbol: str, orders: list):
+    """Save options orders to PostgreSQL"""
+    with db_cursor() as cur:
+        for order in orders:
+            cur.execute("""
+            INSERT INTO options_orders 
+            (symbol, strike_price, option_type, ltp, bid_qty, ask_qty, lot_size, timestamp)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+            ON CONFLICT (symbol, strike_price, option_type, timestamp) 
+            DO NOTHING
+            """, (
+                order['stock'],
+                order['strike_price'],
+                order['type'],
+                order['ltp'],
+                order['bid_qty'],
+                order['ask_qty'],
+                order['lot_size'],
+                order['timestamp']
+            ))
 
-        # Update with new data (converting Decimals)
-        existing_data[data_key] = json.loads(
-            json.dumps(data, cls=DecimalEncoder)
+def save_futures_data(symbol: str, orders: list):
+    """Save futures orders to PostgreSQL"""
+    with db_cursor() as cur:
+        for order in orders:
+            cur.execute("""
+            INSERT INTO futures_orders 
+            (symbol, ltp, bid_qty, ask_qty, lot_size, timestamp)
+            VALUES (%s, %s, %s, %s, %s, %s)
+            ON CONFLICT (symbol, timestamp) 
+            DO NOTHING
+            """, (
+                order['stock'],
+                order['ltp'],
+                order['bid_qty'],
+                order['ask_qty'],
+                order['lot_size'],
+                order['timestamp']
+            ))
+
+def save_oi_volume(symbol: str, expiry: str, strike: float, option_type: str,
+                   oi: Decimal, volume: Decimal, price: Decimal, timestamp: str):
+    """Save OI volume data with proper timestamp handling"""
+    with db_cursor() as cur:
+        cur.execute("""
+        INSERT INTO oi_volume_history (
+            symbol, expiry_date, strike_price, option_type,
+            oi, volume, price, display_time
+        ) VALUES (
+            %s, %s, %s, %s,
+            %s, %s, %s, %s
         )
+        ON CONFLICT (symbol, expiry_date, strike_price, option_type, display_time) 
+        DO UPDATE SET
+            oi = EXCLUDED.oi,
+            volume = EXCLUDED.volume,
+            price = EXCLUDED.price
+        """, (
+            symbol, expiry, strike, option_type,
+            oi, volume, price, timestamp
+        ))
 
-        # Save back to file
-        with open(OI_VOLUME_JSON_FILE, 'w') as f:
-            json.dump(existing_data, f, indent=4, cls=DecimalEncoder)
+def clear_old_data():
+    """Delete previous day's data at market open"""
+    with db_cursor() as cur:
+        # Clear options data older than 1 day
+        cur.execute("""
+        DELETE FROM options_orders 
+        WHERE timestamp < CURRENT_DATE
+        """)
 
-    except Exception as e:
-        print(f"Error saving OI volume data: {e}")
+        # Clear futures data
+        cur.execute("""
+        DELETE FROM futures_orders 
+        WHERE timestamp < CURRENT_DATE
+        """)
 
-def load_oi_volume_data(data_key):
-    """Load specific OI volume data from JSON file"""
-    try:
-        if os.path.exists(OI_VOLUME_JSON_FILE):
-            with open(OI_VOLUME_JSON_FILE, 'r') as f:
-                data = json.load(f)
-                return data.get(data_key, [])
-        return []
-    except Exception as e:
-        print(f"Error loading OI volume data: {e}")
-        return []
+        # Archive then clear OI data
+        cur.execute("""
+        INSERT INTO oi_volume_archive
+        SELECT * FROM oi_volume
+        WHERE timestamp < CURRENT_DATE
+        """)
+        cur.execute("""
+        DELETE FROM oi_volume 
+        WHERE timestamp < CURRENT_DATE
+        """)
 
-def clear_old_data_files():
-    """Delete all data files at market open"""
-    try:
-        files_to_clear = [
-            JSON_FILE,           # options large orders
-            FUTURES_JSON_FILE,   # futures large orders
-            OI_VOLUME_JSON_FILE  # OI volume data
-        ]
-
-        for filepath in files_to_clear:
-            if os.path.exists(filepath):
-                os.remove(filepath)
-                print(f"✅ Cleared old data: {os.path.basename(filepath)}")
-
-    except Exception as e:
-        print(f"❌ Error clearing old data: {e}")
+        print("✅ Cleared previous day's data")
