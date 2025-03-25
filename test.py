@@ -66,8 +66,8 @@ fno_stocks = {re.split(r'\d', row['tradingsymbol'], 1)[0]: int(row['lot_size'])
               for _, row in fno_stocks_raw.iterrows() if row['tradingsymbol'] not in excluded_stocks}
 
 IST = pytz.timezone("Asia/Kolkata")
-MARKET_OPEN = datetime.strptime("00:01", "%H:%M").time()
-MARKET_CLOSE = datetime.strptime("23:59", "%H:%M").time()
+MARKET_OPEN = datetime.strptime("09:15", "%H:%M").time()
+MARKET_CLOSE = datetime.strptime("15:30", "%H:%M").time()
 
 def is_market_open():
     now = datetime.now(IST)
