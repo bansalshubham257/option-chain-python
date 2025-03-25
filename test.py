@@ -75,10 +75,6 @@ def getFuturesInstrumentKey(symbol):
         print(f"⚠️ Error getting futures instrument key for {symbol}: {e}")
         return None
 
-# Define the rate limit (e.g., 10 requests per second)
-ONE_SECOND = 1
-MAX_CALLS_PER_SECOND = 5
-
 def fetch_market_quotes(instrument_keys):
     """Fetch market quotes with rate limiting and retry logic."""
     try:
@@ -87,8 +83,16 @@ def fetch_market_quotes(instrument_keys):
         params = {'instrument_key': ','.join(instrument_keys)}
 
         response = requests.get(url, headers=headers, params=params)
-    except requests.RequestException as e:
-        print(f"❌ Request failed: {e}")
+        # Validate successful response
+        if response.status_code == 200:
+            data = response.json()
+            return data.get('data', {})
+
+        print(f"⚠️ API error {response.status_code}: {response.text}")
+        return {}
+
+    except requests.exceptions.RequestException as e:
+        print(f"❌ Request failed: {str(e)}")
         return {}
 
 def process_large_futures_orders(market_quotes, stock_symbol, lot_size):
@@ -181,7 +185,7 @@ def store_large_futures_orders(large_orders_futures):
     except Exception as e:
         print(f"❌ Error storing futures orders: {e}")
 
-def fetch_futures_orders(stock_symbol, expiry_date, lot_size, table):
+def fetch_futures_orders(stock_symbol, expiry_date, lot_size):
     """Fetch and process large futures orders."""
     if stock_symbol in excluded_stocks:
         return None
@@ -227,7 +231,7 @@ def convert_to_decimal(data):
     return data
 
 
-def fetch_option_chain(stock_symbol, expiry_date, lot_size, table):
+def fetch_option_chain(stock_symbol, expiry_date, lot_size):
     """Fetch and process large options orders."""
     if stock_symbol in excluded_stocks:
         return None
