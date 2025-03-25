@@ -13,3 +13,4 @@ bokeh
 pytz
 boto3
 ratelimit
+filelock>=3.12.0
