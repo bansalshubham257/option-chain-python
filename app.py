@@ -20,14 +20,6 @@ app = Flask(__name__)
 CORS(app, resources={r"/*": {"origins": ["https://swingtradingwithme.blogspot.com"]}})
 ssl._create_default_https_context = ssl._create_unverified_context
 
-dynamodb = boto3.resource(
-    'dynamodb',
-    region_name=os.getenv('AWS_REGION'),
-    aws_access_key_id=os.getenv('AWS_ACCESS_KEY_ID'),
-    aws_secret_access_key=os.getenv('AWS_SECRET_ACCESS_KEY')
-)  # Change to your region
-table = dynamodb.Table('oi_volume_data')  # Replace with your actual table name
-
 EXPIRY_DATE = "2025-03-27"
 MARKET_OPEN = datetime.strptime("09:10", "%H:%M").time()
 MARKET_CLOSE = datetime.strptime("18:30", "%H:%M").time()
