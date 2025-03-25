@@ -25,6 +25,10 @@ app = Flask(__name__)
 CORS(app, resources={r"/*": {"origins": ["https://swingtradingwithme.blogspot.com"]}})
 ssl._create_default_https_context = ssl._create_unverified_context
 
+utc_now = datetime.utcnow()
+ist = pytz.timezone('Asia/Kolkata')
+ist_now = utc_now.astimezone(ist)
+formatted_time = ist_now       
 
 # Database connection setup
 def get_db_connection():
@@ -204,10 +208,6 @@ def fetch_option_chain(stock_symbol, expiry_date, lot_size):
 
     try:
         # Get current IST time at the start of the function
-        utc_now = datetime.utcnow()
-        ist = pytz.timezone('Asia/Kolkata')
-        ist_now = utc_now.astimezone(ist)
-        formatted_time = ist_now
         display_time = ist_now.strftime("%H:%M")  # For OI volume data
 
         # Fetch the option chain data
