@@ -25,8 +25,8 @@ CORS(app, resources={r"/*": {"origins": ["https://swingtradingwithme.blogspot.co
 ssl._create_default_https_context = ssl._create_unverified_context
 
 EXPIRY_DATE = "2025-03-27"
-MARKET_OPEN = datetime.strptime("09:10", "%H:%M").time()
-MARKET_CLOSE = datetime.strptime("23:55", "%H:%M").time()
+MARKET_OPEN = datetime.strptime("00:01", "%H:%M").time()
+MARKET_CLOSE = datetime.strptime("23:59", "%H:%M").time()
 
 # 📌 API Routes
 @app.route("/stocks", methods=["GET"])
