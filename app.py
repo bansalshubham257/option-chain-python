@@ -8,7 +8,6 @@ import time
 from datetime import datetime, timedelta
 import pytz
 import requests
-from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from utils import fetch_all_nse_stocks, analyze_stock
 
@@ -100,30 +99,29 @@ def fetch_and_store_orders():
     if is_market_closed():
         return
 
-    with ThreadPoolExecutor(max_workers=1) as executor:  # Increased workers
-        # Process futures and options in parallel
-        futures = []
-
-        # Submit futures tasks
-        futures.extend(
-            executor.submit(fetch_futures_orders, stock, EXPIRY_DATE, lot_size)
-            for stock, lot_size in fno_stocks.items()
-        )
-
-        # Submit options tasks
-        futures.extend(
-            executor.submit(fetch_option_chain, stock, EXPIRY_DATE, lot_size)
-            for stock, lot_size in fno_stocks.items()
-        )
-
-        # Process results as they complete
-        for future in as_completed(futures):
-            try:
-                result = future.result()
-                if result:
-                    print(f"✅ Processed orders for a stock")
-            except Exception as e:
-                print(f"❌ Error processing orders: {e}")
+    # Process each stock sequentially with delay
+    for stock, lot_size in fno_stocks.items():
+        try:
+            # Process futures first
+            futures_result = fetch_futures_orders(stock, EXPIRY_DATE, lot_size)
+            if futures_result:
+                print(f"✅ Processed futures orders for {stock}")
+            
+            # Add delay between requests (e.g., 1 second)
+            time.sleep(1)
+            
+            # Then process options
+            options_result = fetch_option_chain(stock, EXPIRY_DATE, lot_size)
+            if options_result:
+                print(f"✅ Processed options orders for {stock}")
+            
+            # Add delay between stocks (e.g., 2 seconds)
+            time.sleep(2)
+            
+        except Exception as e:
+            print(f"❌ Error processing orders for {stock}: {e}")
+            # Continue with next stock even if one fails
+            continue
 
 def run_script():
     last_clear_date = None
