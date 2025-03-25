@@ -88,10 +88,6 @@ def getFuturesInstrumentKey(symbol):
         print(f"⚠️ Error getting futures instrument key for {symbol}: {e}")
         return None
 
-# Define the rate limit (e.g., 10 requests per second)
-ONE_SECOND = 1
-MAX_CALLS_PER_SECOND = 5
-
 def fetch_market_quotes(instrument_keys):
     """Fetch market quotes with rate limiting and retry logic."""
     try:
@@ -160,8 +156,6 @@ def fetch_futures_orders(stock_symbol, expiry_date, lot_size):
 
     # Get the futures instrument key
     fut_instrument_key = getFuturesInstrumentKey(stock_symbol)
-    print("stock_symbol - ", stock_symbol)
-    print("fut_instrument_key - ", fut_instrument_key)
 
     if not fut_instrument_key:
         print(f"⚠️ No futures instrument key for {stock_symbol}")
