@@ -135,7 +135,7 @@ def process_large_futures_orders(market_quotes, stock_symbol, lot_size):
     valid_ask = any(ask['quantity'] >= threshold for ask in top_asks)
 
     if (valid_bid or valid_ask) and ltp > 2:
-        ist_now = datetime.utcnow().astimezone(pytz.timezone('Asia/Kolkata')).strftime("%H:%M:%S")
+        ist_now = datetime.utcnow().astimezone(pytz.timezone('Asia/Kolkata'))  # Keep as datetime object
 
         large_orders.append({
             'stock': stock_symbol,
@@ -143,7 +143,7 @@ def process_large_futures_orders(market_quotes, stock_symbol, lot_size):
             'bid_qty': max((b['quantity'] for b in top_bids), default=0),
             'ask_qty': max((a['quantity'] for a in top_asks), default=0),
             'lot_size': lot_size,
-            'timestamp': ist_now
+            'timestamp': formatted_time
         })
         print("Future large_orders - ", large_orders)
     return large_orders
@@ -207,7 +207,7 @@ def fetch_option_chain(stock_symbol, expiry_date, lot_size):
         utc_now = datetime.utcnow()
         ist = pytz.timezone('Asia/Kolkata')
         ist_now = utc_now.astimezone(ist)
-        formatted_time = ist_now.strftime("%H:%M:%S")
+        formatted_time = ist_now
         display_time = ist_now.strftime("%H:%M")  # For OI volume data
 
         # Fetch the option chain data
