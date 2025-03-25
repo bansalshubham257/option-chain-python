@@ -211,6 +211,13 @@ def fetch_option_chain(stock_symbol, expiry_date, lot_size):
         return None
 
     try:
+        # Get current IST time at the start of the function
+        utc_now = datetime.utcnow()
+        ist = pytz.timezone('Asia/Kolkata')
+        ist_now = utc_now.astimezone(ist)
+        formatted_time = ist_now.strftime("%H:%M:%S")
+        display_time = ist_now.strftime("%H:%M")  # For OI volume data
+
         # Fetch the option chain data
         url = 'https://api.upstox.com/v2/option/chain'
         headers = {'Authorization': f'Bearer {ACCESS_TOKEN}'}
@@ -242,7 +249,6 @@ def fetch_option_chain(stock_symbol, expiry_date, lot_size):
 
         # Process large options orders
         large_orders = []
-        batch_items = []  # Store items for batch write
 
         for key, data in market_quotes.items():
             symbol = data.get('symbol', '')
@@ -265,11 +271,6 @@ def fetch_option_chain(stock_symbol, expiry_date, lot_size):
             valid_ask = any(ask['quantity'] >= threshold for ask in top_asks)
 
             if (valid_bid or valid_ask) and ltp > 2:
-                utc_now = datetime.utcnow()
-                ist = pytz.timezone('Asia/Kolkata')
-                ist_now = utc_now.astimezone(ist)
-                formatted_time = ist_now.strftime("%H:%M:%S")
-
                 large_orders.append({
                     'stock': stock_symbol,
                     'strike_price': strike_price,
@@ -280,31 +281,32 @@ def fetch_option_chain(stock_symbol, expiry_date, lot_size):
                     'lot_size': lot_size,
                     'timestamp': formatted_time
                 })
-                print("Option large_orders - ", large_orders)
-                save_options_data(stock_symbol, large_orders)
+                
+                # Save OI volume data
+                oi = Decimal(str(data.get('oi', 0)))
+                volume = Decimal(str(data.get('volume', 0)))
+                price = Decimal(str(data.get('last_price', 0)))
+                save_oi_volume(
+                    stock_symbol,
+                    expiry_date,
+                    strike_price,
+                    option_type,
+                    oi,
+                    volume,
+                    price,
+                    display_time
+                )
 
-                # Prepare data for DynamoDB batch write
-        oi = Decimal(str(data.get('oi', 0)))  # Convert float to Decimal
-        volume = Decimal(str(data.get('volume', 0)))  # Convert float to Decimal
-        price = Decimal(str(data.get('last_price', 0)))  # Convert float to Decimal
-        # In fetch_option_chain(), ensure you're passing the formatted time:
-        save_oi_volume(
-            stock_symbol,
-            expiry_date,
-            strike_price,
-            option_type,
-            oi,
-            volume,
-            price,
-            ist_now.strftime("%H:%M")  # Formatted IST time
-        )
+        if large_orders:
+            save_options_data(stock_symbol, large_orders)
+            print("Option large_orders - ", large_orders)
 
         return large_orders
 
     except Exception as e:
         print(f"❌ Error processing options orders for {stock_symbol}: {e}")
         return None
-
+        
 class DecimalEncoder(json.JSONEncoder):
     def default(self, obj):
         if isinstance(obj, Decimal):
