@@ -284,11 +284,11 @@ def fetch_option_chain(stock_symbol, expiry_date, lot_size):
                     'timestamp': formatted_time
                 })
                 
-                # Save OI volume data
-                oi = Decimal(str(data.get('oi', 0)))
-                volume = Decimal(str(data.get('volume', 0)))
-                price = Decimal(str(data.get('last_price', 0)))
-                save_oi_volume(
+            # Save OI volume data
+            oi = Decimal(str(data.get('oi', 0)))
+            volume = Decimal(str(data.get('volume', 0)))
+            price = Decimal(str(data.get('last_price', 0)))
+            save_oi_volume(
                     stock_symbol,
                     expiry_date,
                     strike_price,
@@ -298,6 +298,7 @@ def fetch_option_chain(stock_symbol, expiry_date, lot_size):
                     price,
                     display_time
                 )
+                
 
         if large_orders:
             save_options_data(stock_symbol, large_orders)
