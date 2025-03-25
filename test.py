@@ -391,11 +391,16 @@ def save_oi_volume_batch(records: list):
                 r['oi'], r['volume'], r['price'], r['timestamp']) for r in records]
         
         execute_batch(cur, """
-            INSERT INTO oi_volume_history 
-            (symbol, expiry_date, strike_price, option_type, oi, volume, price, display_time)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-            ON CONFLICT DO UPDATE SET oi=EXCLUDED.oi, volume=EXCLUDED.volume, price=EXCLUDED.price
-        """, data, page_size=100)
+                INSERT INTO oi_volume_history (
+                    symbol, expiry_date, strike_price, option_type,
+                    oi, volume, price, display_time
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                ON CONFLICT (symbol, expiry_date, strike_price, option_type, display_time) 
+                DO UPDATE SET
+                    oi = EXCLUDED.oi,
+                    volume = EXCLUDED.volume,
+                    price = EXCLUDED.price
+            """, data, page_size=100)
 
 def clear_old_data():
     """Delete previous day's data at market open"""
