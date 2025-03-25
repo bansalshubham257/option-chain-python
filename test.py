@@ -29,12 +29,7 @@ from config import ACCESS_TOKEN  # Store securely
 app = Flask(__name__)
 
 CORS(app, resources={r"/*": {"origins": ["https://swingtradingwithme.blogspot.com"]}})
-ssl._create_default_https_context = ssl._create_unverified_context
-
-utc_now = datetime.utcnow()
-ist = pytz.timezone('Asia/Kolkata')
-ist_now = utc_now.astimezone(ist)
-formatted_time = ist_now       
+ssl._create_default_https_context = ssl._create_unverified_context     
 
 # Database connection setup
 def get_db_connection():
@@ -119,7 +114,10 @@ def fetch_market_quotes(instrument_keys):
 
 def process_large_futures_orders(market_quotes, stock_symbol, lot_size):
     """Detect large futures orders from market_quotes data"""
-
+    utc_now = datetime.utcnow()
+    ist = pytz.timezone('Asia/Kolkata')
+    ist_now = utc_now.astimezone(ist)
+    formatted_time = ist_now  
     large_orders = []
 
     prefix = f"NSE_FO:{stock_symbol}"  # stock_symbol is dynamic
@@ -213,6 +211,10 @@ def fetch_option_chain(stock_symbol, expiry_date, lot_size):
         return None
 
     try:
+        utc_now = datetime.utcnow()
+        ist = pytz.timezone('Asia/Kolkata')
+        ist_now = utc_now.astimezone(ist)
+        formatted_time = ist_now  
         display_time = ist_now.strftime("%H:%M")
         
         # 1. Fetch option chain data
@@ -303,7 +305,7 @@ def fetch_option_chain(stock_symbol, expiry_date, lot_size):
             threshold = lot_size * 87  # Your existing threshold
             has_large_bid = any(bid['quantity'] >= threshold for bid in top_bids)
             has_large_ask = any(ask['quantity'] >= threshold for ask in top_asks)
-
+            
             if (has_large_bid or has_large_ask) and ltp > 2:
                 result['options_orders'].append({
                     'stock': stock_symbol,
