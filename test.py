@@ -8,7 +8,6 @@ import re
 import pytz
 from datetime import datetime
 
-from boto3.dynamodb.types import TypeSerializer
 from flask import Flask
 from flask_cors import CORS
 from decimal import Decimal
