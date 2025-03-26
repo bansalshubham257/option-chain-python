@@ -1,5 +1,5 @@
 import os
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify,session, request
 from flask_cors import CORS
 import ssl
 import json
@@ -11,6 +11,7 @@ import requests
 from flask_socketio import SocketIO, emit
 from threading import Thread
 import yfinance as yf
+import uuid
 
 # Add these at the top of your files:
 import concurrent.futures  # For ThreadPoolExecutor
@@ -24,7 +25,11 @@ from test import (is_market_open, fno_stocks, clear_old_data, fetch_option_chain
 
 app = Flask(__name__)
 
-socketio = SocketIO(app, cors_allowed_origins=["https://swingtradingwithme.blogspot.com"])
+socketio = SocketIO(app,
+                  cors_allowed_origins=["https://swingtradingwithme.blogspot.com"],
+                  async_mode='eventlet',
+                  engineio_logger=True,  # Enable logging
+                  logger=True)  # Enable SocketIO logs
 
 CORS(app, resources={r"/*": {"origins": ["https://swingtradingwithme.blogspot.com"]}})
 ssl._create_default_https_context = ssl._create_unverified_context
@@ -407,15 +412,15 @@ def live_data_thread():
             print(f"Error in live data thread: {str(e)}")
             time.sleep(10)
 
-# WebSocket event handlers
-@socketio.on('connect', namespace=INDICES_NAMESPACE)
+@socketio.on('connect')
 def handle_connect():
-    print("Client connected")
-    emit('connection_response', {'status': 'connected'})
+    session['sid'] = str(uuid.uuid4())
+    print(f"Client connected: {request.sid}")
+    emit('connection_response', {'status': 'connected', 'sid': session['sid']})
 
-@socketio.on('disconnect', namespace=INDICES_NAMESPACE)
+@socketio.on('disconnect')
 def handle_disconnect():
-    print("Client disconnected")
+    print(f"Client disconnected: {request.sid}")
   
 # Run Flask
 if __name__ == "__main__":
