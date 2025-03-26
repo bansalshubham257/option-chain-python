@@ -12,9 +12,7 @@ import pytz
 app = Flask(__name__)
 
 # Configure CORS to allow all origins
-CORS(app, resources={
-    r"/*": {"origins": "*"}
-})
+CORS(app, resources={r"/*": {"origins": ["https://swingtradingwithme.blogspot.com"]}})
 
 # Initialize SocketIO
 socketio = SocketIO(app, 
