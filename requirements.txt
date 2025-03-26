@@ -14,3 +14,7 @@ pytz
 # Database
 psycopg2-binary==2.9.9
 python-dotenv==1.0.0
+eventlet==0.33.3
+flask-socketio==5.3.4
+python-socketio==5.8.0
+python-engineio==4.5.1
