@@ -25,12 +25,6 @@ from test import (is_market_open, fno_stocks, clear_old_data, fetch_option_chain
 
 app = Flask(__name__)
 
-socketio = SocketIO(app,
-                  cors_allowed_origins=["https://swingtradingwithme.blogspot.com"],
-                  async_mode='eventlet',
-                  engineio_logger=True,  # Enable logging
-                  logger=True)  # Enable SocketIO logs
-
 CORS(app, resources={r"/*": {"origins": ["https://swingtradingwithme.blogspot.com"]}})
 ssl._create_default_https_context = ssl._create_unverified_context
 
@@ -310,117 +304,6 @@ def get_fii_dii_data():
         return jsonify(response.json())
     else:
         return jsonify({"error": "Failed to fetch data from the external API"}), 500
-
-NSE_BASE_URL = "https://www.nseindia.com/api"
-
-HEADERS = {
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
-    "Accept-Language": "en-US,en;q=0.9",
-    "Accept-Encoding": "gzip, deflate, br",
-    "Connection": "keep-alive",
-    "Referer": "https://www.nseindia.com/",
-    "Accept": "*/*",
-    "X-Requested-With": "XMLHttpRequest"
-}
-
-# Route to fetch sector heatmap data
-@app.route('/api/heatmap', methods=['GET'])
-def get_heatmap():
-    sector = request.args.get('sector')  # Get sector from query parameters
-    if not sector:
-        return jsonify({"error": "Sector parameter is required"}), 400
-
-    try:
-        # Fetch data from NSE API
-        url = f"{NSE_BASE_URL}/heatmap-symbols?type=Sectoral%20Indices&indices={sector}"
-        response = requests.get(url, headers=HEADERS)
-        response.raise_for_status()  # Raise an error for bad responses (4xx, 5xx)
-        return jsonify(response.json())
-    except requests.exceptions.RequestException as e:
-        return jsonify({"error": str(e)}), 500
-
-# Route to fetch sectoral indices heatmap data
-@app.route('/api/sectoral-indices', methods=['GET'])
-def get_sectoral_indices():
-    try:
-        # Fetch data from NSE API
-        url = f"{NSE_BASE_URL}/heatmap-index?type=Sectoral%20Indices"
-        response = requests.get(url, headers=HEADERS)
-        response.raise_for_status()  # Raise an error for bad responses (4xx, 5xx)
-        return jsonify(response.json())
-    except requests.exceptions.RequestException as e:
-        return jsonify({"error": str(e)}), 500
-
-# WebSocket namespace for indices
-INDICES_NAMESPACE = '/indices'
-
-# Mapping of NSE indices
-NSE_INDICES = {
-    '^NSEI': 'NIFTY 50',
-    '^NSEBANK': 'NIFTY BANK',
-    '^NSEMDCP50': 'NIFTY MIDCAP 50',
-    '^NSEIT': 'NIFTY IT',
-    '^NSEAUTO': 'NIFTY AUTO',
-    '^NFINNIFTY': 'NIFTY FINANCIAL SERVICES'
-}
-
-def fetch_live_indices():
-    """Fetch live indices data using yfinance"""
-    try:
-        tickers = yf.Tickers(list(NSE_INDICES.keys()))
-        data = {}
-        
-        for symbol, name in NSE_INDICES.items():
-            try:
-                ticker = tickers.tickers[symbol]
-                hist = ticker.history(period='1d', interval='1m')
-                
-                if not hist.empty:
-                    last_data = hist.iloc[-1]
-                    prev_close = ticker.fast_info['previousClose']
-                    change = last_data['Close'] - prev_close
-                    pchange = (change / prev_close) * 100
-                    
-                    data[name] = {
-                        'symbol': symbol,
-                        'last': round(last_data['Close'], 2),
-                        'change': round(change, 2),
-                        'pChange': round(pchange, 2),
-                        'high': round(last_data['High'], 2),
-                        'low': round(last_data['Low'], 2),
-                        'volume': int(last_data['Volume']),
-                        'timestamp': datetime.now(IST).isoformat()
-                    }
-            except Exception as e:
-                print(f"Error processing {symbol}: {str(e)}")
-                continue
-                
-        return data
-    except Exception as e:
-        print(f"Error fetching live indices: {str(e)}")
-        return None
-
-def live_data_thread():
-    """Background thread that emits live data"""
-    while True:
-        try:
-            data = fetch_live_indices()
-            if data:
-                socketio.emit('indices_update', data, namespace=INDICES_NAMESPACE)
-            time.sleep(5)  # Update every 5 seconds
-        except Exception as e:
-            print(f"Error in live data thread: {str(e)}")
-            time.sleep(10)
-
-@socketio.on('connect')
-def handle_connect():
-    session['sid'] = str(uuid.uuid4())
-    print(f"Client connected: {request.sid}")
-    emit('connection_response', {'status': 'connected', 'sid': session['sid']})
-
-@socketio.on('disconnect')
-def handle_disconnect():
-    print(f"Client disconnected: {request.sid}")
   
 # Run Flask
 if __name__ == "__main__":
@@ -441,4 +324,4 @@ if __name__ == "__main__":
     else:
         print("🌍 Starting web service ONLY")
         port = int(os.environ.get("PORT", 10000))
-        socketio.run(app, host="0.0.0.0", port=port)
+        app.run(host="0.0.0.0", port=port)
