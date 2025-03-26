@@ -1,33 +1,31 @@
-import os
-from flask import Flask, jsonify
-from flask_socketio import SocketIO, emit
+from flask import Flask
+from flask_socketio import SocketIO
 import yfinance as yf
 from threading import Thread
 import time
-from datetime import datetime
 import pytz
 
-# Initialize Flask app for WebSocket service only
-ws_app = Flask(__name__)
-socketio = SocketIO(ws_app, 
-                  cors_allowed_origins=["https://swingtradingwithme.blogspot.com"],
+# Initialize Flask app
+app = Flask(__name__)
+socketio = SocketIO(app,
+                  cors_allowed_origins=["*"],
                   async_mode='eventlet',
-                  engineio_logger=True,
-                  logger=True)
+                  logger=True,
+                  engineio_logger=True)
 
 IST = pytz.timezone("Asia/Kolkata")
 
-# Mapping of NSE indices
+# NSE indices to track
 NSE_INDICES = {
     '^NSEI': 'NIFTY 50',
-    '^NSEBANK': 'NIFTY BANK', 
+    '^NSEBANK': 'NIFTY BANK',
     '^NSEIT': 'NIFTY IT',
     '^NSEAUTO': 'NIFTY AUTO',
     '^NFINNIFTY': 'NIFTY FINANCIAL SERVICES'
 }
 
 def fetch_live_indices():
-    """Fetch live indices data using yfinance"""
+    """Fetch live market data"""
     try:
         tickers = yf.Tickers(list(NSE_INDICES.keys()))
         data = {}
@@ -50,7 +48,7 @@ def fetch_live_indices():
                         'pChange': round(pchange, 2),
                         'high': round(last_data['High'], 2),
                         'low': round(last_data['Low'], 2),
-                        'timestamp': datetime.now(IST).isoformat()
+                        'timestamp': time.time()
                     }
             except Exception as e:
                 print(f"Error processing {symbol}: {str(e)}")
@@ -58,40 +56,39 @@ def fetch_live_indices():
                 
         return data
     except Exception as e:
-        print(f"Error fetching live indices: {str(e)}")
+        print(f"Error fetching indices: {str(e)}")
         return None
 
-def live_data_thread():
-    """Background thread that emits live data"""
+def emit_live_data():
+    """Background thread to emit data"""
     while True:
         try:
             data = fetch_live_indices()
             if data:
                 socketio.emit('indices_update', data)
-            time.sleep(5)  # Update every 5 seconds
+            time.sleep(5)
         except Exception as e:
-            print(f"Error in live data thread: {str(e)}")
+            print(f"Error in emit thread: {str(e)}")
             time.sleep(10)
 
-# WebSocket event handlers
+# WebSocket events
 @socketio.on('connect')
 def handle_connect():
     print(f"Client connected: {request.sid}")
     emit('connection_response', {'status': 'connected'})
 
-@socketio.on('disconnect') 
+@socketio.on('disconnect')
 def handle_disconnect():
     print(f"Client disconnected: {request.sid}")
 
 # Health check endpoint
-@ws_app.route('/health')
+@app.route('/')
 def health_check():
-    return jsonify({'status': 'healthy'})
+    return {'status': 'running', 'service': 'market-indices-ws'}
 
-if __name__ == "__main__":
-    # Start the background thread
-    Thread(target=live_data_thread, daemon=True).start()
+if __name__ == '__main__':
+    # Start background thread
+    Thread(target=emit_live_data, daemon=True).start()
     
-    # Run the WebSocket service
-    print("🚀 Starting WebSocket service on port 8000")
-    socketio.run(ws_app, host="0.0.0.0", port=8000)
+    # Run the app
+    socketio.run(app, host='0.0.0.0', port=8000)
