@@ -1,31 +1,31 @@
 import os
 import yfinance as yf
-from flask import Flask, jsonify
+from flask import Flask, jsonify, request
 from flask_socketio import SocketIO, emit
 from flask_cors import CORS
-from threading import Thread
+import threading
 import time
 from datetime import datetime
 import pytz
-import eventlet
-eventlet.monkey_patch()
 
 # Initialize Flask app
 app = Flask(__name__)
 
-# Configure CORS to allow all origins for development
-# In production, replace with specific origins
+# Configure CORS to allow all origins
 CORS(app, resources={
     r"/*": {"origins": "*"}
 })
 
-# Initialize SocketIO with Eventlet for better performance
+# Initialize SocketIO
 socketio = SocketIO(app, 
     cors_allowed_origins="*",
-    async_mode='eventlet',
+    async_mode='threading',
     ping_timeout=60,
     ping_interval=25
 )
+
+# Track connected clients
+connected_clients = set()
 
 # Indian Stock Market Indices
 INDICES = {
@@ -85,11 +85,11 @@ def background_data_fetcher():
                 print(f"Broadcasted data for {len(market_data)} indices")
             
             # Wait for 5 seconds before next fetch
-            eventlet.sleep(5)
+            time.sleep(5)
         
         except Exception as e:
             print(f"Error in background data fetcher: {str(e)}")
-            eventlet.sleep(10)
+            time.sleep(10)
 
 @app.route('/health')
 def health_check():
@@ -97,18 +97,39 @@ def health_check():
     return jsonify({
         'status': 'healthy',
         'service': 'market-data-server',
-        'indices': list(INDICES.values())
+        'indices': list(INDICES.values()),
+        'connected_clients': len(connected_clients)
     })
+
+@socketio.on('connect')
+def handle_connect():
+    """Handle new client connections"""
+    # Use request.sid from flask-socketio
+    client_sid = request.sid
+    connected_clients.add(client_sid)
+    print(f"Client connected: {client_sid}")
+    emit('connection_ack', {
+        'status': 'connected', 
+        'sid': client_sid,
+        'message': 'Successfully connected to market data server'
+    })
+
+@socketio.on('disconnect')
+def handle_disconnect():
+    """Handle client disconnections"""
+    client_sid = request.sid
+    connected_clients.discard(client_sid)
+    print(f"Client disconnected: {client_sid}")
 
 if __name__ == '__main__':
     # Start background data fetching thread
-    eventlet.spawn(background_data_fetcher)
+    data_thread = threading.Thread(target=background_data_fetcher, daemon=True)
+    data_thread.start()
     
-    # Run the Flask-SocketIO app with production settings
+    # Run the Flask-SocketIO app
     socketio.run(
         app, 
         host='0.0.0.0', 
         port=int(os.environ.get('PORT', 8000)), 
-        debug=False,
-        allow_unsafe_werkzeug=True
+        debug=True
     )
