@@ -1,133 +1,69 @@
-import os
+from flask import Flask, jsonify
 import yfinance as yf
-from flask import Flask, jsonify, request
-from flask_socketio import SocketIO, emit
-from flask_cors import CORS
-import threading
-import time
+import pandas as pd
+from flask_caching import Cache
 from datetime import datetime
-import pytz
 
-# Initialize Flask app
 app = Flask(__name__)
+cache = Cache(app, config={'CACHE_TYPE': 'simple'})
 
-# Configure CORS to allow all origins
-CORS(app, resources={r"/*": {"origins": ["https://swingtradingwithme.blogspot.com"]}})
+# Configuration
+CACHE_TIMEOUT = 60  # seconds - respects API rate limits
 
-# Initialize SocketIO
-socketio = SocketIO(app, 
-    cors_allowed_origins="*",
-    async_mode='threading',
-    ping_timeout=60,
-    ping_interval=25
-)
+# Indian indices with their display names and Yahoo Finance symbols
+INDIAN_INDICES = [
+    {"name": "Nifty 50", "symbol": "^NSEI", "color": "#1f77b4"},
+    {"name": "Nifty Bank", "symbol": "^NSEBANK", "color": "#ff7f0e"},
+    {"name": "Nifty IT", "symbol": "^CNXIT", "color": "#2ca02c"},
+    {"name": "Sensex", "symbol": "^BSESN", "color": "#d62728"},
+    {"name": "Nifty Midcap 50", "symbol": "^NSEMDCP50", "color": "#9467bd"},
+    {"name": "Nifty Smallcap 50", "symbol": "^NSESC50", "color": "#8c564b"}
+]
 
-# Track connected clients
-connected_clients = set()
-
-# Indian Stock Market Indices
-INDICES = {
-    '^NSEI': 'Nifty 50',
-    '^NSEBANK': 'Nifty Bank',
-    '^BSESN': 'Sensex',
-    'NIFTY_MIDCAP_100.NS': 'Nifty Midcap 100',
-    'NIFTY_IT.NS': 'Nifty IT',
-    'NIFTY_FIN_SERVICE.NS': 'Nifty Financial Services'
-}
-
-def fetch_index_data(ticker_symbol, name):
-    """Fetch live data for a single index"""
+@app.route('/api/indices', methods=['GET'])
+@cache.cached(timeout=CACHE_TIMEOUT)
+def get_indices_data():
     try:
-        # Fetch live ticker data
-        ticker = yf.Ticker(ticker_symbol)
+        indices_data = []
+        update_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         
-        # Get latest price information
-        hist = ticker.history(period='1d')
+        for index in INDIAN_INDICES:
+            ticker = yf.Ticker(index["symbol"])
+            hist = ticker.history(period='1d', interval='1m')
+            
+            if not hist.empty:
+                current_price = round(hist['Close'].iloc[-1], 2)
+                prev_close = round(hist['Close'].iloc[-2] if len(hist) > 1 else current_price, 2)
+                change = round(current_price - prev_close, 2)
+                change_percent = round((change / prev_close) * 100, 2)
+                
+                # Determine color based on performance
+                status_color = "#2ecc71" if change >= 0 else "#e74c3c"
+                
+                indices_data.append({
+                    "name": index["name"],
+                    "symbol": index["symbol"],
+                    "current_price": current_price,
+                    "change": change,
+                    "change_percent": change_percent,
+                    "prev_close": prev_close,
+                    "color": index["color"],
+                    "status_color": status_color,
+                    "last_updated": update_time
+                })
         
-        if not hist.empty:
-            last_close = hist['Close'].iloc[-1]
-            previous_close = ticker.info.get('previousClose', last_close)
-            
-            # Calculate changes
-            change = last_close - previous_close
-            percent_change = (change / previous_close) * 100
-            
-            return {
-                'symbol': name,
-                'last': round(last_close, 2),
-                'change': round(change, 2),
-                'pChange': round(percent_change, 2),
-                'high': round(hist['High'].max(), 2),
-                'low': round(hist['Low'].min(), 2),
-                'timestamp': datetime.now(pytz.timezone('Asia/Kolkata')).isoformat()
-            }
+        return jsonify({
+            "success": True,
+            "data": indices_data,
+            "last_updated": update_time
+        })
+    
     except Exception as e:
-        print(f"Error fetching {name}: {str(e)}")
-    return None
-
-def background_data_fetcher():
-    """Background thread to fetch and broadcast market data"""
-    while True:
-        try:
-            market_data = {}
-            
-            # Fetch data for all indices
-            for symbol, name in INDICES.items():
-                index_data = fetch_index_data(symbol, name)
-                if index_data:
-                    market_data[name] = index_data
-            
-            # Broadcast data via WebSocket
-            if market_data:
-                socketio.emit('market_update', market_data)
-                print(f"Broadcasted data for {len(market_data)} indices")
-            
-            # Wait for 5 seconds before next fetch
-            time.sleep(5)
-        
-        except Exception as e:
-            print(f"Error in background data fetcher: {str(e)}")
-            time.sleep(10)
-
-@app.route('/health')
-def health_check():
-    """Simple health check endpoint"""
-    return jsonify({
-        'status': 'healthy',
-        'service': 'market-data-server',
-        'indices': list(INDICES.values()),
-        'connected_clients': len(connected_clients)
-    })
-
-@socketio.on('connect')
-def handle_connect():
-    """Handle new client connections"""
-    # Use request.sid from flask-socketio
-    client_sid = request.sid
-    connected_clients.add(client_sid)
-    print(f"Client connected: {client_sid}")
-    emit('connection_ack', {
-        'status': 'connected', 
-        'sid': client_sid,
-        'message': 'Successfully connected to market data server'
-    })
-
-@socketio.on('disconnect')
-def handle_disconnect():
-    """Handle client disconnections"""
-    client_sid = request.sid
-    connected_clients.discard(client_sid)
-    print(f"Client disconnected: {client_sid}")
+        return jsonify({
+            "success": False,
+            "error": str(e),
+            "last_updated": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        }), 500
 
 if __name__ == '__main__':
-    # Start background data fetching thread
-    data_thread = threading.Thread(target=background_data_fetcher, daemon=True)
-    data_thread.start()
-    
-    # Run the Flask-SocketIO app
-    socketio.run(
-        app, 
-        host='0.0.0.0', 
-        port=int(os.environ.get('PORT', 8000)), 
-        debug=True
-    )
+    app.run(debug=True)
