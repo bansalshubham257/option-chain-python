@@ -8,6 +8,9 @@ import time
 from datetime import datetime, timedelta
 import pytz
 import requests
+from flask_socketio import SocketIO, emit
+from threading import Thread
+import yfinance as yf
 
 # Add these at the top of your files:
 import concurrent.futures  # For ThreadPoolExecutor
@@ -20,6 +23,8 @@ from test import (is_market_open, fno_stocks, clear_old_data, fetch_option_chain
                   db_cursor,save_options_data, save_futures_data, save_oi_volume_batch )
 
 app = Flask(__name__)
+
+socketio = SocketIO(app, cors_allowed_origins=["https://swingtradingwithme.blogspot.com"])
 
 CORS(app, resources={r"/*": {"origins": ["https://swingtradingwithme.blogspot.com"]}})
 ssl._create_default_https_context = ssl._create_unverified_context
@@ -341,35 +346,77 @@ def get_sectoral_indices():
     except requests.exceptions.RequestException as e:
         return jsonify({"error": str(e)}), 500
 
-@app.route('/api/indices', methods=['GET'])
-def get_indices():
-    """Get all major indices data"""
-    try:
-        url = "https://www.nseindia.com/api/allIndices"
-        response = requests.get(url, headers=HEADERS)
-        response.raise_for_status()
-        data = response.json()
-        
-        # Filter for important indices
-        important_indices = ['NIFTY 50', 'NIFTY BANK', 'NIFTY FINANCIAL SERVICES', 
-                           'NIFTY IT', 'NIFTY AUTO', 'NIFTY FMCG']
-        
-        indices_data = [
-            {
-                'name': item['index'],
-                'last': item['last'],
-                'change': item['change'],
-                'pChange': item['pChange'],
-                'high': item['high'],
-                'low': item['low']
-            }
-            for item in data['data'] if item['index'] in important_indices
-        ]
-        
-        return jsonify(indices_data)
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
+# WebSocket namespace for indices
+INDICES_NAMESPACE = '/indices'
 
+# Mapping of NSE indices
+NSE_INDICES = {
+    '^NSEI': 'NIFTY 50',
+    '^NSEBANK': 'NIFTY BANK',
+    '^NSEMDCP50': 'NIFTY MIDCAP 50',
+    '^NSEIT': 'NIFTY IT',
+    '^NSEAUTO': 'NIFTY AUTO',
+    '^NFINNIFTY': 'NIFTY FINANCIAL SERVICES'
+}
+
+def fetch_live_indices():
+    """Fetch live indices data using yfinance"""
+    try:
+        tickers = yf.Tickers(list(NSE_INDICES.keys()))
+        data = {}
+        
+        for symbol, name in NSE_INDICES.items():
+            try:
+                ticker = tickers.tickers[symbol]
+                hist = ticker.history(period='1d', interval='1m')
+                
+                if not hist.empty:
+                    last_data = hist.iloc[-1]
+                    prev_close = ticker.fast_info['previousClose']
+                    change = last_data['Close'] - prev_close
+                    pchange = (change / prev_close) * 100
+                    
+                    data[name] = {
+                        'symbol': symbol,
+                        'last': round(last_data['Close'], 2),
+                        'change': round(change, 2),
+                        'pChange': round(pchange, 2),
+                        'high': round(last_data['High'], 2),
+                        'low': round(last_data['Low'], 2),
+                        'volume': int(last_data['Volume']),
+                        'timestamp': datetime.now(IST).isoformat()
+                    }
+            except Exception as e:
+                print(f"Error processing {symbol}: {str(e)}")
+                continue
+                
+        return data
+    except Exception as e:
+        print(f"Error fetching live indices: {str(e)}")
+        return None
+
+def live_data_thread():
+    """Background thread that emits live data"""
+    while True:
+        try:
+            data = fetch_live_indices()
+            if data:
+                socketio.emit('indices_update', data, namespace=INDICES_NAMESPACE)
+            time.sleep(5)  # Update every 5 seconds
+        except Exception as e:
+            print(f"Error in live data thread: {str(e)}")
+            time.sleep(10)
+
+# WebSocket event handlers
+@socketio.on('connect', namespace=INDICES_NAMESPACE)
+def handle_connect():
+    print("Client connected")
+    emit('connection_response', {'status': 'connected'})
+
+@socketio.on('disconnect', namespace=INDICES_NAMESPACE)
+def handle_disconnect():
+    print("Client disconnected")
+  
 # Run Flask
 if __name__ == "__main__":
     print(f"🛠️ Starting with BACKGROUND_WORKER={os.getenv('BACKGROUND_WORKER')}")
@@ -389,4 +436,4 @@ if __name__ == "__main__":
     else:
         print("🌍 Starting web service ONLY")
         port = int(os.environ.get("PORT", 10000))
-        app.run(host="0.0.0.0", port=port)
+        socketio.run(app, host="0.0.0.0", port=port)
