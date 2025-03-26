@@ -3,8 +3,10 @@ import yfinance as yf
 import pandas as pd
 from flask_caching import Cache
 from datetime import datetime
+from flask_cors import CORS
 
 app = Flask(__name__)
+CORS(app, resources={r"/*": {"origins": ["https://swingtradingwithme.blogspot.com"]}})
 cache = Cache(app, config={'CACHE_TYPE': 'simple'})
 
 # Configuration
