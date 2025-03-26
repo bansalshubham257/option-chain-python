@@ -1,144 +1,108 @@
 import os
+import yfinance as yf
 from flask import Flask, jsonify
 from flask_socketio import SocketIO, emit
-from threading import Thread, Lock
+from flask_cors import CORS
+from threading import Thread
 import time
 from datetime import datetime
 import pytz
-import yfinance as yf
-from flask_cors import CORS
 
 # Initialize Flask app
 app = Flask(__name__)
 
-# Configure CORS
+# Configure CORS to allow all origins for development
+# In production, replace with specific origins
 CORS(app, resources={
-    r"/health": {"origins": ["https://swingtradingwithme.blogspot.com"]},
-    r"/socket.io/*": {"origins": ["https://swingtradingwithme.blogspot.com"]}
+    r"/*": {"origins": "*"}
 })
 
-# Initialize SocketIO
-socketio = SocketIO(app,
-    cors_allowed_origins=["https://swingtradingwithme.blogspot.com"],
-    async_mode='eventlet',
-    ping_timeout=60,  # Increased from 30
-    ping_interval=25,  # Reduced from 30
-    engineio_logger=True,
-    logger=True,
-    max_http_buffer_size=1e8,  # 100MB
-    allow_upgrades=False  # Force WebSocket only
+# Initialize SocketIO with more permissive CORS
+socketio = SocketIO(app, 
+    cors_allowed_origins="*",
+    async_mode='threading',
+    ping_timeout=10,
+    ping_interval=5
 )
-# Timezone setup
-IST = pytz.timezone("Asia/Kolkata")
 
-connected_clients = set()
-
-# Validated NSE indices mapping
-NSE_INDICES = {
-    '^NSEI': 'NIFTY 50',
-    '^NSEBANK': 'NIFTY BANK',
-    'NIFTY_MIDCAP_100.NS': 'NIFTY MIDCAP 100',
-    'NIFTY_IT.NS': 'NIFTY IT',
-    'NIFTY_AUTO.NS': 'NIFTY AUTO',
-    'NIFTY_FIN_SERVICE.NS': 'NIFTY FINANCIAL SERVICES'
+# Indian Stock Market Indices
+INDICES = {
+    '^NSEI': 'Nifty 50',
+    '^NSEBANK': 'Nifty Bank',
+    '^BSESN': 'Sensex',
+    'NIFTY_MIDCAP_100.NS': 'Nifty Midcap 100',
+    'NIFTY_IT.NS': 'Nifty IT',
+    'NIFTY_FIN_SERVICE.NS': 'Nifty Financial Services'
 }
 
-# Thread-safe data storage
-latest_data = {}
-data_lock = Lock()
-
-def fetch_index_data(ticker, symbol, name):
-    """Fetch data for a single index with robust error handling"""
+def fetch_index_data(ticker_symbol, name):
+    """Fetch live data for a single index"""
     try:
-        data = ticker.history(period='1d', interval='1m')
-        if data.empty:
-            data = ticker.history(period='1d')  # Fallback to daily data
+        # Fetch live ticker data
+        ticker = yf.Ticker(ticker_symbol)
         
-        if not data.empty:
-            last = data.iloc[-1]
-            prev_close = ticker.fast_info.get('previousClose', last.Close)
+        # Get latest price information
+        hist = ticker.history(period='1d')
+        
+        if not hist.empty:
+            last_close = hist['Close'].iloc[-1]
+            previous_close = ticker.info.get('previousClose', last_close)
+            
+            # Calculate changes
+            change = last_close - previous_close
+            percent_change = (change / previous_close) * 100
             
             return {
-                'symbol': symbol,
-                'last': round(last.Close, 2),
-                'change': round(last.Close - prev_close, 2),
-                'pChange': round((last.Close - prev_close) / prev_close * 100, 2),
-                'high': round(data.High.max(), 2),
-                'low': round(data.Low.min(), 2),
-                'volume': int(data.Volume.sum()),
-                'timestamp': datetime.now(IST).isoformat()
+                'symbol': name,
+                'last': round(last_close, 2),
+                'change': round(change, 2),
+                'pChange': round(percent_change, 2),
+                'high': round(hist['High'].max(), 2),
+                'low': round(hist['Low'].min(), 2),
+                'timestamp': datetime.now(pytz.timezone('Asia/Kolkata')).isoformat()
             }
     except Exception as e:
         print(f"Error fetching {name}: {str(e)}")
     return None
 
-def fetch_all_indices():
-    """Fetch all indices data with parallel processing"""
-    global latest_data
-    results = {}
-    
-    try:
-        tickers = yf.Tickers(list(NSE_INDICES.keys()))
-        
-        for symbol, name in NSE_INDICES.items():
-            ticker = tickers.tickers[symbol]
-            if data := fetch_index_data(ticker, symbol, name):
-                results[name] = data
-                
-        with data_lock:
-            latest_data = results.copy()
-            
-    except Exception as e:
-        print(f"Critical error in fetch_all_indices: {str(e)}")
-    
-    return results or None
-
-def background_data_emitter():
-    """Background thread that emits data periodically"""
+def background_data_fetcher():
+    """Background thread to fetch and broadcast market data"""
     while True:
         try:
-            start_time = time.time()
-            data = fetch_all_indices()
+            market_data = {}
             
-            if data:
-                socketio.emit('indices_update', data)
-                print(f"Emitted data for {len(data)} indices")
+            # Fetch data for all indices
+            for symbol, name in INDICES.items():
+                index_data = fetch_index_data(symbol, name)
+                if index_data:
+                    market_data[name] = index_data
             
-            # Maintain 5-second interval accounting for processing time
-            elapsed = time.time() - start_time
-            sleep_time = max(0, 5 - elapsed)
-            time.sleep(sleep_time)
+            # Broadcast data via WebSocket
+            if market_data:
+                socketio.emit('market_update', market_data)
+                print(f"Broadcasted data for {len(market_data)} indices")
             
+            # Wait for 5 seconds before next fetch
+            time.sleep(5)
+        
         except Exception as e:
-            print(f"Error in emitter thread: {str(e)}")
+            print(f"Error in background data fetcher: {str(e)}")
             time.sleep(10)
 
 @app.route('/health')
 def health_check():
-    """Health check endpoint with CORS"""
-    with data_lock:
-        return jsonify({
-            'status': 'healthy',
-            'timestamp': datetime.now(IST).isoformat(),
-            'indices_available': list(latest_data.keys()),
-            'service': 'market-indices-ws'
-        })
-
-@socketio.on('connect')
-def handle_connect():
-    connected_clients.add(request.sid)
-    print(f"Client connected: {request.sid}")
-    emit('connection_ack', {'status': 'connected', 'sid': request.sid})
-
-@socketio.on('disconnect')
-def handle_disconnect():
-    connected_clients.discard(request.sid)
-    print(f"Client disconnected: {request.sid}")
+    """Simple health check endpoint"""
+    return jsonify({
+        'status': 'healthy',
+        'service': 'market-data-server',
+        'indices': list(INDICES.values())
+    })
 
 if __name__ == '__main__':
-    # Start background thread
-    Thread(target=background_data_emitter, daemon=True).start()
+    # Start background data fetching thread
+    import threading
+    data_thread = threading.Thread(target=background_data_fetcher, daemon=True)
+    data_thread.start()
     
-    # Run the app
-    print("🚀 Starting WebSocket service on port 8000")
-    socketio.run(app, host='0.0.0.0', port=8000)
+    # Run the Flask-SocketIO app
+    socketio.run(app, host='0.0.0.0', port=8000, debug=True)
