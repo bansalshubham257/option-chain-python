@@ -7,6 +7,8 @@ from threading import Thread
 import time
 from datetime import datetime
 import pytz
+import eventlet
+eventlet.monkey_patch()
 
 # Initialize Flask app
 app = Flask(__name__)
@@ -17,12 +19,12 @@ CORS(app, resources={
     r"/*": {"origins": "*"}
 })
 
-# Initialize SocketIO with more permissive CORS
+# Initialize SocketIO with Eventlet for better performance
 socketio = SocketIO(app, 
     cors_allowed_origins="*",
-    async_mode='threading',
-    ping_timeout=10,
-    ping_interval=5
+    async_mode='eventlet',
+    ping_timeout=60,
+    ping_interval=25
 )
 
 # Indian Stock Market Indices
@@ -83,11 +85,11 @@ def background_data_fetcher():
                 print(f"Broadcasted data for {len(market_data)} indices")
             
             # Wait for 5 seconds before next fetch
-            time.sleep(5)
+            eventlet.sleep(5)
         
         except Exception as e:
             print(f"Error in background data fetcher: {str(e)}")
-            time.sleep(10)
+            eventlet.sleep(10)
 
 @app.route('/health')
 def health_check():
@@ -100,9 +102,13 @@ def health_check():
 
 if __name__ == '__main__':
     # Start background data fetching thread
-    import threading
-    data_thread = threading.Thread(target=background_data_fetcher, daemon=True)
-    data_thread.start()
+    eventlet.spawn(background_data_fetcher)
     
-    # Run the Flask-SocketIO app
-    socketio.run(app, host='0.0.0.0', port=8000, debug=True)
+    # Run the Flask-SocketIO app with production settings
+    socketio.run(
+        app, 
+        host='0.0.0.0', 
+        port=int(os.environ.get('PORT', 8000)), 
+        debug=False,
+        allow_unsafe_werkzeug=True
+    )
