@@ -49,7 +49,6 @@ def get_orders():
             cur.execute("""
             SELECT symbol, strike_price, option_type, ltp, bid_qty, ask_qty, lot_size, timestamp
             FROM options_orders
-            WHERE timestamp >= CURRENT_DATE
             ORDER BY timestamp DESC
             """)
             results = cur.fetchall()
@@ -76,7 +75,6 @@ def get_futures_orders():
             cur.execute("""
             SELECT symbol, ltp, bid_qty, ask_qty, lot_size, timestamp
             FROM futures_orders
-            WHERE timestamp >= CURRENT_DATE
             ORDER BY timestamp DESC
             """)
             results = cur.fetchall()
