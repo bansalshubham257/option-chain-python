@@ -341,6 +341,35 @@ def get_sectoral_indices():
     except requests.exceptions.RequestException as e:
         return jsonify({"error": str(e)}), 500
 
+@app.route('/api/indices', methods=['GET'])
+def get_indices():
+    """Get all major indices data"""
+    try:
+        url = "https://www.nseindia.com/api/allIndices"
+        response = requests.get(url, headers=HEADERS)
+        response.raise_for_status()
+        data = response.json()
+        
+        # Filter for important indices
+        important_indices = ['NIFTY 50', 'NIFTY BANK', 'NIFTY FINANCIAL SERVICES', 
+                           'NIFTY IT', 'NIFTY AUTO', 'NIFTY FMCG']
+        
+        indices_data = [
+            {
+                'name': item['index'],
+                'last': item['last'],
+                'change': item['change'],
+                'pChange': item['pChange'],
+                'high': item['high'],
+                'low': item['low']
+            }
+            for item in data['data'] if item['index'] in important_indices
+        ]
+        
+        return jsonify(indices_data)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
 # Run Flask
 if __name__ == "__main__":
     print(f"🛠️ Starting with BACKGROUND_WORKER={os.getenv('BACKGROUND_WORKER')}")
