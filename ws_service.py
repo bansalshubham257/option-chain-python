@@ -19,15 +19,19 @@ CORS(app, resources={
 
 # Initialize SocketIO
 socketio = SocketIO(app,
-                  cors_allowed_origins=["https://swingtradingwithme.blogspot.com"],
-                  async_mode='eventlet',
-                  logger=True,
-                  engineio_logger=True,
-                  ping_timeout=60,
-                  ping_interval=25)
-
+    cors_allowed_origins=["https://swingtradingwithme.blogspot.com"],
+    async_mode='eventlet',
+    ping_timeout=60,  # Increased from 30
+    ping_interval=25,  # Reduced from 30
+    engineio_logger=True,
+    logger=True,
+    max_http_buffer_size=1e8,  # 100MB
+    allow_upgrades=False  # Force WebSocket only
+)
 # Timezone setup
 IST = pytz.timezone("Asia/Kolkata")
+
+connected_clients = set()
 
 # Validated NSE indices mapping
 NSE_INDICES = {
@@ -122,17 +126,13 @@ def health_check():
 
 @socketio.on('connect')
 def handle_connect():
-    """Handle new WebSocket connections"""
+    connected_clients.add(request.sid)
     print(f"Client connected: {request.sid}")
-    with data_lock:
-        emit('connection_response', {
-            'status': 'connected',
-            'data': latest_data
-        })
+    emit('connection_ack', {'status': 'connected', 'sid': request.sid})
 
 @socketio.on('disconnect')
 def handle_disconnect():
-    """Handle client disconnections"""
+    connected_clients.discard(request.sid)
     print(f"Client disconnected: {request.sid}")
 
 if __name__ == '__main__':
