@@ -2,8 +2,10 @@ from flask import Flask, jsonify
 import yfinance as yf
 from datetime import datetime
 import pytz
+import os
 
 app = Flask(__name__)
+CORS(app, resources={r"/*": {"origins": ["https://swingtradingwithme.blogspot.com"]}})
 
 INDIAN_INDICES = [
     {"name": "Nifty 50", "symbol": "^NSEI", "color": "#1f77b4"},
