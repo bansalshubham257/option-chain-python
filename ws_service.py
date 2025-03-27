@@ -8,7 +8,7 @@ app = Flask(__name__)
 cache = Cache(app, config={'CACHE_TYPE': 'simple'})
 
 # Configuration
-CACHE_TIMEOUT = 40  # seconds - respects API rate limits
+CACHE_TIMEOUT = 10  # seconds - respects API rate limits
 
 # Indian indices with their display names and Yahoo Finance symbols
 INDIAN_INDICES = [
