@@ -1,6 +1,6 @@
 from flask import Flask, jsonify
 import yfinance as yf
-from datetime import datetime, timedelta
+from datetime import datetime
 import pytz
 
 app = Flask(__name__)
@@ -14,68 +14,49 @@ INDIAN_INDICES = [
     {"name": "Nifty Smallcap 50", "symbol": "^NSESC50", "color": "#8c564b"}
 ]
 
-def get_reliable_previous_close(symbol):
-    """Get the proper previous close price from the last trading day"""
-    ticker = yf.Ticker(symbol)
-    
-    # Get data for last 5 days to ensure we get previous trading day
-    hist = ticker.history(period='5d')
-    
-    if len(hist) < 2:
-        return None
-    
-    # Get the most recent trading day's close (current day if market is open)
-    current_close = hist['Close'].iloc[-1]
-    
-    # Find the previous trading day's close
-    for i in range(2, len(hist)+1):
-        prev_close = hist['Close'].iloc[-i]
-        if prev_close != current_close:
-            return prev_close
-    
-    return None
-
 @app.route('/api/indices', methods=['GET'])
 def get_indices_data():
     try:
         indices_data = []
         ist = pytz.timezone('Asia/Kolkata')
         update_time = datetime.now(ist).strftime("%Y-%m-%d %H:%M:%S")
-        
+
         for index in INDIAN_INDICES:
             ticker = yf.Ticker(index["symbol"])
             
-            # Get current price (1m interval for intraday)
+            # Get today's intraday data (1-minute interval)
             current_data = ticker.history(period='1d', interval='1m')
             
-            if not current_data.empty:
+            # Get previous close from full historical data (last 5 days)
+            hist = ticker.history(period='5d')
+
+            if not current_data.empty and len(hist) > 1:
                 current_price = round(current_data['Close'].iloc[-1], 2)
-                prev_close = round(get_reliable_previous_close(index["symbol"]), 2)
+                prev_close = round(hist['Close'].iloc[-2], 2)  # Directly fetch previous day's close
                 
-                if prev_close is not None:
-                    change = round(current_price - prev_close, 2)
-                    change_percent = round((change / prev_close) * 100, 2)
-                    
-                    status_color = "#2ecc71" if change >= 0 else "#e74c3c"
-                    
-                    indices_data.append({
-                        "name": index["name"],
-                        "symbol": index["symbol"],
-                        "current_price": current_price,
-                        "change": change,
-                        "change_percent": change_percent,
-                        "prev_close": prev_close,
-                        "color": index["color"],
-                        "status_color": status_color,
-                        "last_updated": update_time
-                    })
-        
+                change = round(current_price - prev_close, 2)
+                change_percent = round((change / prev_close) * 100, 2)
+
+                status_color = "#2ecc71" if change >= 0 else "#e74c3c"
+
+                indices_data.append({
+                    "name": index["name"],
+                    "symbol": index["symbol"],
+                    "current_price": current_price,
+                    "change": change,
+                    "change_percent": change_percent,
+                    "prev_close": prev_close,
+                    "color": index["color"],
+                    "status_color": status_color,
+                    "last_updated": update_time
+                })
+
         return jsonify({
             "success": True,
             "data": indices_data,
             "last_updated": update_time
         })
-    
+
     except Exception as e:
         return jsonify({
             "success": False,
