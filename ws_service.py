@@ -2,16 +2,13 @@ from flask import Flask, jsonify
 import yfinance as yf
 import pandas as pd
 from flask_caching import Cache
-from datetime import datetime
-from flask_cors import CORS
-import os
+from datetime import datetime, timedelta
 
 app = Flask(__name__)
-CORS(app, resources={r"/*": {"origins": ["https://swingtradingwithme.blogspot.com"]}})
 cache = Cache(app, config={'CACHE_TYPE': 'simple'})
 
 # Configuration
-CACHE_TIMEOUT = 60  # seconds - respects API rate limits
+CACHE_TIMEOUT = 40  # seconds - respects API rate limits
 
 # Indian indices with their display names and Yahoo Finance symbols
 INDIAN_INDICES = [
@@ -23,6 +20,15 @@ INDIAN_INDICES = [
     {"name": "Nifty Smallcap 50", "symbol": "^NSESC50", "color": "#8c564b"}
 ]
 
+def get_previous_close(symbol):
+    """Get the proper previous close price (yesterday's close)"""
+    ticker = yf.Ticker(symbol)
+    # Get data for last 2 days to ensure we have previous close
+    hist = ticker.history(period='2d')
+    if len(hist) >= 2:
+        return hist['Close'].iloc[-2]
+    return None
+
 @app.route('/api/indices', methods=['GET'])
 @cache.cached(timeout=CACHE_TIMEOUT)
 def get_indices_data():
@@ -32,28 +38,31 @@ def get_indices_data():
         
         for index in INDIAN_INDICES:
             ticker = yf.Ticker(index["symbol"])
-            hist = ticker.history(period='1d', interval='1m')
+            # Get current price (latest available)
+            current_data = ticker.history(period='1d', interval='1m')
             
-            if not hist.empty:
-                current_price = round(hist['Close'].iloc[-1], 2)
-                prev_close = round(hist['Close'].iloc[-2] if len(hist) > 1 else current_price, 2)
-                change = round(current_price - prev_close, 2)
-                change_percent = round((change / prev_close) * 100, 2)
+            if not current_data.empty:
+                current_price = round(current_data['Close'].iloc[-1], 2)
+                prev_close = round(get_previous_close(index["symbol"]), 2)
                 
-                # Determine color based on performance
-                status_color = "#2ecc71" if change >= 0 else "#e74c3c"
-                
-                indices_data.append({
-                    "name": index["name"],
-                    "symbol": index["symbol"],
-                    "current_price": current_price,
-                    "change": change,
-                    "change_percent": change_percent,
-                    "prev_close": prev_close,
-                    "color": index["color"],
-                    "status_color": status_color,
-                    "last_updated": update_time
-                })
+                if prev_close is not None:
+                    change = round(current_price - prev_close, 2)
+                    change_percent = round((change / prev_close) * 100, 2)
+                    
+                    # Determine color based on performance
+                    status_color = "#2ecc71" if change >= 0 else "#e74c3c"
+                    
+                    indices_data.append({
+                        "name": index["name"],
+                        "symbol": index["symbol"],
+                        "current_price": current_price,
+                        "change": change,
+                        "change_percent": change_percent,
+                        "prev_close": prev_close,
+                        "color": index["color"],
+                        "status_color": status_color,
+                        "last_updated": update_time
+                    })
         
         return jsonify({
             "success": True,
@@ -69,5 +78,4 @@ def get_indices_data():
         }), 500
 
 if __name__ == '__main__':
-    port = int(os.environ.get("PORT", 5000))
-    app.run(host="0.0.0.0", port=port)
+    app.run(debug=True)
