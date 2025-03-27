@@ -9,7 +9,6 @@ import time
 app = Flask(__name__)
 CORS(app, resources={r"/*": {"origins": ["https://swingtradingwithme.blogspot.com"]}})
 
-# NSE Index Symbols
 INDIAN_INDICES = [
     {"name": "Nifty 50", "symbol": "NIFTY 50", "color": "#1f77b4"},
     {"name": "Nifty Bank", "symbol": "NIFTY BANK", "color": "#ff7f0e"},
@@ -19,53 +18,59 @@ INDIAN_INDICES = [
     {"name": "Nifty Smallcap 50", "symbol": "NIFTY SMLCAP 50", "color": "#8c564b"}
 ]
 
-# Create a session with NSE
-session = requests.Session()
-session.headers.update({
-    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
-    "Accept-Language": "en-US,en;q=0.9"
-})
+def initialize_nse_session():
+    """Initialize session with required cookies and headers"""
+    session = requests.Session()
+    session.headers.update({
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+        "Accept": "*/*",
+        "Accept-Encoding": "gzip, deflate, br",
+        "Connection": "keep-alive",
+        "Referer": "https://www.nseindia.com/"
+    })
+    
+    # First request to get cookies
+    session.get("https://www.nseindia.com", timeout=10)
+    time.sleep(2)  # Important delay
+    return session
 
-def get_nse_data():
-    """Fetch all required data from NSE in one go"""
-    try:
-        # Initialize session (important for NSE)
-        session.get("https://www.nseindia.com", timeout=5)
-        time.sleep(1)  # Be gentle with NSE
-        
-        # Fetch indices data
-        indices_data = []
-        for index in INDIAN_INDICES:
-            url = f"https://www.nseindia.com/api/equity-stockIndices?index={index['symbol'].upper().replace(' ', '%20')}"
-            response = session.get(url, timeout=5).json()
+def fetch_nse_data(session):
+    """Fetch all market data from NSE"""
+    base_url = "https://www.nseindia.com/api/"
+    
+    # 1. Fetch indices data
+    indices_data = []
+    for index in INDIAN_INDICES:
+        try:
+            url = f"{base_url}equity-stockIndices?index={index['symbol'].upper().replace(' ', '%20')}"
+            response = session.get(url, timeout=10)
+            response.raise_for_status()
+            data = response.json()["data"][0]
             
-            if "data" in response and len(response["data"]) > 0:
-                data = response["data"][0]
-                prev_close = data["previousClose"]
-                last_price = data["lastPrice"]
-                change = round(last_price - prev_close, 2)
-                change_percent = round((change / prev_close) * 100, 2)
-                
-                indices_data.append({
-                    "name": index["name"],
-                    "symbol": index["symbol"],
-                    "current_price": last_price,
-                    "change": change,
-                    "change_percent": change_percent,
-                    "prev_close": prev_close,
-                    "color": index["color"],
-                    "status_color": "#2ecc71" if change >= 0 else "#e74c3c"
-                })
-        
-        # Fetch top gainers and losers
+            indices_data.append({
+                "name": index["name"],
+                "symbol": index["symbol"],
+                "current_price": data["lastPrice"],
+                "change": round(data["lastPrice"] - data["previousClose"], 2),
+                "change_percent": round(data["pChange"], 2),
+                "prev_close": data["previousClose"],
+                "color": index["color"],
+                "status_color": "#2ecc71" if data["pChange"] >= 0 else "#e74c3c"
+            })
+        except Exception as e:
+            print(f"Error fetching {index['name']}: {str(e)}")
+            continue
+    
+    # 2. Fetch gainers and losers
+    try:
         gainers = session.get(
-            "https://www.nseindia.com/api/live-analysis-variations?index=gainers",
-            timeout=5
+            f"{base_url}live-analysis-variations?index=gainers",
+            timeout=10
         ).json()["NIFTY"]["data"][:5]
         
         losers = session.get(
-            "https://www.nseindia.com/api/live-analysis-variations?index=losers",
-            timeout=5
+            f"{base_url}live-analysis-variations?index=losers", 
+            timeout=10
         ).json()["NIFTY"]["data"][:5]
         
         return {
@@ -73,9 +78,8 @@ def get_nse_data():
             "top_gainers": gainers,
             "top_losers": losers
         }
-        
     except Exception as e:
-        print(f"Error fetching NSE data: {str(e)}")
+        print(f"Error fetching gainers/losers: {str(e)}")
         return None
 
 @app.route('/api/market-data', methods=['GET'])
@@ -84,8 +88,11 @@ def get_market_data():
     update_time = datetime.now(ist).strftime("%Y-%m-%d %H:%M:%S")
     
     try:
-        data = get_nse_data()
-        if data:
+        # Initialize new session for each request (NSE requires this)
+        session = initialize_nse_session()
+        data = fetch_nse_data(session)
+        
+        if data and data["indices"]:
             return jsonify({
                 "success": True,
                 "indices": data["indices"],
@@ -93,9 +100,8 @@ def get_market_data():
                 "top_losers": data["top_losers"],
                 "last_updated": update_time
             })
-        else:
-            raise Exception("Failed to fetch data from NSE")
-            
+        raise Exception("Failed to fetch data from NSE")
+        
     except Exception as e:
         return jsonify({
             "success": False,
