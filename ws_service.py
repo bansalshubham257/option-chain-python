@@ -22,7 +22,7 @@ NIFTY_50_STOCKS = [
     'HINDUNILVR.NS', 'ITC.NS', 'SBIN.NS', 'BHARTIARTL.NS', 'KOTAKBANK.NS'
 ]
 
-@app.route('/api/market-data', methods=['GET'])
+@app.route('/api/global/market-data', methods=['GET'])
 def get_market_data():
     try:
         # Get all data
