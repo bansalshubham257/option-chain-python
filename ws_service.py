@@ -1,14 +1,9 @@
 from flask import Flask, jsonify
 import yfinance as yf
-import pandas as pd
-from flask_caching import Cache
-from datetime import datetime, timedelta
+from datetime import datetime
+import pytz
 
 app = Flask(__name__)
-cache = Cache(app, config={'CACHE_TYPE': 'simple'})
-
-# Configuration
-CACHE_TIMEOUT = 10  # seconds - respects API rate limits
 
 # Indian indices with their display names and Yahoo Finance symbols
 INDIAN_INDICES = [
@@ -23,22 +18,20 @@ INDIAN_INDICES = [
 def get_previous_close(symbol):
     """Get the proper previous close price (yesterday's close)"""
     ticker = yf.Ticker(symbol)
-    # Get data for last 2 days to ensure we have previous close
     hist = ticker.history(period='2d')
     if len(hist) >= 2:
         return hist['Close'].iloc[-2]
     return None
 
 @app.route('/api/indices', methods=['GET'])
-@cache.cached(timeout=CACHE_TIMEOUT)
 def get_indices_data():
     try:
         indices_data = []
-        update_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        ist = pytz.timezone('Asia/Kolkata')
+        update_time = datetime.now(ist).strftime("%Y-%m-%d %H:%M:%S")
         
         for index in INDIAN_INDICES:
             ticker = yf.Ticker(index["symbol"])
-            # Get current price (latest available)
             current_data = ticker.history(period='1d', interval='1m')
             
             if not current_data.empty:
@@ -49,7 +42,6 @@ def get_indices_data():
                     change = round(current_price - prev_close, 2)
                     change_percent = round((change / prev_close) * 100, 2)
                     
-                    # Determine color based on performance
                     status_color = "#2ecc71" if change >= 0 else "#e74c3c"
                     
                     indices_data.append({
@@ -74,7 +66,7 @@ def get_indices_data():
         return jsonify({
             "success": False,
             "error": str(e),
-            "last_updated": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            "last_updated": datetime.now(pytz.timezone('Asia/Kolkata')).strftime("%Y-%m-%d %H:%M:%S")
         }), 500
 
 if __name__ == '__main__':
