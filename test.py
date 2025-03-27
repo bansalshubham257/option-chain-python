@@ -83,7 +83,7 @@ def getInstrumentKey(symbol):
 
 def getFuturesInstrumentKey(symbol):
     """Fetch the instrument key for futures contracts"""
-    expiry = "FUT 27 MAR 25"
+    expiry = "FUT 24 APR 25"
     symbol = symbol + " " + expiry
     try:
         # ✅ Filter for FUTURES contracts only
@@ -121,7 +121,7 @@ def process_large_futures_orders(market_quotes, stock_symbol, lot_size):
     large_orders = []
 
     prefix = f"NSE_FO:{stock_symbol}"  # stock_symbol is dynamic
-    suffix = "MARFUT"
+    suffix = "APRFUT"
 
     # Search for the correct futures instrument key dynamically
     pattern = re.compile(rf"{prefix}\d+{suffix}")
