@@ -22,134 +22,72 @@ NIFTY_50_STOCKS = [
     'HINDUNILVR.NS', 'ITC.NS', 'SBIN.NS', 'BHARTIARTL.NS', 'KOTAKBANK.NS'
 ]
 
-def get_nse_session():
-    """Create a session with proper headers for NSE"""
-    session = requests.Session()
-    session.headers.update({
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
-        "Accept-Language": "en-US,en;q=0.9"
-    })
+def get_correct_previous_close(symbol):
+    """Get yesterday's close price using daily data"""
     try:
-        session.get("https://www.nseindia.com", timeout=5)
-        time.sleep(2)
-        return session
-    except:
+        ticker = yf.Ticker(symbol)
+        # Get 2 days of daily data to ensure we get yesterday's close
+        hist = ticker.history(period="2d", interval="1d")
+        if len(hist) >= 2:
+            return hist['Close'].iloc[-2]  # Yesterday's close
+        return None
+    except Exception as e:
+        print(f"Error getting previous close for {symbol}: {str(e)}")
         return None
 
-def get_nse_data():
-    """Try to get data from NSE with fallback to yfinance"""
-    session = get_nse_session()
-    if not session:
-        return get_yfinance_data()
-
+def get_current_price(symbol):
+    """Get current price from intraday data"""
     try:
-        # Get indices
-        indices_data = []
-        for index in INDIAN_INDICES:
-            try:
-                url = f"https://www.nseindia.com/api/equity-stockIndices?index={index['name'].upper().replace(' ', '%20')}"
-                data = session.get(url, timeout=5).json()["data"][0]
-                indices_data.append({
-                    "name": index["name"],
-                    "current_price": data["lastPrice"],
-                    "change": round(data["lastPrice"] - data["previousClose"], 2),
-                    "change_percent": round(data["pChange"], 2),
-                    "prev_close": data["previousClose"],
-                    "color": index["color"],
-                    "status_color": "#2ecc71" if data["pChange"] >= 0 else "#e74c3c"
-                })
-            except:
-                # Fallback to yfinance if NSE fails
-                ticker = yf.Ticker(index["symbol"])
-                hist = ticker.history(period="1d", interval="1m")
-                if len(hist) > 1:
-                    current = hist["Close"].iloc[-1]
-                    prev = hist["Close"].iloc[-2]
-                    change = round(current - prev, 2)
-                    pct = round((change/prev)*100, 2)
-                    indices_data.append({
-                        "name": index["name"],
-                        "current_price": current,
-                        "change": change,
-                        "change_percent": pct,
-                        "prev_close": prev,
-                        "color": index["color"],
-                        "status_color": "#2ecc71" if change >= 0 else "#e74c3c"
-                    })
-
-        # Get gainers/losers
-        try:
-            gainers = session.get(
-                "https://www.nseindia.com/api/live-analysis-variations?index=gainers",
-                timeout=5
-            ).json()["NIFTY"]["data"][:5]
-
-            losers = session.get(
-                "https://www.nseindia.com/api/live-analysis-variations?index=losers",
-                timeout=5
-            ).json()["NIFTY"]["data"][:5]
-        except:
-            # Fallback to yfinance calculation
-            gainers, losers = get_yfinance_top_movers()
-
-        return {
-            "source": "nse",
-            "indices": indices_data,
-            "top_gainers": gainers,
-            "top_losers": losers
-        }
+        ticker = yf.Ticker(symbol)
+        hist = ticker.history(period="1d", interval="1m")
+        if not hist.empty:
+            return hist['Close'].iloc[-1]  # Latest price
+        return None
     except Exception as e:
-        print(f"NSE failed, falling back to yfinance: {str(e)}")
-        return get_yfinance_data()
+        print(f"Error getting current price for {symbol}: {str(e)}")
+        return None
 
-def get_yfinance_data():
-    """Fallback to yfinance when NSE fails"""
+def get_yfinance_indices():
+    """Get index data with proper previous close calculation"""
     indices_data = []
     for index in INDIAN_INDICES:
         try:
-            ticker = yf.Ticker(index["symbol"])
-            hist = ticker.history(period="1d", interval="1m")
-            if len(hist) > 1:
-                current = hist["Close"].iloc[-1]
-                prev = hist["Close"].iloc[-2]
-                change = round(current - prev, 2)
-                pct = round((change/prev)*100, 2)
+            current_price = get_current_price(index["symbol"])
+            prev_close = get_correct_previous_close(index["symbol"])
+
+            if current_price is not None and prev_close is not None:
+                change = round(current_price - prev_close, 2)
+                change_percent = round((change / prev_close) * 100, 2)
+
                 indices_data.append({
                     "name": index["name"],
-                    "current_price": current,
+                    "current_price": current_price,
                     "change": change,
-                    "change_percent": pct,
-                    "prev_close": prev,
+                    "change_percent": change_percent,
+                    "prev_close": prev_close,
                     "color": index["color"],
                     "status_color": "#2ecc71" if change >= 0 else "#e74c3c"
                 })
-        except:
+        except Exception as e:
+            print(f"Error processing {index['name']}: {str(e)}")
             continue
 
-    gainers, losers = get_yfinance_top_movers()
-
-    return {
-        "source": "yfinance",
-        "indices": indices_data,
-        "top_gainers": gainers,
-        "top_losers": losers
-    }
+    return indices_data
 
 def get_yfinance_top_movers():
-    """Calculate top movers from yfinance"""
+    """Calculate top movers with proper previous close"""
     changes = []
     for symbol in NIFTY_50_STOCKS:
         try:
-            ticker = yf.Ticker(symbol)
-            hist = ticker.history(period="1d", interval="1m")
-            if len(hist) > 1:
-                current = hist["Close"].iloc[-1]
-                prev = hist["Close"].iloc[0]
-                change = round(current - prev, 2)
-                pct = round((change/prev)*100, 2)
+            prev_close = get_correct_previous_close(symbol)
+            current_price = get_current_price(symbol)
+
+            if prev_close is not None and current_price is not None:
+                change = round(current_price - prev_close, 2)
+                pct = round((change/prev_close)*100, 2)
                 changes.append({
                     "symbol": symbol.replace(".NS", ""),
-                    "lastPrice": current,
+                    "lastPrice": current_price,
                     "change": change,
                     "pChange": pct
                 })
@@ -165,13 +103,14 @@ def get_market_data():
     update_time = datetime.now(ist).strftime("%Y-%m-%d %H:%M:%S")
 
     try:
-        data = get_nse_data()
+        indices = get_yfinance_indices()
+        gainers, losers = get_yfinance_top_movers()
+
         return jsonify({
             "success": True,
-            "source": data["source"],
-            "indices": data["indices"],
-            "top_gainers": data["top_gainers"],
-            "top_losers": data["top_losers"],
+            "indices": indices,
+            "top_gainers": gainers,
+            "top_losers": losers,
             "last_updated": update_time
         })
     except Exception as e:
