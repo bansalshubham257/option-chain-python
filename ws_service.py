@@ -22,6 +22,147 @@ NIFTY_50_STOCKS = [
     'HINDUNILVR.NS', 'ITC.NS', 'SBIN.NS', 'BHARTIARTL.NS', 'KOTAKBANK.NS'
 ]
 
+@app.route('/api/market-data', methods=['GET'])
+def get_market_data():
+    try:
+        # Get all data
+        indices = get_global_indices()
+        crypto = get_top_crypto()
+        commodities = get_commodities()
+
+        # Combine all data
+        response = {
+            'timestamp': datetime.now().isoformat(),
+            'indices': indices,
+            'cryptocurrencies': crypto,
+            'commodities': commodities
+        }
+
+        return jsonify(response)
+
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
+
+def get_global_indices():
+    """Fetch top global stock indices using yfinance"""
+    indices = {
+        '^GSPC': 'S&P 500',
+        '^DJI': 'Dow Jones',
+        '^IXIC': 'NASDAQ',
+        '^FTSE': 'FTSE 100',
+        '^N225': 'Nikkei 225',
+        '^HSI': 'Hang Seng',
+        '^GDAXI': 'DAX',
+        '^FCHI': 'CAC 40'
+    }
+
+    results = []
+    for symbol, name in indices.items():
+        try:
+            ticker = yf.Ticker(symbol)
+            data = ticker.history(period='1d')
+
+            if not data.empty:
+                last_close = data['Close'].iloc[-1]
+                prev_close = data['Close'].iloc[-2] if len(data) > 1 else last_close
+                change = last_close - prev_close
+                percent_change = (change / prev_close) * 100
+
+                results.append({
+                    'symbol': symbol,
+                    'name': name,
+                    'price': round(last_close, 2),
+                    'change': round(change, 2),
+                    'percent_change': round(percent_change, 2)
+                })
+        except Exception as e:
+            print(f"Error fetching {symbol}: {str(e)}")
+
+    # Sort by absolute percent change (most movement first)
+    results.sort(key=lambda x: abs(x['percent_change']), reverse=True)
+    return results
+
+def get_top_crypto(limit=5):
+    """Get top cryptocurrencies using yfinance"""
+    cryptos = {
+        'BTC-USD': 'Bitcoin',
+        'ETH-USD': 'Ethereum',
+        'BNB-USD': 'Binance Coin',
+        'SOL-USD': 'Solana',
+        'XRP-USD': 'XRP',
+        'ADA-USD': 'Cardano',
+        'DOGE-USD': 'Dogecoin',
+        'DOT-USD': 'Polkadot',
+        'SHIB-USD': 'Shiba Inu',
+        'AVAX-USD': 'Avalanche'
+    }
+
+    results = []
+    for symbol, name in list(cryptos.items())[:limit]:
+        try:
+            ticker = yf.Ticker(symbol)
+            data = ticker.history(period='1d')
+
+            if not data.empty:
+                last_close = data['Close'].iloc[-1]
+                prev_close = data['Close'].iloc[-2] if len(data) > 1 else last_close
+                change = last_close - prev_close
+                percent_change = (change / prev_close) * 100
+
+                # Get market cap if available (yfinance doesn't always provide this)
+                market_cap = ticker.info.get('marketCap', None)
+
+                results.append({
+                    'name': name,
+                    'symbol': symbol.replace('-USD', ''),
+                    'price': round(last_close, 2),
+                    'market_cap': round(market_cap, 2) if market_cap else None,
+                    'percent_change_24h': round(percent_change, 2)
+                })
+        except Exception as e:
+            print(f"Error fetching {symbol}: {str(e)}")
+
+    return results
+
+def get_commodities():
+    """Get major commodities prices using yfinance"""
+    commodities = {
+        'GC=F': 'Gold',
+        'SI=F': 'Silver',
+        'CL=F': 'Crude Oil',
+        'NG=F': 'Natural Gas',
+        'HG=F': 'Copper',
+        'ZC=F': 'Corn',
+        'ZS=F': 'Soybeans',
+        'KE=F': 'Coffee'
+    }
+
+    results = []
+    for symbol, name in commodities.items():
+        try:
+            ticker = yf.Ticker(symbol)
+            data = ticker.history(period='1d')
+
+            if not data.empty:
+                last_close = data['Close'].iloc[-1]
+                prev_close = data['Close'].iloc[-2] if len(data) > 1 else last_close
+                change = last_close - prev_close
+                percent_change = (change / prev_close) * 100
+
+                results.append({
+                    'name': name,
+                    'symbol': symbol,
+                    'price': round(last_close, 2),
+                    'change': round(change, 2),
+                    'percent_change': round(percent_change, 2)
+                })
+        except Exception as e:
+            print(f"Error fetching {symbol}: {str(e)}")
+
+    return results
+
+
+
 def get_correct_previous_close(symbol):
     """Get yesterday's close price using daily data"""
     try:
