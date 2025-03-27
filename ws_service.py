@@ -24,15 +24,16 @@ def get_indices_data():
         for index in INDIAN_INDICES:
             ticker = yf.Ticker(index["symbol"])
             
-            # Get today's intraday data (1-minute interval)
-            current_data = ticker.history(period='1d', interval='1m')
-            
-            # Get previous close from full historical data (last 5 days)
+            # Fetch the last 5 days of historical data to get the official previous close
             hist = ticker.history(period='5d')
 
-            if not current_data.empty and len(hist) > 1:
-                current_price = round(current_data['Close'].iloc[-1], 2)
-                prev_close = round(hist['Close'].iloc[-2], 2)  # Directly fetch previous day's close
+            # Fetch intraday data to get the latest price
+            current_data = ticker.history(period='1d', interval='1m')
+
+            if not hist.empty and not current_data.empty:
+                current_price = round(current_data['Close'].iloc[-1], 2)  # Latest available price
+                
+                prev_close = round(hist['Close'].iloc[-2], 2)  # Official previous close from the last trading session
                 
                 change = round(current_price - prev_close, 2)
                 change_percent = round((change / prev_close) * 100, 2)
