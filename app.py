@@ -28,7 +28,7 @@ app = Flask(__name__)
 CORS(app, resources={r"/*": {"origins": ["https://swingtradingwithme.blogspot.com"]}})
 ssl._create_default_https_context = ssl._create_unverified_context
 
-EXPIRY_DATE = "2025-03-27"
+EXPIRY_DATE = "2025-04-24"
 MARKET_OPEN = datetime.strptime("09:15", "%H:%M").time()
 MARKET_CLOSE = datetime.strptime("15:30", "%H:%M").time()
 
