@@ -9,7 +9,7 @@ CREATE TABLE IF NOT EXISTS options_orders (
     ask_qty INTEGER,
     lot_size INTEGER,
     timestamp TIMESTAMPTZ DEFAULT NOW(),
-    UNIQUE (symbol, strike_price, option_type, timestamp)
+    UNIQUE (symbol, strike_price, option_type)
 );
 
 CREATE TABLE IF NOT EXISTS futures_orders (
@@ -20,7 +20,7 @@ CREATE TABLE IF NOT EXISTS futures_orders (
     ask_qty INTEGER,
     lot_size INTEGER,
     timestamp TIMESTAMPTZ DEFAULT NOW(),
-    UNIQUE (symbol, timestamp)
+    UNIQUE (symbol)
 );
 
 CREATE TABLE IF NOT EXISTS oi_volume_history (
@@ -38,6 +38,6 @@ CREATE TABLE IF NOT EXISTS oi_volume_history (
 );
 
 -- Indexes for performance
-CREATE INDEX idx_options_symbol_time ON options_orders(symbol, timestamp);
-CREATE INDEX idx_futures_symbol_time ON futures_orders(symbol, timestamp);
+CREATE INDEX idx_options_symbol_time ON options_orders(symbol);
+CREATE INDEX idx_futures_symbol_time ON futures_orders(symbol);
 CREATE INDEX idx_oi_volume_lookup ON oi_volume_history(symbol, expiry_date, strike_price, option_type);
