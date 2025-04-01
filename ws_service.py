@@ -242,12 +242,17 @@ INDIAN_INDICES = [
 ]
 
 NIFTY_50_STOCKS = [
-    'RELIANCE.NS', 'TCS.NS', 'HDFCBANK.NS', 'ICICIBANK.NS', 'INFY.NS',
-    'HINDUNILVR.NS', 'ITC.NS', 'SBIN.NS', 'BHARTIARTL.NS', 'KOTAKBANK.NS'
+    'RELIANCE.NS', 'HDFCBANK.NS', 'TCS.NS', 'BHARTIARTL.NS', 'ICICIBANK.NS', 'SBIN.NS','INFY.NS', 'BAJFINANCE.NS',
+    'HINDUNILVR.NS', 'ITC.NS', 'LT.NS', 'HCLTECH.NS', 'KOTAKBANK.NS', 'SUNPHARMA.NS', 'MARUTI.NS', 'NTPC.NS',
+    'AXISBANK.NS', 'POWERGRID.NS', 'ONGC.NS', 'TITAN.NS', 'WIPRO.NS', 'BAJAJFINSV.NS', 'M&M.NS', 'ULTRACEMCO.NS',
+    'ADANIENT.NS', 'JSWSTEEL.NS', 'ADANIPORTS.NS', 'TATAMOTORS.NS', 'COALINDIA.NS', 'ASIANPAINT.NS', 'BEL.NS', 'BAJAJ-AUTO.NS',
+    'NESTLEIND.NS', 'ZOMATO.NS', 'TATASTEEL.NS', 'TRENT.NS', 'GRASIM.NS', 'SBILIFE.NS', 'HINDALCO.NS', 'HDFCLIFE.NS',
+    'EICHERMOT.NS', 'JIOFIN.NS', 'TECHM.NS', 'DRREDDY.NS', 'APOLLOHOSP.NS', 'CIPLA.NS', 'TATACONSUM.NS',
+    'HEROMOTOCO.NS', 'INDUSINDBK.NS'
 ]
 
 @app.route('/api/global-market-data', methods=['GET'])
-def get_market_data():
+def get_global_market_data():
     try:
         # Get all data
         indices = get_global_indices()
@@ -392,7 +397,7 @@ def get_correct_previous_close(symbol):
     try:
         ticker = yf.Ticker(symbol)
         # Get 2 days of daily data to ensure we get yesterday's close
-        hist = ticker.history(period="2d", interval="1d")
+        hist = ticker.history(period="3d", interval="1d")
         if len(hist) >= 2:
             return hist['Close'].iloc[-2]  # Yesterday's close
         return None
