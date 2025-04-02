@@ -16,7 +16,7 @@ from config import ACCESS_TOKEN  # Store securely
 ssl._create_default_https_context = ssl._create_unverified_context
 
 app = Flask(__name__)
-CORS(app, resources={r"/*": {"origins": ["https://swingtradingwithme.blogspot.com", "https://aitradinglab.blogspot.com"]}})
+CORS(app, resources={r"/*": {"origins": ["https://swingtradingwithme.blogspot.com", "https://aitradinglab.blogspot.com", "https://bansalshubham257.github.io"]}})
 
 BASE_URL = "https://assets.upstox.com/market-quote/instruments/exchange"
 UPSTOX_API_KEY = ACCESS_TOKEN
