@@ -18,6 +18,14 @@ import concurrent.futures  # For ThreadPoolExecutor
 from psycopg2.extras import execute_batch  # For batch database inserts
 from decimal import Decimal  # If not already imported
 
+import math
+from ta.momentum import RSIIndicator, StochasticOscillator, TSIIndicator
+from ta.trend import MACD, EMAIndicator, SMAIndicator, WMAIndicator, ADXIndicator, IchimokuIndicator
+from ta.volatility import BollingerBands, AverageTrueRange
+from ta.volume import VolumeWeightedAveragePrice
+
+import numpy as np
+
 from utils import fetch_all_nse_stocks, analyze_stock
 
 from test import (is_market_open, fno_stocks, clear_old_data, fetch_option_chain,
@@ -206,7 +214,7 @@ def run_script():
             time.sleep(300)  # 5 min sleep outside market hours
 
 @app.route('/get_fno_stocks', methods=['GET'])
-def get_fno_stocks():
+def get_upstox_fno_stocks():
     """API to return the list of F&O stocks"""
     return jsonify(fno_stocks)
 
@@ -529,7 +537,7 @@ def get_bulk_prices():
 INDIAN_INDICES = [
     {"name": "Nifty 50", "symbol": "^NSEI", "color": "#1f77b4"},
     {"name": "Nifty Bank", "symbol": "^NSEBANK", "color": "#ff7f0e"},
-    {"name": "FinNifty", "symbol": "^NSEFIN", "color": "#2ca02c"},
+    {"name": "FinNifty", "symbol": "^NIFTY_FIN_SERVICE.NS", "color": "#2ca02c"},
     {"name": "Midcap Nifty", "symbol": "^NSEMDCP50", "color": "#d62728"},
     {"name": "Sensex", "symbol": "^BSESN", "color": "#9467bd"}
 ]
@@ -783,6 +791,420 @@ def get_market_data():
             "last_updated": update_time
         }), 500
 
+CACHE_TIMEOUT = timedelta(minutes=15)
+FNO_STOCKS = [
+    'RELIANCE.NS', 'TATASTEEL.NS', 'HDFCBANK.NS', 'ICICIBANK.NS',
+    'INFY.NS', 'BHARTIARTL.NS', 'HINDUNILVR.NS', 'KOTAKBANK.NS',
+    'TCS.NS', 'WIPRO.NS', 'HCLTECH.NS', 'SBIN.NS', 'AXISBANK.NS',
+    'ITC.NS', 'ONGC.NS', 'NTPC.NS', 'POWERGRID.NS', 'ULTRACEMCO.NS'
+]
+
+class AdvancedStockScanner:
+    def __init__(self):
+        self.cache = {}
+        self.math_operations = {
+            '+': lambda a, b: a + b,
+            '-': lambda a, b: a - b,
+            '*': lambda a, b: a * b,
+            '/': lambda a, b: a / b if b != 0 else float('nan'),
+            'min': lambda a, b: min(a, b),
+            'max': lambda a, b: max(a, b),
+            'abs': lambda a: abs(a),
+            'round': lambda a: round(a),
+            'ceil': lambda a: math.ceil(a),
+            'floor': lambda a: math.floor(a)
+        }
+
+    def _get_stock_data(self, symbol, interval='1d'):
+        """Get 1 year of stock data with caching"""
+        cache_key = f"{symbol}_{interval}"
+        now = datetime.now()
+
+        if cache_key in self.cache:
+            data, timestamp = self.cache[cache_key]
+            if now - timestamp < CACHE_TIMEOUT:
+                return data.copy()
+
+        try:
+            data = yf.Ticker(symbol).history(period='1y', interval=interval)
+            if not data.empty:
+                data['Symbol'] = symbol  # Add symbol to dataframe
+                self.cache[cache_key] = (data.copy(), now)
+            return data
+        except Exception as e:
+            print(f"Error fetching data for {symbol}: {str(e)}")
+            return pd.DataFrame()
+
+    def _convert_to_serializable(self, value):
+        """Convert numpy types to native Python types for JSON serialization"""
+        if isinstance(value, (np.integer)):
+            return int(value)
+        if isinstance(value, (np.floating)):
+            return float(value)
+        if isinstance(value, (np.ndarray)):
+            return value.tolist()
+        return value
+
+    def calculate_technical_indicators(self, df, interval):
+        """Calculate all technical indicators with serializable output"""
+        if df.empty or len(df) < 2:
+            return {}
+
+        try:
+            results = {
+                'Symbol': df['Symbol'].iloc[-1],
+                'Close': self._convert_to_serializable(df['Close'].iloc[-1]),
+                'Open': self._convert_to_serializable(df['Open'].iloc[-1]),
+                'High': self._convert_to_serializable(df['High'].iloc[-1]),
+                'Low': self._convert_to_serializable(df['Low'].iloc[-1]),
+                'Volume': self._convert_to_serializable(df['Volume'].iloc[-1]),
+                '%Change': self._convert_to_serializable(
+                    (df['Close'].iloc[-1] - df['Close'].iloc[-2]) / df['Close'].iloc[-2] * 100
+                )
+            }
+
+            # VWAP
+            vwap = VolumeWeightedAveragePrice(
+                high=df['High'],
+                low=df['Low'],
+                close=df['Close'],
+                volume=df['Volume'],
+                window=14
+            )
+            results['VWAP'] = self._convert_to_serializable(vwap.volume_weighted_average_price().iloc[-1])
+
+            # Pivot points (from daily data)
+            if interval.endswith('m'):
+                daily_data = self._get_stock_data(df['Symbol'].iloc[0], '1d')
+                if not daily_data.empty:
+                    pivot = (daily_data['High'].iloc[-1] + daily_data['Low'].iloc[-1] + daily_data['Close'].iloc[-1]) / 3
+                    diff = daily_data['High'].iloc[-1] - daily_data['Low'].iloc[-1]
+                    results.update({
+                        'Pivot': self._convert_to_serializable(pivot),
+                        'R1': self._convert_to_serializable(2 * pivot - daily_data['Low'].iloc[-1]),
+                        'R2': self._convert_to_serializable(pivot + diff),
+                        'R3': self._convert_to_serializable(pivot + 2 * diff),
+                        'S1': self._convert_to_serializable(2 * pivot - daily_data['High'].iloc[-1]),
+                        'S2': self._convert_to_serializable(pivot - diff),
+                        'S3': self._convert_to_serializable(pivot - 2 * diff)
+                    })
+            else:
+                pivot = (df['High'].iloc[-1] + df['Low'].iloc[-1] + df['Close'].iloc[-1]) / 3
+                diff = df['High'].iloc[-1] - df['Low'].iloc[-1]
+                results.update({
+                    'Pivot': self._convert_to_serializable(pivot),
+                    'R1': self._convert_to_serializable(2 * pivot - df['Low'].iloc[-1]),
+                    'R2': self._convert_to_serializable(pivot + diff),
+                    'R3': self._convert_to_serializable(pivot + 2 * diff),
+                    'S1': self._convert_to_serializable(2 * pivot - df['High'].iloc[-1]),
+                    'S2': self._convert_to_serializable(pivot - diff),
+                    'S3': self._convert_to_serializable(pivot - 2 * diff)
+                })
+
+            # Moving Averages
+            results['SMA_5'] = self._convert_to_serializable(
+                SMAIndicator(close=df['Close'], window=5).sma_indicator().iloc[-1])
+            results['SMA_10'] = self._convert_to_serializable(
+                SMAIndicator(close=df['Close'], window=10).sma_indicator().iloc[-1])
+            results['SMA_20'] = self._convert_to_serializable(
+                SMAIndicator(close=df['Close'], window=20).sma_indicator().iloc[-1])
+            results['SMA_50'] = self._convert_to_serializable(
+                SMAIndicator(close=df['Close'], window=50).sma_indicator().iloc[-1])
+            results['SMA_200'] = self._convert_to_serializable(
+                SMAIndicator(close=df['Close'], window=200).sma_indicator().iloc[-1])
+
+            results['EMA_5'] = self._convert_to_serializable(
+                EMAIndicator(close=df['Close'], window=5).ema_indicator().iloc[-1])
+            results['EMA_10'] = self._convert_to_serializable(
+                EMAIndicator(close=df['Close'], window=10).ema_indicator().iloc[-1])
+            results['EMA_20'] = self._convert_to_serializable(
+                EMAIndicator(close=df['Close'], window=20).ema_indicator().iloc[-1])
+            results['EMA_50'] = self._convert_to_serializable(
+                EMAIndicator(close=df['Close'], window=50).ema_indicator().iloc[-1])
+            results['EMA_200'] = self._convert_to_serializable(
+                EMAIndicator(close=df['Close'], window=200).ema_indicator().iloc[-1])
+
+            results['WMA_20'] = self._convert_to_serializable(
+                WMAIndicator(close=df['Close'], window=20).wma().iloc[-1])
+
+            # Oscillators
+            if len(df) >= 14:
+                rsi = RSIIndicator(close=df['Close'], window=14)
+                results['RSI'] = self._convert_to_serializable(rsi.rsi().iloc[-1])
+
+                stoch = StochasticOscillator(
+                    high=df['High'],
+                    low=df['Low'],
+                    close=df['Close'],
+                    window=14,
+                    smooth_window=3
+                )
+                results['Stoch_%K'] = self._convert_to_serializable(stoch.stoch().iloc[-1])
+                results['Stoch_%D'] = self._convert_to_serializable(stoch.stoch_signal().iloc[-1])
+
+                tsi = TSIIndicator(close=df['Close'], window_slow=25, window_fast=13)
+                results['TSI'] = self._convert_to_serializable(tsi.tsi().iloc[-1])
+
+            # MACD
+            if len(df) >= 26:
+                macd = MACD(close=df['Close'])
+                results['MACD'] = self._convert_to_serializable(macd.macd().iloc[-1])
+                results['MACD_Signal'] = self._convert_to_serializable(macd.macd_signal().iloc[-1])
+                results['MACD_Hist'] = self._convert_to_serializable(macd.macd_diff().iloc[-1])
+
+            # ADX
+            if len(df) >= 14:
+                adx = ADXIndicator(
+                    high=df['High'],
+                    low=df['Low'],
+                    close=df['Close'],
+                    window=14
+                )
+                results['ADX'] = self._convert_to_serializable(adx.adx().iloc[-1])
+                results['ADX_Pos'] = self._convert_to_serializable(adx.adx_pos().iloc[-1])
+                results['ADX_Neg'] = self._convert_to_serializable(adx.adx_neg().iloc[-1])
+
+            # Ichimoku Cloud
+            if len(df) >= 52:
+                ichi = IchimokuIndicator(
+                    high=df['High'],
+                    low=df['Low'],
+                    window1=9,
+                    window2=26,
+                    window3=52
+                )
+                results['Ichimoku_Conversion'] = self._convert_to_serializable(ichi.ichimoku_conversion_line().iloc[-1])
+                results['Ichimoku_Base'] = self._convert_to_serializable(ichi.ichimoku_base_line().iloc[-1])
+                results['Ichimoku_A'] = self._convert_to_serializable(ichi.ichimoku_a().iloc[-1])
+                results['Ichimoku_B'] = self._convert_to_serializable(ichi.ichimoku_b().iloc[-1])
+
+            # Bollinger Bands
+            bb = BollingerBands(close=df['Close'], window=20, window_dev=2)
+            results['BB_Upper'] = self._convert_to_serializable(bb.bollinger_hband().iloc[-1])
+            results['BB_Middle'] = self._convert_to_serializable(bb.bollinger_mavg().iloc[-1])
+            results['BB_Lower'] = self._convert_to_serializable(bb.bollinger_lband().iloc[-1])
+
+            # ATR
+            atr = AverageTrueRange(
+                high=df['High'],
+                low=df['Low'],
+                close=df['Close'],
+                window=14
+            )
+            results['ATR'] = self._convert_to_serializable(atr.average_true_range().iloc[-1])
+
+            return results
+
+        except Exception as e:
+            print(f"Error calculating indicators: {str(e)}")
+            return {}
+
+    def evaluate_expression(self, expr, indicators):
+        """Evaluate a mathematical expression"""
+        try:
+            if isinstance(expr, (int, float)):
+                return expr
+            if isinstance(expr, str) and expr in indicators:
+                return indicators.get(expr, 0)
+            if isinstance(expr, dict):
+                if expr['type'] == 'value':
+                    return expr['value']
+                if expr['type'] == 'field':
+                    return indicators.get(expr['field'], 0)
+                if expr['type'] == 'operation':
+                    op = expr['operation']
+                    operands = [self.evaluate_expression(o, indicators) for o in expr['operands']]
+                    if op in self.math_operations:
+                        return self.math_operations[op](*operands)
+            return 0
+        except:
+            return 0
+
+
+    def scan_stocks(self, conditions):
+        """Scan all F&O stocks with advanced conditions"""
+        results = []
+
+        for symbol in FNO_STOCKS:
+            try:
+                metrics = {'Symbol': symbol}
+                valid = True
+
+                # Get all unique intervals needed
+                intervals = set()
+                for condition in conditions:
+                    intervals.add(condition.get('left_interval', '1d'))
+                    if condition.get('right_type') == 'field':
+                        intervals.add(condition.get('right_interval', '1d'))
+
+                # Fetch data for all required intervals
+                data = {interval: self._get_stock_data(symbol, interval) for interval in intervals}
+
+                for condition in conditions:
+                    # Process left side
+                    left_interval = condition.get('left_interval', '1d')
+                    left_df = data.get(left_interval, pd.DataFrame())
+                    left_indicators = self.calculate_technical_indicators(left_df, left_interval)
+
+                    # Process right side based on type
+                    if condition.get('right_type') == 'value':
+                        right_value = float(condition.get('right_value', 0))
+                        right_indicators = {'value': right_value}
+                    elif condition.get('right_type') == 'field':
+                        right_interval = condition.get('right_interval', '1d')
+                        right_df = data.get(right_interval, pd.DataFrame())
+                        right_indicators = self.calculate_technical_indicators(right_df, right_interval)
+                    elif condition.get('right_type') == 'operation':
+                        # Handle math operations
+                        op = condition.get('operation', {}).get('operation')
+                        operands = condition.get('operation', {}).get('operands', [])
+                        try:
+                            right_value = self.math_operations.get(op, lambda *x: 0)(*[float(o) for o in operands])
+                            right_indicators = {'operation_result': right_value}
+                        except Exception as e:
+                            print(f"Math operation failed: {e}")
+                            valid = False
+                            break
+
+                    if not self.evaluate_condition(condition, left_indicators, right_indicators):
+                        valid = False
+                        break
+
+                if valid:
+                    default_data = self._get_stock_data(symbol, '1d')
+                    metrics.update(self.calculate_technical_indicators(default_data, '1d'))
+                    results.append(metrics)
+
+            except Exception as e:
+                print(f"Error scanning {symbol}: {str(e)}")
+                continue
+
+        return results
+
+    def evaluate_condition(self, condition, left_indicators, right_indicators=None):
+        """Evaluate a single condition with math operations"""
+        if right_indicators is None:
+            right_indicators = {}
+
+        try:
+            left_field = condition.get('left_field')
+            if not left_field:
+                return False
+
+            left = left_indicators.get(left_field, 0)
+
+            right_type = condition.get('right_type')
+            if right_type == 'value':
+                right = float(condition.get('right_value', 0))
+            elif right_type == 'field':
+                right_field = condition.get('right_field')
+                if not right_field:
+                    return False
+                right = right_indicators.get(right_field, 0)
+            else:
+                right = 0
+
+            op = condition.get('operator')
+            if op == '>': return left > right
+            if op == '<': return left < right
+            if op == '==': return abs(left - right) < 0.0001
+            if op == '>=': return left >= right
+            if op == '<=': return left <= right
+            if op == 'crossed_above': return left > right
+            if op == 'crossed_below': return left < right
+
+            return False
+        except Exception as e:
+            print(f"Error evaluating condition: {e}")
+            return False
+
+# Initialize scanner
+scanner = AdvancedStockScanner()
+
+@app.route('/api/scan', methods=['POST'])
+def scan():
+    try:
+        conditions = request.json.get('conditions', [])
+        results = scanner.scan_stocks(conditions)
+        return jsonify({
+            'success': True,
+            'results': results,
+            'count': len(results)
+        })
+    except Exception as e:
+        return jsonify({
+            'success': False,
+            'error': str(e)
+        }), 500
+
+@app.route('/api/indicators', methods=['GET'])
+def get_indicators():
+    return jsonify({
+        'success': True,
+        'categories': [
+            {
+                'name': 'Price',
+                'indicators': ['Close', 'Open', 'High', 'Low', 'Volume', '%Change']
+            },
+            {
+                'name': 'Pivot Points',
+                'indicators': ['Pivot', 'R1', 'R2', 'R3', 'S1', 'S2', 'S3']
+            },
+            {
+                'name': 'Moving Averages',
+                'indicators': ['SMA_5', 'SMA_10', 'SMA_20', 'SMA_50', 'SMA_200',
+                               'EMA_5', 'EMA_10', 'EMA_20', 'EMA_50', 'EMA_200',
+                               'WMA_20']
+            },
+            {
+                'name': 'Oscillators',
+                'indicators': ['RSI', 'Stoch_%K', 'Stoch_%D', 'TSI', 'MACD',
+                               'MACD_Signal', 'MACD_Hist']
+            },
+            {
+                'name': 'Trend',
+                'indicators': ['ADX', 'ADX_Pos', 'ADX_Neg', 'Ichimoku_Conversion',
+                               'Ichimoku_Base', 'Ichimoku_A', 'Ichimoku_B']
+            },
+            {
+                'name': 'Volatility',
+                'indicators': ['BB_Upper', 'BB_Middle', 'BB_Lower', 'ATR']
+            },
+            {
+                'name': 'Volume',
+                'indicators': ['VWAP']
+            }
+        ],
+        'intervals': ['1m', '5m', '15m', '30m', '1h', '1d'],
+        'operations': ['+', '-', '*', '/', 'min', 'max', 'abs', 'round', 'ceil', 'floor']
+    })
+
+@app.route('/api/fno-stocks', methods=['GET'])
+def get_fno_stocks():
+    stocks_list = [
+        f"{stock.strip().upper()}.NS"  # Clean and format
+        for stock in fno_stocks.keys()
+        if stock and str(stock).strip()  # Drop empty/None/whitespace
+    ]
+    unique_stocks = sorted(list(set(stocks_list)))
+    return jsonify({
+        'success': True,
+        'stocks': unique_stocks
+    })
+
+@app.route('/api/ipos')
+def get_ipos():
+    try:
+        # Fetch data from NiftyTrader
+        response = requests.get('https://webapi.niftytrader.in/webapi/Other/ipo-company-list')
+        response.raise_for_status()  # Raise error if request fails
+
+        data = response.json()
+        all_ipos = data['resultData']
+
+        return jsonify(all_ipos)  # Return ALL IPOs (not just current)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 # Run Flask
 if __name__ == "__main__":
