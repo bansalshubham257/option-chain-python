@@ -237,8 +237,9 @@ def get_bulk_prices():
 INDIAN_INDICES = [
     {"name": "Nifty 50", "symbol": "^NSEI", "color": "#1f77b4"},
     {"name": "Nifty Bank", "symbol": "^NSEBANK", "color": "#ff7f0e"},
-    {"name": "Nifty IT", "symbol": "^CNXIT", "color": "#2ca02c"},
-    {"name": "Sensex", "symbol": "^BSESN", "color": "#d62728"}
+    {"name": "FinNifty", "symbol": "^NSEFIN", "color": "#2ca02c"},
+    {"name": "Midcap Nifty", "symbol": "^NSEMDCP50", "color": "#d62728"},
+    {"name": "Sensex", "symbol": "^BSESN", "color": "#9467bd"}
 ]
 
 NIFTY_50_STOCKS = [
