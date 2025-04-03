@@ -1,3 +1,4 @@
+import json
 import os
 import time
 
@@ -241,7 +242,39 @@ class DatabaseService:
 
     def clear_old_data(self):
         """Delete previous day's data"""
+        print("inside clear_old_data")
         with self._get_cursor() as cur:
+            print("cur", cur)
             cur.execute("DELETE FROM options_orders")
             cur.execute("DELETE FROM futures_orders")
             cur.execute("DELETE FROM oi_volume_history")
+
+
+    def save_market_data(self, data_type, data):
+        """Save market data to cache by converting dict to JSON"""
+        with self._get_cursor() as cur:
+            cur.execute("""
+                INSERT INTO market_data_cache (data_type, data)
+                VALUES (%s, %s)
+                ON CONFLICT (data_type) 
+                DO UPDATE SET data = EXCLUDED.data, last_updated = NOW()
+            """, (data_type, json.dumps(data)))  # Convert dict to JSON string
+
+
+    def get_market_data(self, data_type):
+        """Get cached market data"""
+        with self._get_cursor() as cur:
+            cur.execute("""
+                SELECT data FROM market_data_cache
+                WHERE data_type = %s
+            """, (data_type,))
+            result = cur.fetchone()
+            return result[0] if result else None
+
+    def clear_old_market_data(self):
+        """Clear market data older than 1 day"""
+        with self._get_cursor() as cur:
+            cur.execute("""
+                DELETE FROM market_data_cache
+                WHERE last_updated < NOW() - INTERVAL '1 day'
+            """)
