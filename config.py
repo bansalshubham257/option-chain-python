@@ -13,6 +13,6 @@ class Config:
     EXPIRY_DATE = "2025-04-24"
     # Market hours configuration
     MARKET_OPEN = time(9, 15)  # 09:15 AM
-    MARKET_CLOSE = time(22, 30)  # 03:30 PM
+    MARKET_CLOSE = time(15, 30)  # 03:30 PM
 
     TRADING_DAYS = {0, 1, 2, 3, 4}  # Monday to Friday
