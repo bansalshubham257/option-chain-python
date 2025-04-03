@@ -12,6 +12,7 @@ from services.option_chain import OptionChainService
 from services.market_data import MarketDataService
 from services.stock_analysis import StockAnalysisService
 from services.database import DatabaseService
+from config import Config
 
 app = Flask(__name__)
 CORS(app, resources={r"/*": {"origins": [
@@ -140,8 +141,23 @@ def run_background_workers():
 
 if __name__ == "__main__":
     if os.getenv('BACKGROUND_WORKER', 'false').lower() == 'true':
-        print("Starting background worker ONLY")
-        run_background_workers()
+        ist = pytz.timezone('Asia/Kolkata')
+        now = datetime.now(ist)
+        current_time = now.time()
+        is_weekday = now.weekday() < 5  #
+        if is_weekday and (Config.MARKET_OPEN <= current_time <= Config.MARKET_CLOSE):
+            print("Market is open, starting background workers...")
+            run_background_workers()
+        else:
+            if not is_weekday:
+                print("Market closed (weekend)")
+            else:
+                print(f"Market closed (current time: {current_time})")
+
+            # Sleep until next market open
+            sleep_seconds = market_data_service.get_seconds_until_next_open()
+            print(f"Sleeping for {sleep_seconds//3600}h {(sleep_seconds%3600)//60}m until next market open")
+            time.sleep(sleep_seconds)
     else:
         print("Starting web service ONLY")
         port = int(os.environ.get("PORT", 10000))
