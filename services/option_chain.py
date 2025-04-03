@@ -28,6 +28,10 @@ class OptionChainService:
         self.database = DatabaseService()
 
 
+    def get_fno_stocks_with_symbols(self):
+        """Return F&O stocks list with proper Yahoo Finance symbols"""
+        return [f"{stock}.NS" for stock in self.fno_stocks.keys()]
+
     def _load_instruments_with_retry(self):
         """Load instruments data with retry logic"""
         for attempt in range(self.max_retries):
