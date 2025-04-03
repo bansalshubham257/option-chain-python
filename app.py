@@ -8,8 +8,8 @@ import pytz
 from datetime import datetime
 import threading
 import time
-from services.market_data import MarketDataService
 from services.option_chain import OptionChainService
+from services.market_data import MarketDataService
 from services.stock_analysis import StockAnalysisService
 from services.database import DatabaseService
 
@@ -22,10 +22,14 @@ CORS(app, resources={r"/*": {"origins": [
 ]}})
 
 # Initialize services
-market_data_service = MarketDataService()
-option_chain_service = OptionChainService()
-stock_analysis_service = StockAnalysisService()
 database_service = DatabaseService()
+option_chain_service = OptionChainService()
+market_data_service = MarketDataService(
+    database_service=database_service,
+    option_chain_service=option_chain_service
+)
+stock_analysis_service = StockAnalysisService()
+
 
 # API Routes
 @app.route("/stocks", methods=["GET"])
@@ -106,10 +110,38 @@ def run_script():
     """Background worker for market hours processing"""
     option_chain_service.run_market_processing()
 
+def run_market_data_worker():
+    """Background worker for market data updates"""
+    while True:
+        try:
+            market_data_service.update_all_market_data()
+            time.sleep(300)  # 5 minutes between updates
+        except Exception as e:
+            print(f"Error in market data worker: {e}")
+            time.sleep(60)
+
+def run_option_chain_worker():
+    """Background worker for option chain processing"""
+    option_chain_service.run_market_processing()
+
+def run_background_workers():
+    """Run all background workers in separate threads"""
+    # Use threading for parallel execution
+    market_data_thread = threading.Thread(target=run_market_data_worker, daemon=True)
+    option_chain_thread = threading.Thread(target=run_option_chain_worker, daemon=True)
+
+    market_data_thread.start()
+    option_chain_thread.start()
+    print("Background workers started successfully")
+
+    # Keep main thread alive
+    while True:
+        time.sleep(3600)
+
 if __name__ == "__main__":
     if os.getenv('BACKGROUND_WORKER', 'false').lower() == 'true':
         print("Starting background worker ONLY")
-        run_script()
+        run_background_workers()
     else:
         print("Starting web service ONLY")
         port = int(os.environ.get("PORT", 10000))
