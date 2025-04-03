@@ -242,6 +242,6 @@ class DatabaseService:
     def clear_old_data(self):
         """Delete previous day's data"""
         with self._get_cursor() as cur:
-            cur.execute("DELETE FROM options_orders WHERE timestamp < CURRENT_DATE")
-            cur.execute("DELETE FROM futures_orders WHERE timestamp < CURRENT_DATE")
-            cur.execute("DELETE FROM oi_volume_history WHERE created_at < CURRENT_DATE")
+            cur.execute("DELETE FROM options_orders")
+            cur.execute("DELETE FROM futures_orders")
+            cur.execute("DELETE FROM oi_volume_history")
