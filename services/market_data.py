@@ -1,15 +1,19 @@
+import time
+
 import yfinance as yf
 import requests
 import pytz
 from datetime import datetime
 from config import Config
+from services.option_chain import OptionChainService
 
 class MarketDataService:
-    def __init__(self):
+    def __init__(self, database_service=None, option_chain_service=None):
+        self.option_chain_service = option_chain_service
         self.INDIAN_INDICES = [
             {"name": "Nifty 50", "symbol": "^NSEI", "color": "#1f77b4"},
             {"name": "Nifty Bank", "symbol": "^NSEBANK", "color": "#ff7f0e"},
-            {"name": "FinNifty", "symbol": "^NSEFIN", "color": "#2ca02c"},
+            {"name": "FinNifty", "symbol": "NIFTY_FIN_SERVICE.NS", "color": "#2ca02c"},
             {"name": "Midcap Nifty", "symbol": "^NSEMDCP50", "color": "#d62728"},
             {"name": "Sensex", "symbol": "^BSESN", "color": "#9467bd"}
         ]
@@ -20,6 +24,9 @@ class MarketDataService:
         ]
         self.market_open = Config.MARKET_OPEN
         self.market_close = Config.MARKET_CLOSE
+        self.database = database_service
+        self.update_interval = 300  # 5 minutes
+        self.last_update = 0
 
     def is_market_open(self):
         ist = pytz.timezone('Asia/Kolkata')
@@ -33,26 +40,43 @@ class MarketDataService:
         current_time = now.time()
         return self.market_open <= current_time <= self.market_close
 
-    def get_fii_dii_data(self, year_month, request_type):
-        if not year_month:
-            return {"error": "year_month parameter is required"}
+    def update_all_market_data(self):
+        """Update all market data in one go"""
+        current_time = time.time()
+        if current_time - self.last_update < self.update_interval:
+            return False
 
-        api_url = f"https://webapi.niftytrader.in/webapi/Resource/fii-dii-activity-data?request_type={request_type}&year_month={year_month}"
-        response = requests.get(api_url)
-        return response.json() if response.status_code == 200 else {"error": "Failed to fetch data"}
-
-    def get_global_market_data(self):
         try:
-            return {
-                'timestamp': datetime.now().isoformat(),
-                'indices': self._get_global_indices(),
-                'cryptocurrencies': self._get_top_crypto(),
-                'commodities': self._get_commodities()
-            }
-        except Exception as e:
-            return {'error': str(e)}
+            # Indian market data
+            indian_data = self._get_indian_market_data_direct()
+            if self.database:
+                self.database.save_market_data('indian_market', indian_data)
 
-    def get_indian_market_data(self):
+            # Global market data
+            global_data = self._get_global_market_data_direct()
+            if self.database:
+                self.database.save_market_data('global_market', global_data)
+
+            # FII/DII data (monthly, so we don't need to update frequently)
+            if datetime.now().day == 1:  # Update on 1st of each month
+                fii_dii = self._get_fii_dii_data_direct()
+                if self.database:
+                    self.database.save_market_data('fii_dii', fii_dii)
+
+            # IPOs data
+            ipos = self._get_ipos_direct()
+            if self.database:
+                self.database.save_market_data('ipos', ipos)
+
+            self.last_update = current_time
+            return True
+
+        except Exception as e:
+            print(f"Error updating market data: {e}")
+            return False
+
+    def _get_indian_market_data_direct(self):
+        """Direct API call for Indian market data (without cache)"""
         ist = pytz.timezone('Asia/Kolkata')
         update_time = datetime.now(ist).strftime("%Y-%m-%d %H:%M:%S")
 
@@ -73,9 +97,62 @@ class MarketDataService:
                 "last_updated": update_time
             }
 
-    def get_ipos(self):
+    def _get_global_market_data_direct(self):
+        """Direct API call for global market data (without cache)"""
+        try:
+            return {
+                'timestamp': datetime.now().isoformat(),
+                'indices': self._get_global_indices(),
+                'cryptocurrencies': self._get_top_crypto(),
+                'commodities': self._get_commodities()
+            }
+        except Exception as e:
+            return {'error': str(e)}
+
+    def _get_fii_dii_data_direct(self):
+        """Direct API call for FII/DII data (without cache)"""
+        year_month = datetime.now().strftime("%Y-%m")
+        api_url = f"https://webapi.niftytrader.in/webapi/Resource/fii-dii-activity-data?request_type=combined&year_month={year_month}"
+        response = requests.get(api_url)
+        return response.json() if response.status_code == 200 else {"error": "Failed to fetch data"}
+
+    def _get_ipos_direct(self):
+        """Direct API call for IPOs data (without cache)"""
         response = requests.get('https://webapi.niftytrader.in/webapi/Other/ipo-company-list')
         return response.json().get('resultData', []) if response.status_code == 200 else {"error": "Failed to fetch IPOs"}
+
+    def get_global_market_data(self):
+        if self.database:
+            cached = self.database.get_market_data('global_market')
+            if cached:
+                return cached
+        return self._get_global_market_data_direct()
+
+    def get_indian_market_data(self):
+        if self.database:
+            cached = self.database.get_market_data('indian_market')
+            if cached:
+                return cached
+        return self._get_indian_market_data_direct()
+
+    def get_fii_dii_data(self, year_month=None, request_type=None):
+        if not year_month:
+            year_month = datetime.now().strftime("%Y-%m")
+        if not request_type:
+            request_type = "combined"
+
+        if self.database:
+            cached = self.database.get_market_data('fii_dii')
+            if cached:
+                return cached
+        return self._get_fii_dii_data_direct()
+
+    def get_ipos(self):
+        if self.database:
+            cached = self.database.get_market_data('ipos')
+            if cached:
+                return cached
+        return self._get_ipos_direct()
 
     # Helper methods
     def _get_global_indices(self):
@@ -178,9 +255,20 @@ class MarketDataService:
 
         return indices_data
 
+    def get_fno_stocks(self):
+        """Get F&O stocks list from OptionChainService"""
+        if self.option_chain_service:
+            return self.option_chain_service.get_fno_stocks_with_symbols()
+        return []  # Fallback if option_chain_service not available
+
+
     def _get_yfinance_top_movers(self):
+        stocks = self.get_fno_stocks()
+        if not stocks:
+            return [], []  # Return empty lists if no stocks available
+
         changes = []
-        for symbol in self.NIFTY_50_STOCKS:
+        for symbol in stocks:
             try:
                 prev_close = self._get_previous_close(symbol)
                 current_price = self._get_current_price(symbol)
