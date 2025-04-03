@@ -1,4 +1,18 @@
 import os
+from datetime import time
 
-ACCESS_TOKEN = os.getenv("ACCESS_TOKEN", "eyJ0eXAiOiJKV1QiLCJrZXlfaWQiOiJza192MS4wIiwiYWxnIjoiSFMyNTYifQ.eyJzdWIiOiIyWEJSUFMiLCJqdGkiOiI2N2Q1MTk5YzZiMGJiMDQ1MGI3NWU0ZDEiLCJpc011bHRpQ2xpZW50IjpmYWxzZSwiaWF0IjoxNzQyMDE4OTcyLCJpc3MiOiJ1ZGFwaS1nYXRld2F5LXNlcnZpY2UiLCJleHAiOjE3NDIwNzYwMDB9.DCspTm_QaeDO5NOu08ggt5Ga4MCMcJM7CJh-1YazJBc")
-BASE_URL = "https://api.upstox.com/v2"
+
+class Config:
+    # Database configuration
+    DATABASE_URL = os.getenv('DATABASE_URL', 'postgresql://swingtrade_db_user:ZlewRq8aZKimqMwrP2LdRTuFsvhi9qDw@dpg-cvh8gfpu0jms73bj6gm0-a.oregon-postgres.render.com/swingtrade_db')
+
+    # Upstox API configuration
+    ACCESS_TOKEN = os.getenv('ACCESS_TOKEN', 'eyJ0eXAiOiJKV1QiLCJrZXlfaWQiOiJza192MS4wIiwiYWxnIjoiSFMyNTYifQ.eyJzdWIiOiIyWEJSUFMiLCJqdGkiOiI2N2VkZjI5OTVlMDFkYTVlZjBjY2Q5ODAiLCJpc011bHRpQ2xpZW50IjpmYWxzZSwiaWF0IjoxNzQzNjQ3Mzg1LCJpc3MiOiJ1ZGFwaS1nYXRld2F5LXNlcnZpY2UiLCJleHAiOjE3NDM3MTc2MDB9.Ra7Bclq3ysxWNmi7oJol_1mcgz1sCK7WWgFG-59ZFmM')
+
+    # Other configurations
+    EXPIRY_DATE = "2025-04-24"
+    # Market hours configuration
+    MARKET_OPEN = time(9, 15)  # 09:15 AM
+    MARKET_CLOSE = time(22, 30)  # 03:30 PM
+
+    TRADING_DAYS = {0, 1, 2, 3, 4}  # Monday to Friday
