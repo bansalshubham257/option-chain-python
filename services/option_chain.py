@@ -349,7 +349,7 @@ class OptionChainService:
             now = datetime.now(IST)
 
             # Clear old data at market open
-            if (now.weekday() < 5 and Config.MARKET_OPEN <= now.time() <= Config.MARKET_CLOSE and
+            if (now.weekday() < 5 and Config.MARKET_OPEN >= now.time() <= Config.MARKET_CLOSE and
                     (last_clear_date is None or last_clear_date != now.date())):
                 try:
                     self.database.clear_old_data()
