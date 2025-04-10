@@ -6,7 +6,7 @@ import requests
 import pytz
 from datetime import datetime
 from config import Config
-from services.option_chain import OptionChainService
+from option_chain import OptionChainService
 
 class MarketDataService:
     def __init__(self, database_service=None, option_chain_service=None):
@@ -46,16 +46,16 @@ class MarketDataService:
         ist = pytz.timezone('Asia/Kolkata')
         now = datetime.now(ist)
         current_time = now.time()
-    
+
         # Case 1: If market is currently open
         if self.is_market_open():
             return 0
-    
+
         # Case 2: Before market open today (same day)
         if now.weekday() < 5 and current_time < self.market_open:
             next_open = ist.localize(datetime.combine(now.date(), self.market_open))
             return (next_open - now).total_seconds()
-    
+
         # Case 3: After market close today - next open is next trading day
         days_to_add = 1
         while True:
