@@ -6,22 +6,22 @@ import time
 import pandas as pd
 import requests
 import pytz
-from datetime import datetime
+from datetime import datetime, timedelta, date
 from io import BytesIO
 from decimal import Decimal
 from typing import Dict, Optional
-from services.database import DatabaseService
+from database import DatabaseService
 from config import Config
+from psycopg2.extras import execute_batch
 
 class OptionChainService:
     def __init__(self, max_retries=3):
         self.BASE_URL = "https://assets.upstox.com/market-quote/instruments/exchange"
         self.UPSTOX_BASE_URL = "https://api.upstox.com"
         self.symbol_to_instrument = {}
+        self.instruments_data = None
         self.market_open = Config.MARKET_OPEN
         self.market_close = Config.MARKET_CLOSE
-        self.trading_days = Config.TRADING_DAYS
-        self.instruments_data = None
         self.max_retries = max_retries
         self._load_instruments_with_retry()
         self.fno_stocks = self._load_fno_stocks()
@@ -92,8 +92,6 @@ class OptionChainService:
                 except (ValueError, TypeError) as e:
                     print(f"Skipping invalid row: {row['tradingsymbol']} - {str(e)}")
                     continue
-
-            print(f"Loaded {len(fno_stocks)} F&O stocks")
             return fno_stocks
 
         except Exception as e:
@@ -168,7 +166,6 @@ class OptionChainService:
         # Load F&O stocks
 
     def get_fno_stocks(self):
-        print("inside get_fno_stocks")
         return self.fno_stocks
 
     def fetch_stocks(self):
@@ -192,6 +189,8 @@ class OptionChainService:
         for _, row in fno_stocks_raw.iterrows():
             parsed = self._parse_option_symbol(row['tradingsymbol'])
             if parsed:
+                if parsed["strike_price"] in (5, 5.0):
+                    continue
                 stock = parsed["stock"]
                 if stock not in stock_data:
                     stock_data[stock] = {"expiries": set(), "options": [], "instrument_key": None}
@@ -348,7 +347,7 @@ class OptionChainService:
         """Background worker for market hours processing"""
         last_clear_date = None
         IST = pytz.timezone("Asia/Kolkata")
-    
+
         while True:
             now = datetime.now(IST)
 
@@ -373,6 +372,309 @@ class OptionChainService:
             else:
                 time.sleep(300)  # 5 min sleep outside market hours
 
+
+    def detect_buildups(self, lookback_minutes=30):
+        """Detect long/short buildups in F&O stocks"""
+        buildups = {
+            "futures_long_buildup": [],
+            "futures_short_buildup": [],
+            "options_long_buildup": [],
+            "options_short_buildup": [],
+            "timestamp": datetime.now(pytz.timezone('Asia/Kolkata')).strftime('%Y-%m-%d %H:%M:%S')
+        }
+    
+        # Get all F&O stocks
+        fno_stocks = self.get_fno_stocks()
+        for stock in fno_stocks.keys():
+            try:
+                # Analyze futures buildup
+                futures_buildup = self._analyze_futures_buildup(stock, lookback_minutes)
+                if futures_buildup:
+                    if futures_buildup['type'] == 'long':
+                        buildups["futures_long_buildup"].append(futures_buildup)
+                    else:
+                        buildups["futures_short_buildup"].append(futures_buildup)
+                # Analyze options buildup
+                options_buildup = self._analyze_options_buildup(stock, lookback_minutes)
+                buildups["options_long_buildup"].extend(options_buildup.get('long', []))
+                buildups["options_short_buildup"].extend(options_buildup.get('short', []))
+    
+            except Exception as e:
+                print(f"Error analyzing buildups for {stock}: {str(e)}")
+                continue
+        return buildups
+
+
+    # In OptionChainService class:
+
+    def run_analytics_worker(self):
+        """Combined worker for all F&O analytics"""
+        while True:
+            try:
+                # 1. Run all analytics
+                buildups = self.detect_buildups()
+                oi_analytics = self.detect_oi_extremes()
+
+                # 2. Store all results in the new table
+                self.database.save_buildup_results({
+                    'futures_long_buildup': buildups['futures_long_buildup'],
+                    'futures_short_buildup': buildups['futures_short_buildup'],
+                    'options_long_buildup': buildups['options_long_buildup'],
+                    'options_short_buildup': buildups['options_short_buildup']
+                })
+
+                # Also store OI analytics
+                oi_data = []
+                for item in oi_analytics['oi_gainers']:
+                    oi_data.append({
+                        'symbol': item['symbol'],
+                        'result_type': 'oi_gainer',
+                        'category': 'oi_gainer',
+                        'strike': item.get('strike', 0),
+                        'option_type': item.get('type', 'FUT'),
+                        'oi_change': item['oi_change'],
+                        'absolute_oi': item['oi'],
+                        'timestamp': item['timestamp']
+                    })
+
+                for item in oi_analytics['oi_losers']:
+                    oi_data.append({
+                        'symbol': item['symbol'],
+                        'result_type': 'oi_loser',
+                        'category': 'oi_loser',
+                        'strike': item.get('strike', 0),
+                        'option_type': item.get('type', 'FUT'),
+                        'oi_change': item['oi_change'],
+                        'absolute_oi': item['oi'],
+                        'timestamp': item['timestamp']
+                    })
+
+                with self.database._get_cursor() as cur:
+                    execute_batch(cur, """
+                        INSERT INTO buildup_results 
+                        (symbol, result_type, category, strike, option_type,
+                         oi_change, absolute_oi, timestamp)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                    """, [
+                        (item['symbol'], item['result_type'], item['category'],
+                         item['strike'], item['option_type'],
+                         item['oi_change'], item['absolute_oi'], item['timestamp'])
+                        for item in oi_data
+                    ], page_size=100)
+
+                time.sleep(300)  # Run every 5 minutes
+
+            except Exception as e:
+                print(f"Error in analytics worker: {e}")
+                time.sleep(60)
+
+
+    def detect_oi_extremes(self, lookback_minutes=30, top_n=10):
+        """Detect top OI gainers and losers with fixed query"""
+        try:
+            with self.database._get_cursor() as cur:
+                cur.execute("""
+                    WITH oi_changes AS (
+                        SELECT 
+                            symbol,
+                            strike_price as strike,
+                            option_type as type,
+                            oi as absolute_oi,
+                            CASE 
+                                WHEN LAG(oi) OVER (PARTITION BY symbol, strike_price, option_type ORDER BY display_time) = 0 THEN 0
+                                ELSE ((oi - LAG(oi) OVER (PARTITION BY symbol, strike_price, option_type ORDER BY display_time)) / 
+                                     LAG(oi) OVER (PARTITION BY symbol, strike_price, option_type ORDER BY display_time)) * 100 
+                            END as oi_change,
+                            display_time as timestamp
+                        FROM oi_volume_history
+                        WHERE display_time::time >= (NOW() - INTERVAL %s)::time
+                    ),
+                    ranked_data AS (
+                        SELECT 
+                            *,
+                            RANK() OVER (ORDER BY oi_change DESC NULLS LAST) as gainer_rank,
+                            RANK() OVER (ORDER BY oi_change ASC NULLS LAST) as loser_rank
+                        FROM oi_changes
+                        WHERE oi_change IS NOT NULL
+                    ),
+                    final_results AS (
+                        SELECT 
+                            symbol, strike, type, absolute_oi, 
+                            ROUND(oi_change::numeric, 2) as oi_change, 
+                            timestamp, 
+                            'oi_gainer' as category,
+                            ABS(ROUND(oi_change::numeric, 2)) as abs_change
+                        FROM ranked_data 
+                        WHERE gainer_rank <= %s
+                        
+                        UNION ALL
+                        
+                        SELECT 
+                            symbol, strike, type, absolute_oi, 
+                            ROUND(oi_change::numeric, 2) as oi_change, 
+                            timestamp, 
+                            'oi_loser' as category,
+                            ABS(ROUND(oi_change::numeric, 2)) as abs_change
+                        FROM ranked_data 
+                        WHERE loser_rank <= %s
+                    )
+                    SELECT symbol, strike, type, absolute_oi, oi_change, timestamp, category
+                    FROM final_results
+                    ORDER BY category DESC, abs_change DESC
+                """, (f"{lookback_minutes} minutes", top_n, top_n))
+
+                results = cur.fetchall()
+                oi_analytics = {'oi_gainers': [], 'oi_losers': []}
+
+                for row in results:
+                    item = {
+                        'symbol': row[0],
+                        'strike': float(row[1]),
+                        'type': row[2],
+                        'oi': int(row[3]),
+                        'oi_change': float(row[4]),
+                        'timestamp': row[5]
+                    }
+                    if row[6] == 'oi_gainer':
+                        oi_analytics['oi_gainers'].append(item)
+                    else:
+                        oi_analytics['oi_losers'].append(item)
+
+                return oi_analytics
+        except Exception as e:
+            print(f"Error in detect_oi_extremes: {str(e)}")
+            return {'oi_gainers': [], 'oi_losers': []}
+
+    def _analyze_futures_buildup(self, stock, lookback_minutes):
+        """Analyze futures buildup using OI, price and volume changes"""
+        with self.database._get_cursor() as cur:
+            # Get current time in IST
+            current_time = datetime.now(pytz.timezone('Asia/Kolkata')).time()
+
+            # Calculate threshold time by subtracting minutes
+            ist = pytz.timezone('Asia/Kolkata')
+            threshold_minutes = timedelta(minutes=lookback_minutes)
+            threshold_time = (datetime.combine(date.today(), current_time) - threshold_minutes).time()
+
+            # Compare time strings directly
+            cur.execute("""
+                    SELECT 
+                        price, oi, volume, display_time
+                    FROM oi_volume_history
+                    WHERE 
+                        symbol = %s AND 
+                        option_type = 'FU' AND
+                        display_time::time >= %s::time
+                    ORDER BY display_time DESC
+                    LIMIT 2
+                """, (stock, threshold_time.strftime('%H:%M')))
+
+            results = cur.fetchall()
+
+            if len(results) < 2:
+                return None
+    
+            current, previous = results[0], results[1]
+    
+            # Calculate percentage changes
+            price_pct = ((current[0] - previous[0]) / previous[0]) * 100 if previous[0] > 0 else 0
+            oi_pct = ((current[1] - previous[1]) / previous[1]) * 100 if previous[1] > 0 else 0
+            volume_pct = ((current[2] - previous[2]) / previous[2]) * 100 if previous[2] > 0 else 0
+
+            timestamp_str = f"{datetime.now(ist).date()} {current[3]}"
+            timestamp = datetime.strptime(timestamp_str, "%Y-%m-%d %H:%M").astimezone(ist).strftime('%Y-%m-%d %H:%M')
+
+            if price_pct > 0.3 and oi_pct > 5:
+                print("Future Long buildup detected")
+                return {
+                    'symbol': stock,
+                    'price_change': round(price_pct, 2),
+                    'oi_change': round(oi_pct, 2),
+                    'volume_change': round(volume_pct, 2),
+                    'type': 'long',
+                    'timestamp': timestamp
+                }
+            elif price_pct < -0.3 and oi_pct > 5:
+                print("Future Short buildup detected")
+                return {
+                    'symbol': stock,
+                    'price_change': round(price_pct, 2),
+                    'oi_change': round(oi_pct, 2),
+                    'volume_change': round(volume_pct, 2),
+                    'type': 'short',
+                    'timestamp': timestamp
+                }
+        return None
+
+    def _analyze_options_buildup(self, stock, lookback_minutes):
+        """Analyze options buildup with proper time handling"""
+        long_buildup = []
+        short_buildup = []
+    
+        with self.database._get_cursor() as cur:
+            # Get current time in IST
+            ist = pytz.timezone('Asia/Kolkata')
+            threshold_time = (datetime.now(ist) - timedelta(minutes=lookback_minutes)).time()
+    
+            # Execute query with proper time filtering
+            cur.execute("""
+                SELECT 
+                    strike_price, option_type, price, oi, volume, display_time
+                FROM oi_volume_history
+                WHERE 
+                    symbol = %s AND 
+                    option_type IN ('CE', 'PE') AND
+                    display_time::time >= %s::time
+                ORDER BY strike_price, option_type, display_time DESC
+            """, (stock, threshold_time.strftime('%H:%M')))
+    
+            # Group by strike and option type
+            from itertools import groupby
+            data = cur.fetchall()
+            grouped = groupby(data, key=lambda x: (x[0], x[1]))  # (strike, option_type)
+    
+            for (strike, opt_type), group in grouped:
+                points = list(group)
+                if len(points) < 2:
+                    continue
+    
+                current, previous = points[0], points[1]
+    
+                # Calculate percentage changes
+                price_pct = ((current[2] - previous[2]) / previous[2]) * 100 if previous[2] > 0 else 0
+                oi_pct = ((current[3] - previous[3]) / previous[3]) * 100 if previous[3] > 0 else 0
+                volume_pct = ((current[4] - previous[4]) / previous[4]) * 100 if previous[4] > 0 else 0
+
+                # Create timestamp with current date
+                timestamp_str = f"{datetime.now(ist).date()} {current[5]}"
+                timestamp = datetime.strptime(timestamp_str, "%Y-%m-%d %H:%M").astimezone(ist)
+    
+                # Build results without isoformat()
+                if opt_type == 'CE' and price_pct > 1 and oi_pct > 10:
+                    print("option Long buildup detected")
+                    long_buildup.append({
+                        'symbol': stock,
+                        'strike': strike,
+                        'type': opt_type,
+                        'price_change': round(price_pct, 2),
+                        'oi_change': round(oi_pct, 2),
+                        'volume_change': round(volume_pct, 2),
+                        'timestamp': timestamp.strftime('%Y-%m-%d %H:%M')  # As string
+                    })
+                elif opt_type == 'PE' and price_pct < -1 and oi_pct > 10:
+                    print("option short buildup detected")
+                    short_buildup.append({
+                        'symbol': stock,
+                        'strike': strike,
+                        'type': opt_type,
+                        'price_change': round(price_pct, 2),
+                        'oi_change': round(oi_pct, 2),
+                        'volume_change': round(volume_pct, 2),
+                        'timestamp': timestamp.strftime('%Y-%m-%d %H:%M')  # As string
+                    })
+    
+        return {'long': long_buildup, 'short': short_buildup}
+    
     def _fetch_and_store_orders(self):
         """Fetch and store option chain data"""
         total_start = time.time()
@@ -459,13 +761,32 @@ class OptionChainService:
             if not market_quotes:
                 print(f"No market quotes for {stock_symbol}")
                 return None
-
-            # Process data
+            
             result = {
                 'options_orders': [],
                 'futures_orders': [],
                 'oi_records': []
             }
+            
+            prefix = f"NSE_FO:{stock_symbol}"
+            suffix = "APRFUT"
+    
+            pattern = re.compile(rf"{prefix}\d+{suffix}")
+            fut_instrument_key = next((key for key in market_quotes if pattern.match(key)), None)
+
+            if fut_instrument_key and fut_instrument_key in market_quotes:
+                fut_data = market_quotes[fut_instrument_key]
+                result['oi_records'].append({
+                    'symbol': stock_symbol,
+                    'expiry': expiry_date,
+                    'strike': 0,  # Using 0 for futures
+                    'option_type': 'FU',
+                    'oi': Decimal(str(fut_data.get('oi', 0))),
+                    'volume': Decimal(str(fut_data.get('volume', 0))),
+                    'price': Decimal(str(fut_data.get('last_price', 0))),
+                    'timestamp': datetime.now(pytz.timezone('Asia/Kolkata')).strftime("%H:%M")
+                })
+            # Process data
 
             # Process futures
             futures_orders = self._process_futures_orders(market_quotes, stock_symbol, lot_size)
@@ -523,7 +844,7 @@ class OptionChainService:
                     'price': Decimal(str(ltp)),
                     'timestamp': datetime.now(pytz.timezone('Asia/Kolkata')).strftime("%H:%M")
                 })
-
+            
             print(f"{stock_symbol}: {len(result['options_orders'])} orders, {len(result['oi_records'])} OI records")
             return result
 
