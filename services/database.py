@@ -20,6 +20,7 @@ class DatabaseService:
         }
         self.max_retries = max_retries
         self.retry_delay = retry_delay
+        print("databse init done")
 
     def test_connection(self):
         """Test database connection"""
@@ -248,6 +249,8 @@ class DatabaseService:
             cur.execute("DELETE FROM options_orders")
             cur.execute("DELETE FROM futures_orders")
             cur.execute("DELETE FROM oi_volume_history")
+            cur.execute("DELETE FROM buildup_results")
+            cur.execute("DELETE FROM fno_analytics")
 
 
     def save_market_data(self, data_type, data):
@@ -278,3 +281,59 @@ class DatabaseService:
                 DELETE FROM market_data_cache
                 WHERE last_updated < NOW() - INTERVAL '1 day'
             """)
+
+    def save_buildup_results(self, results):
+        """Save buildup analysis results to the new table"""
+        if not results:
+            return
+
+        with self._get_cursor() as cur:
+            data = []
+            for result_type, items in results.items():
+                for item in items:
+                    data.append((
+                        item['symbol'],
+                        'buildup',  # result_type
+                        item.get('category', ''),
+                        item.get('strike', 0),
+                        item.get('option_type', 'FUT'),
+                        item.get('price_change', 0),
+                        item.get('oi_change', 0),
+                        item.get('volume_change', 0),
+                        item.get('oi', 0),
+                        item['timestamp']
+                    ))
+
+            execute_batch(cur, """
+                INSERT INTO buildup_results 
+                (symbol, result_type, category, strike, option_type,
+                 price_change, oi_change, volume_change, absolute_oi, timestamp)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            """, data, page_size=100)
+
+    def get_buildup_results(self, limit=20):
+        """Get recent buildup results"""
+        with self._get_cursor() as cur:
+            cur.execute("""
+                SELECT symbol, result_type, category, strike, option_type,
+                       price_change, oi_change, volume_change, absolute_oi, timestamp
+                FROM buildup_results
+                ORDER BY created_at DESC
+                LIMIT %s
+            """, (limit,))
+
+            results = []
+            for row in cur.fetchall():
+                results.append({
+                    'symbol': row[0],
+                    'result_type': row[1],
+                    'category': row[2],
+                    'strike': float(row[3]),
+                    'option_type': row[4],
+                    'price_change': float(row[5]),
+                    'oi_change': float(row[6]),
+                    'volume_change': float(row[7]),
+                    'absolute_oi': int(row[8]),
+                    'timestamp': row[9]
+                })
+            return results
