@@ -11,6 +11,7 @@ from decimal import Decimal
 class StockAnalysisService:
     def __init__(self):
         self.LOCAL_CSV_FILE = "nse_stocks.csv"
+        print("stock analysis init done")
 
     def fetch_all_nse_stocks(self):
         """Read NSE-listed stocks from local CSV"""
