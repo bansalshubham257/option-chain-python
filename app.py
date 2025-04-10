@@ -121,6 +121,106 @@ def run_market_data_worker():
             print(f"Error in market data worker: {e}")
             time.sleep(60)
 
+@app.route('/api/fno-analytics', methods=['GET'])
+def get_fno_analytics():
+    try:
+        analytics_type = request.args.get('type', 'buildup')  # 'buildup' or 'oi'
+        category = request.args.get('category')  # Optional filter
+        limit = int(request.args.get('limit', 20))
+
+        with database_service._get_cursor() as cur:
+            query = """
+                SELECT 
+                    symbol, analytics_type, category, strike, option_type,
+                    price_change, oi_change, volume_change, absolute_oi, timestamp
+                FROM fno_analytics
+                WHERE analytics_type = %s
+            """
+            params = [analytics_type]
+
+            if category:
+                query += " AND category = %s"
+                params.append(category)
+
+            if analytics_type == 'buildup':
+                query += " ORDER BY GREATEST(ABS(price_change), ABS(oi_change)) DESC"
+            else:
+                query += " ORDER BY ABS(oi_change) DESC"
+
+            query += " LIMIT %s"
+            params.append(limit)
+
+            cur.execute(query, params)
+
+            results = []
+            for row in cur.fetchall():
+                results.append({
+                    'symbol': row[0],
+                    'type': row[1],
+                    'category': row[2],
+                    'strike': float(row[3]),
+                    'option_type': row[4],
+                    'price_change': float(row[5]) if row[5] else None,
+                    'oi_change': float(row[6]) if row[6] else None,
+                    'volume_change': float(row[7]) if row[7] else None,
+                    'absolute_oi': int(row[8]) if row[8] else None,
+                    'timestamp': row[9]
+                })
+
+            return jsonify({
+                "status": "success",
+                "data": results,
+                "timestamp": datetime.now(pytz.timezone('Asia/Kolkata')).isoformat()
+            })
+
+    except Exception as e:
+        logging.error(f"Error fetching analytics: {str(e)}")
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+@app.route('/api/oi-extremes', methods=['GET'])
+def get_oi_extremes():
+    try:
+        limit = int(request.args.get('limit', 10))
+        with database_service._get_cursor() as cur:
+            cur.execute("""
+                SELECT symbol, strike, option_type as type,
+                       absolute_oi, oi_change, timestamp
+                FROM fno_analytics
+                WHERE analytics_type = 'oi_analytics'
+                ORDER BY 
+                    CASE WHEN category = 'oi_gainer' THEN 0 ELSE 1 END,
+                    ABS(oi_change) DESC
+                LIMIT %s
+            """, (limit,))
+
+            results = {
+                'oi_gainers': [],
+                'oi_losers': []
+            }
+            for row in cur.fetchall():
+                item = {
+                    'symbol': row[0],
+                    'strike': float(row[1]),
+                    'type': row[2],
+                    'oi': int(row[3]),
+                    'oi_change': float(row[4]),
+                    'timestamp': row[5]
+                }
+                if item['oi_change'] >= 0:
+                    results['oi_gainers'].append(item)
+                else:
+                    results['oi_losers'].append(item)
+
+            return jsonify({
+                "status": "success",
+                "data": results,
+                "timestamp": datetime.now(pytz.timezone('Asia/Kolkata')).isoformat()
+            })
+
+    except Exception as e:
+        logging.error(f"Error fetching OI extremes: {str(e)}")
+        return jsonify({"status": "error", "message": str(e)}), 500
+    
 def run_option_chain_worker():
     """Background worker for option chain processing"""
     option_chain_service.run_market_processing()
@@ -130,9 +230,11 @@ def run_background_workers():
     # Use threading for parallel execution
     market_data_thread = threading.Thread(target=run_market_data_worker, daemon=True)
     option_chain_thread = threading.Thread(target=run_option_chain_worker, daemon=True)
+    oi_buildup_thread = threading.Thread(target=option_chain_service.run_analytics_worker, daemon=True)
 
     market_data_thread.start()
     option_chain_thread.start()
+    oi_buildup_thread.start()
     print("Background workers started successfully")
 
     # Keep main thread alive
