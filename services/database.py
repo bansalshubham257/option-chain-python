@@ -16,8 +16,7 @@ class DatabaseService:
             'user': os.getenv('DB_USER', 'your_db_user'),
             'password': os.getenv('DB_PASSWORD', 'your_db_password'),
             'host': os.getenv('DB_HOST', 'localhost'),
-            'port': os.getenv('DB_PORT', '5432'),
-            'max_connections': 20  # Adjust based on your needs
+            'port': os.getenv('DB_PORT', '5432')
         }
         self.max_retries = max_retries
         self.retry_delay = retry_delay
