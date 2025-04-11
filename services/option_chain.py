@@ -408,66 +408,27 @@ class OptionChainService:
     # In OptionChainService class:
 
     def run_analytics_worker(self):
-        """Combined worker for all F&O analytics"""
+    """Combined worker for all F&O analytics"""
         while True:
             try:
                 # 1. Run all analytics
                 buildups = self.detect_buildups()
                 oi_analytics = self.detect_oi_extremes()
-
-                # 2. Store all results in the new table
-                self.database.save_buildup_results({
-                    'futures_long_buildup': buildups['futures_long_buildup'],
-                    'futures_short_buildup': buildups['futures_short_buildup'],
-                    'options_long_buildup': buildups['options_long_buildup'],
-                    'options_short_buildup': buildups['options_short_buildup']
-                })
-
-                # Also store OI analytics
-                oi_data = []
-                for item in oi_analytics['oi_gainers']:
-                    oi_data.append({
-                        'symbol': item['symbol'],
-                        'result_type': 'oi_gainer',
-                        'category': 'oi_gainer',
-                        'strike': item.get('strike', 0),
-                        'option_type': item.get('type', 'FUT'),
-                        'oi_change': item['oi_change'],
-                        'absolute_oi': item['oi'],
-                        'timestamp': item['timestamp']
-                    })
-
-                for item in oi_analytics['oi_losers']:
-                    oi_data.append({
-                        'symbol': item['symbol'],
-                        'result_type': 'oi_loser',
-                        'category': 'oi_loser',
-                        'strike': item.get('strike', 0),
-                        'option_type': item.get('type', 'FUT'),
-                        'oi_change': item['oi_change'],
-                        'absolute_oi': item['oi'],
-                        'timestamp': item['timestamp']
-                    })
-
-                with self.database._get_cursor() as cur:
-                    execute_batch(cur, """
-                        INSERT INTO buildup_results 
-                        (symbol, result_type, category, strike, option_type,
-                         oi_change, absolute_oi, timestamp)
-                        VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-                    """, [
-                        (item['symbol'], item['result_type'], item['category'],
-                         item['strike'], item['option_type'],
-                         item['oi_change'], item['absolute_oi'], item['timestamp'])
-                        for item in oi_data
-                    ], page_size=100)
-
+                
+                # 2. Combine all results
+                combined_results = {
+                    **buildups,
+                    'oi_gainers': oi_analytics['oi_gainers'],
+                    'oi_losers': oi_analytics['oi_losers']
+                }
+                
+                # 3. Store all in single table
+                self.database.save_buildup_results(combined_results)
+                
                 time.sleep(300)  # Run every 5 minutes
-
             except Exception as e:
                 print(f"Error in analytics worker: {e}")
                 time.sleep(60)
-
 
     def detect_oi_extremes(self, lookback_minutes=30, top_n=10):
         """Detect top OI gainers and losers with fixed query"""
