@@ -16,7 +16,8 @@ class DatabaseService:
             'user': os.getenv('DB_USER', 'your_db_user'),
             'password': os.getenv('DB_PASSWORD', 'your_db_password'),
             'host': os.getenv('DB_HOST', 'localhost'),
-            'port': os.getenv('DB_PORT', '5432')
+            'port': os.getenv('DB_PORT', '5432'),
+            'max_connections': 20  # Adjust based on your needs
         }
         self.max_retries = max_retries
         self.retry_delay = retry_delay
@@ -235,19 +236,16 @@ class DatabaseService:
 
         if not filtered_records:
             return
-
-        with self._get_cursor() as cur:
-            execute_batch(cur, """
-                INSERT INTO oi_volume_history (
-                    symbol, expiry_date, strike_price, option_type,
-                    oi, volume, price, display_time
-                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-            """, [
-                (r['symbol'], r['expiry'], r['strike'], r['option_type'],
-                 r['oi'], r['volume'], r['price'], r['timestamp'])
-                for r in filtered_records
-            ], page_size=100)
-
+   
+   
+   
+   
+   
+   
+   
+   
+   
+   
     def clear_old_data(self):
         """Delete previous day's data"""
         print("inside clear_old_data")
@@ -290,71 +288,32 @@ class DatabaseService:
             """)
 
     def save_buildup_results(self, results):
-        """Save all analytics data to fno_analytics table"""
+        """Save buildup analysis results to the database with proper conflict handling"""
         if not results:
             return
-    
+
         data = []
-        
-        # Process futures buildup
-        for item in results.get('futures_long_buildup', []):
-            data.append((
-                item['symbol'],
-                'buildup',
-                'futures_long',
-                item.get('strike', 0),
-                'FUT',
-                item.get('price_change', 0),
-                item.get('oi_change', 0),
-                item.get('volume_change', 0),
-                item.get('absolute_oi', 0),
-                item['timestamp']
-            ))
-        
-        for item in results.get('futures_short_buildup', []):
-            data.append((
-                item['symbol'],
-                'buildup',
-                'futures_short',
-                item.get('strike', 0),
-                'FUT',
-                item.get('price_change', 0),
-                item.get('oi_change', 0),
-                item.get('volume_change', 0),
-                item.get('absolute_oi', 0),
-                item['timestamp']
-            ))
-        
-        # Process options buildup
-        for item in results.get('options_long_buildup', []):
-            data.append((
-                item['symbol'],
-                'buildup',
-                'options_long',
-                item.get('strike', 0),
-                item.get('type', 'CE'),
-                item.get('price_change', 0),
-                item.get('oi_change', 0),
-                item.get('volume_change', 0),
-                item.get('absolute_oi', 0),
-                item['timestamp']
-            ))
-        
-        for item in results.get('options_short_buildup', []):
-            data.append((
-                item['symbol'],
-                'buildup',
-                'options_short',
-                item.get('strike', 0),
-                item.get('type', 'PE'),
-                item.get('price_change', 0),
-                item.get('oi_change', 0),
-                item.get('volume_change', 0),
-                item.get('absolute_oi', 0),
-                item['timestamp']
-            ))
-        
-        # Process OI analytics if present
+        timestamp = datetime.now(pytz.timezone('Asia/Kolkata')).strftime('%Y-%m-%d %H:%M')
+
+        # Process buildup data
+        for result_type, items in results.items():
+            if result_type in ['futures_long_buildup', 'futures_short_buildup',
+                               'options_long_buildup', 'options_short_buildup']:
+                for item in items:
+                    data.append((
+                        item['symbol'],
+                        'buildup',  # analytics_type
+                        result_type.replace('_buildup', ''),  # category
+                        item.get('strike', 0),
+                        item.get('option_type', 'FUT'),
+                        item.get('price_change', 0),
+                        item.get('oi_change', 0),
+                        item.get('volume_change', 0),
+                        item.get('absolute_oi', 0),
+                        item.get('timestamp', timestamp)
+                    ))
+
+        # Process OI extremes (if present in results)
         if 'oi_gainers' in results:
             for item in results['oi_gainers']:
                 data.append((
@@ -367,9 +326,9 @@ class DatabaseService:
                     item['oi_change'],
                     None,  # volume_change
                     item['oi'],
-                    item['timestamp']
+                    item.get('timestamp', timestamp)
                 ))
-        
+
         if 'oi_losers' in results:
             for item in results['oi_losers']:
                 data.append((
@@ -382,21 +341,38 @@ class DatabaseService:
                     item['oi_change'],
                     None,  # volume_change
                     item['oi'],
-                    item['timestamp']
+                    item.get('timestamp', timestamp)
                 ))
-    
-        if not data:
-            return
-    
+
         with self._get_cursor() as cur:
+            # Insert into fno_analytics
             execute_batch(cur, """
                 INSERT INTO fno_analytics 
                 (symbol, analytics_type, category, strike, option_type,
                  price_change, oi_change, volume_change, absolute_oi, timestamp)
                 VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 ON CONFLICT (symbol, analytics_type, category, strike, option_type, timestamp) 
-                DO NOTHING
+                DO UPDATE SET
+                    price_change = EXCLUDED.price_change,
+                    oi_change = EXCLUDED.oi_change,
+                    volume_change = EXCLUDED.volume_change,
+                    absolute_oi = EXCLUDED.absolute_oi
             """, data, page_size=100)
+
+            # Insert into buildup_results (if needed)
+            execute_batch(cur, """
+                INSERT INTO buildup_results 
+                (symbol, result_type, category, strike, option_type,
+                 oi_change, absolute_oi, timestamp)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                ON CONFLICT (symbol, result_type, category, strike, option_type, timestamp)
+                DO UPDATE SET
+                    oi_change = EXCLUDED.oi_change,
+                    absolute_oi = EXCLUDED.absolute_oi
+            """, [
+                (item[0], item[1], item[2], item[3], item[4], item[6], item[8], item[9])
+                for item in data
+            ], page_size=100)
 
     def get_buildup_results(self, limit=20):
         """Get recent buildup results"""
