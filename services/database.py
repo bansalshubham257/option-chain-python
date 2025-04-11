@@ -1,7 +1,8 @@
 import json
 import os
 import time
-
+import pytz
+from datetime import datetime
 import psycopg2
 from psycopg2._psycopg import OperationalError
 from psycopg2.extras import execute_batch
@@ -242,6 +243,8 @@ class DatabaseService:
                     symbol, expiry_date, strike_price, option_type,
                     oi, volume, price, display_time
                 ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                ON CONFLICT (symbol, expiry_date, strike_price, option_type, display_time) 
+                DO NOTHING
             """, [
                 (r['symbol'], r['expiry'], r['strike'], r['option_type'],
                  r['oi'], r['volume'], r['price'], r['timestamp'])
