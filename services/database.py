@@ -235,15 +235,19 @@ class DatabaseService:
 
         if not filtered_records:
             return
-   
-   
-   
-   
-   
-   
-   
-   
-   
+
+        with self._get_cursor() as cur:
+            execute_batch(cur, """
+                INSERT INTO oi_volume_history (
+                    symbol, expiry_date, strike_price, option_type,
+                    oi, volume, price, display_time
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+            """, [
+                (r['symbol'], r['expiry'], r['strike'], r['option_type'],
+                 r['oi'], r['volume'], r['price'], r['timestamp'])
+                for r in filtered_records
+            ], page_size=100)
+
    
     def clear_old_data(self):
         """Delete previous day's data"""
