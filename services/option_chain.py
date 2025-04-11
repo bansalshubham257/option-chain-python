@@ -825,11 +825,11 @@ class OptionChainService:
                 'oi_records': []
             }
             
-            prefix = f"NSE_FO:{stock_symbol}"
-            suffix = "APRFUT"
-    
-            pattern = re.compile(rf"{prefix}\d+{suffix}")
-            fut_instrument_key = next((key for key in market_quotes if pattern.match(key)), None)
+            fut_instrument_key = next(
+                (key for key in market_quotes 
+                 if key.startswith(f"NSE_FO:{stock_symbol}") and "FUT" in key),
+                None
+            )
 
             if fut_instrument_key and fut_instrument_key in market_quotes:
                 fut_data = market_quotes[fut_instrument_key]
