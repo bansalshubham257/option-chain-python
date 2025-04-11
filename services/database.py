@@ -290,29 +290,71 @@ class DatabaseService:
             """)
 
     def save_buildup_results(self, results):
-        """Save all analytics (buildups + OI extremes) to fno_analytics table"""
+        """Save all analytics data to fno_analytics table"""
         if not results:
             return
     
         data = []
         
-        # Process buildup data
-        for result_type, items in results.items():
-            for item in items:
-                data.append((
-                    item['symbol'],
-                    'buildup',  # analytics_type
-                    result_type.replace('_buildup', ''),  # category: futures_long, options_short etc
-                    item.get('strike', 0),
-                    item.get('option_type', 'FUT'),
-                    item.get('price_change', 0),
-                    item.get('oi_change', 0),
-                    item.get('volume_change', 0),
-                    item.get('absolute_oi', 0),
-                    item['timestamp']
-                ))
+        # Process futures buildup
+        for item in results.get('futures_long_buildup', []):
+            data.append((
+                item['symbol'],
+                'buildup',
+                'futures_long',
+                item.get('strike', 0),
+                'FUT',
+                item.get('price_change', 0),
+                item.get('oi_change', 0),
+                item.get('volume_change', 0),
+                item.get('absolute_oi', 0),
+                item['timestamp']
+            ))
         
-        # Process OI extremes (if present in results)
+        for item in results.get('futures_short_buildup', []):
+            data.append((
+                item['symbol'],
+                'buildup',
+                'futures_short',
+                item.get('strike', 0),
+                'FUT',
+                item.get('price_change', 0),
+                item.get('oi_change', 0),
+                item.get('volume_change', 0),
+                item.get('absolute_oi', 0),
+                item['timestamp']
+            ))
+        
+        # Process options buildup
+        for item in results.get('options_long_buildup', []):
+            data.append((
+                item['symbol'],
+                'buildup',
+                'options_long',
+                item.get('strike', 0),
+                item.get('type', 'CE'),
+                item.get('price_change', 0),
+                item.get('oi_change', 0),
+                item.get('volume_change', 0),
+                item.get('absolute_oi', 0),
+                item['timestamp']
+            ))
+        
+        for item in results.get('options_short_buildup', []):
+            data.append((
+                item['symbol'],
+                'buildup',
+                'options_short',
+                item.get('strike', 0),
+                item.get('type', 'PE'),
+                item.get('price_change', 0),
+                item.get('oi_change', 0),
+                item.get('volume_change', 0),
+                item.get('absolute_oi', 0),
+                item['timestamp']
+            ))
+        
+        # Process OI analytics if present
         if 'oi_gainers' in results:
             for item in results['oi_gainers']:
                 data.append((
@@ -342,6 +384,9 @@ class DatabaseService:
                     item['oi'],
                     item['timestamp']
                 ))
+    
+        if not data:
+            return
     
         with self._get_cursor() as cur:
             execute_batch(cur, """
