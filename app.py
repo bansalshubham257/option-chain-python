@@ -181,24 +181,21 @@ def get_fno_analytics():
 def get_oi_extremes():
     try:
         limit = int(request.args.get('limit', 10))
-        ist = pytz.timezone('Asia/Kolkata')
-
         with database_service._get_cursor() as cur:
-            # Get OI extremes from analytics table
+            # Get OI extremes
             cur.execute("""
                 SELECT symbol, strike, option_type as type,
-                       absolute_oi, oi_change, 
+                       absolute_oi, oi_change, volume_change, 
                        timestamp
                 FROM fno_analytics
                 WHERE analytics_type = 'oi_analytics'
-                AND created_at >= NOW() - INTERVAL '1 day'
                 ORDER BY 
                     CASE WHEN category = 'oi_gainer' THEN 0 ELSE 1 END,
                     ABS(oi_change) DESC
                 LIMIT %s
             """, (limit * 2,))
 
-            results = {
+            oi_results = {
                 'oi_gainers': [],
                 'oi_losers': []
             }
@@ -210,23 +207,68 @@ def get_oi_extremes():
                     'type': row[2],
                     'oi': int(row[3]),
                     'oi_change': float(row[4]),
-                    'timestamp': row[5]
+                    'volume_change': float(row[5]) if row[5] is not None else 0,
+                    'timestamp': row[6]
                 }
                 if item['oi_change'] >= 0:
-                    results['oi_gainers'].append(item)
+                    oi_results['oi_gainers'].append(item)
                 else:
-                    results['oi_losers'].append(item)
+                    oi_results['oi_losers'].append(item)
 
+            # Get volume extremes - NEW QUERY
+            cur.execute("""
+                SELECT symbol, strike, option_type as type,
+                       absolute_oi, oi_change, volume_change, 
+                       timestamp
+                FROM fno_analytics
+                WHERE analytics_type = 'buildup'
+                AND volume_change IS NOT NULL
+                ORDER BY ABS(volume_change) DESC
+                LIMIT %s
+            """, (limit * 2,))
+
+            volume_data = []
+            for row in cur.fetchall():
+                item = {
+                    'symbol': row[0],
+                    'strike': float(row[1]) if row[1] else 0,
+                    'type': row[2],
+                    'oi': int(row[3]),
+                    'oi_change': float(row[4]),
+                    'volume_change': float(row[5]),
+                    'timestamp': row[6]
+                }
+                volume_data.append(item)
+
+            # Split volume data into gainers/losers
+            volume_gainers = []
+            volume_losers = []
+            
+            for item in volume_data:
+                if item['volume_change'] >= 0:
+                    volume_gainers.append(item)
+                else:
+                    volume_losers.append(item)
+            
+            # Sort gainers descending, losers ascending
+            volume_gainers.sort(key=lambda x: -x['volume_change'])
+            volume_losers.sort(key=lambda x: x['volume_change'])
+            
             return jsonify({
                 "status": "success",
-                "data": results,
-                "timestamp": datetime.now(ist).isoformat()
+                "data": {
+                    "oi_gainers": oi_results['oi_gainers'],
+                    "oi_losers": oi_results['oi_losers'],
+                    "volume_gainers": volume_gainers[:limit],
+                    "volume_losers": volume_losers[:limit]
+                },
+                "timestamp": datetime.now(pytz.timezone('Asia/Kolkata')).isoformat()
             })
 
     except Exception as e:
         logging.error(f"Error fetching OI extremes: {str(e)}")
         return jsonify({"status": "error", "message": str(e)}), 500
-    
+        
 def run_option_chain_worker():
     """Background worker for option chain processing"""
     option_chain_service.run_market_processing()
