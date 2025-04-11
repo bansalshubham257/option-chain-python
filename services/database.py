@@ -290,7 +290,7 @@ class DatabaseService:
             """)
 
     def save_buildup_results(self, results):
-    """Save all analytics (buildups + OI extremes) to fno_analytics table"""
+        """Save all analytics (buildups + OI extremes) to fno_analytics table"""
         if not results:
             return
     
