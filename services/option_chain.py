@@ -408,7 +408,7 @@ class OptionChainService:
     # In OptionChainService class:
 
     def run_analytics_worker(self):
-    """Combined worker for all F&O analytics"""
+        """Combined worker for all F&O analytics"""
         while True:
             try:
                 # 1. Run all analytics
