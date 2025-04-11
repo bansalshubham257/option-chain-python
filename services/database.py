@@ -228,6 +228,13 @@ class DatabaseService:
         """Save OI volume data"""
         if not records:
             return
+        filtered_records = [
+            r for r in records
+            if not (isinstance(r['strike'], (int, float)) and r['strike'] < 10)
+        ]
+
+        if not filtered_records:
+            return
 
         with self._get_cursor() as cur:
             execute_batch(cur, """
@@ -238,7 +245,7 @@ class DatabaseService:
             """, [
                 (r['symbol'], r['expiry'], r['strike'], r['option_type'],
                  r['oi'], r['volume'], r['price'], r['timestamp'])
-                for r in records
+                for r in filtered_records
             ], page_size=100)
 
     def clear_old_data(self):
