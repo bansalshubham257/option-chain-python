@@ -422,8 +422,14 @@ class OptionChainService:
                     'oi_losers': oi_analytics['oi_losers']
                 }
                 
-                # 3. Store all in single table
+                # 3. Debug print before saving
+                print(f"Preparing to save {len(combined_results.get('futures_long_buildup', []))} futures long buildups")
+                print(f"Preparing to save {len(combined_results.get('options_long_buildup', []))} options long buildups")
+                print(f"Preparing to save {len(combined_results.get('oi_gainers', []))} OI gainers")
+                
+                # 4. Store all in single table
                 self.database.save_buildup_results(combined_results)
+                print("Data saved to fno_analytics table")
                 
                 time.sleep(300)  # Run every 5 minutes
             except Exception as e:
