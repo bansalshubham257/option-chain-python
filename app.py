@@ -121,37 +121,42 @@ def run_market_data_worker():
             print(f"Error in market data worker: {e}")
             time.sleep(60)
 
-# Add to app.py
+
 @app.route('/api/fno-analytics', methods=['GET'])
 def get_fno_analytics():
     try:
-        analytics_type = request.args.get('type', 'buildup')  # 'buildup' or 'oi'
+        analytics_type = request.args.get('type')  # 'buildup' or 'oi_analytics'
+        category = request.args.get('category')    # e.g. 'futures_long', 'oi_gainer'
         limit = int(request.args.get('limit', 20))
 
+        query = """
+            SELECT symbol, analytics_type, category, strike, option_type,
+                   price_change, oi_change, volume_change, absolute_oi, timestamp
+            FROM fno_analytics
+            WHERE 1=1
+        """
+        params = []
+        
+        if analytics_type:
+            query += " AND analytics_type = %s"
+            params.append(analytics_type)
+        
+        if category:
+            query += " AND category = %s"
+            params.append(category)
+            
+        query += " ORDER BY timestamp DESC LIMIT %s"
+        params.append(limit)
+
         with database_service._get_cursor() as cur:
-            query = """
-                SELECT 
-                    symbol, analytics_type, category, strike, option_type,
-                    price_change, oi_change, volume_change, absolute_oi, timestamp
-                FROM fno_analytics
-                WHERE analytics_type = %s
-                ORDER BY timestamp DESC
-            """
-            params = ['buildup'] if analytics_type == 'buildup' else ['oi_analytics']
-
-            if limit > 0:
-                query += " LIMIT %s"
-                params.append(limit)
-
             cur.execute(query, params)
-
             results = []
             for row in cur.fetchall():
                 results.append({
                     'symbol': row[0],
                     'analytics_type': row[1],
                     'category': row[2],
-                    'strike': float(row[3]) if row[3] else None,
+                    'strike': float(row[3]),
                     'option_type': row[4],
                     'price_change': float(row[5]) if row[5] is not None else None,
                     'oi_change': float(row[6]) if row[6] is not None else None,
