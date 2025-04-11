@@ -836,7 +836,7 @@ class OptionChainService:
                 result['oi_records'].append({
                     'symbol': stock_symbol,
                     'expiry': expiry_date,
-                    'strike': 0,  # Using 0 for futures
+                    'strike': Decimal(str(fut_data.get('last_price', 0))),  # Using 0 for futures
                     'option_type': 'FU',
                     'oi': Decimal(str(fut_data.get('oi', 0))),
                     'volume': Decimal(str(fut_data.get('volume', 0))),
