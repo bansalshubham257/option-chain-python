@@ -37,6 +37,22 @@ CREATE TABLE IF NOT EXISTS oi_volume_history (
     UNIQUE (symbol, expiry_date, strike_price, option_type, display_time)
 );
 
+CREATE TABLE IF NOT EXISTS fno_analytics (
+    id SERIAL PRIMARY KEY,
+    symbol VARCHAR(20) NOT NULL,
+    analytics_type VARCHAR(20) NOT NULL,
+    category VARCHAR(20) NOT NULL,
+    strike DECIMAL(10,2),
+    option_type VARCHAR(5),
+    price_change DECIMAL(10,2),
+    oi_change DECIMAL(10,2),
+    volume_change DECIMAL(10,2),
+    absolute_oi INTEGER,
+    timestamp TIMESTAMP,
+    created_at TIMESTAMP DEFAULT NOW(),
+    UNIQUE(symbol, analytics_type, category, strike, option_type, timestamp)
+);
+
 -- Indexes for performance
 CREATE INDEX idx_options_symbol_time ON options_orders(symbol, timestamp);
 CREATE INDEX idx_futures_symbol_time ON futures_orders(symbol, timestamp);
