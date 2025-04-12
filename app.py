@@ -82,7 +82,13 @@ def get_fii_dii_data():
     request_type = request.args.get('request_type')
     return jsonify(market_data_service.get_fii_dii_data(year_month, request_type))
 
+from flask_caching import Cache
+
+cache = Cache(config={'CACHE_TYPE': 'simple'})
+cache.init_app(app)
+
 @app.route("/fetch_stocks", methods=["GET"])
+@cache.cached(timeout=3600)  # Cache for 1 hour
 def get_nse_bse_stocks():
     return jsonify(option_chain_service.fetch_stocks())
 
