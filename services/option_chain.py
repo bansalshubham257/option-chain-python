@@ -16,6 +16,9 @@ from psycopg2.extras import execute_batch
 
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
+import functools
+from typing import List
+
 class OptionChainService:
     def __init__(self, max_retries=3):
         self.BASE_URL = "https://assets.upstox.com/market-quote/instruments/exchange"
@@ -28,6 +31,170 @@ class OptionChainService:
         self._load_instruments_with_retry()
         self.fno_stocks = self._load_fno_stocks()
         self.database = DatabaseService()
+        self._last_instruments_load = None
+        self._instruments_cache_ttl = 3600  # 1 hour cache
+
+    @functools.lru_cache(maxsize=1)
+    def _load_instruments_data_cached(self) -> Optional[pd.DataFrame]:
+        """Cached version of instruments data loader"""
+        try:
+            url = f"{self.BASE_URL}/complete.csv.gz"
+            response = requests.get(url, timeout=10)
+            response.raise_for_status()
+
+            with gzip.GzipFile(fileobj=BytesIO(response.content)) as f:
+                df = pd.read_csv(f, usecols=['exchange', 'tradingsymbol', 'lot_size', 'instrument_key'])
+                df.columns = df.columns.str.lower()
+                return df
+
+        except Exception as e:
+            print(f"Error loading instruments data: {str(e)}")
+            return None
+
+    def _load_instruments_data(self):
+        """Load instruments data with cache support"""
+        now = time.time()
+        if (self._last_instruments_load is None or
+                (now - self._last_instruments_load) > self._instruments_cache_ttl):
+            self.instruments_data = self._load_instruments_data_cached()
+            self._last_instruments_load = now
+            if self.instruments_data is not None:
+                print("Successfully loaded fresh instruments data")
+            else:
+                print("Failed to load instruments data")
+        else:
+            print("Using cached instruments data")
+
+    def _process_fno_stocks_parallel(self, df: pd.DataFrame) -> Dict[str, int]:
+        """Parallel processing of F&O stocks"""
+        try:
+            # Filter NSE F&O stocks (excluding indices)
+            nse_fno = df[
+                (df['exchange'] == 'NSE_FO') &
+                (~df['tradingsymbol'].str.contains('NIFTY|BANKNIFTY|FINNIFTY', regex=True))
+                ].copy()
+
+            # Parallel processing
+            with ThreadPoolExecutor(max_workers=4) as executor:
+                futures = []
+                for _, row in nse_fno.iterrows():
+                    futures.append(executor.submit(self._process_fno_row, row))
+
+                fno_stocks = {}
+                for future in as_completed(futures):
+                    result = future.result()
+                    if result:
+                        fno_stocks.update(result)
+
+                return fno_stocks
+
+        except Exception as e:
+            print(f"Error processing F&O stocks: {str(e)}")
+            return {}
+
+    def _process_fno_row(self, row) -> Dict[str, int]:
+        """Process a single F&O row"""
+        try:
+            base_symbol = re.split(r'\d', row['tradingsymbol'], 1)[0]
+            return {base_symbol: int(row['lot_size'])}
+        except (ValueError, TypeError) as e:
+            print(f"Skipping invalid row: {row['tradingsymbol']} - {str(e)}")
+            return {}
+
+    def fetch_stocks(self):
+        """Optimized version of fetch_stocks"""
+        start_time = time.time()
+
+        # Load instruments data if not already loaded
+        if self.instruments_data is None:
+            self._load_instruments_with_retry()
+            if self.instruments_data is None:
+                return {"error": "Failed to load instruments data"}
+
+        # Process data in parallel
+        with ThreadPoolExecutor(max_workers=4) as executor:
+            # Process F&O data
+            fno_future = executor.submit(self._process_fno_data, self.instruments_data)
+
+            # Process equity data
+            equity_future = executor.submit(self._process_equity_data, self.instruments_data)
+
+            # Wait for both to complete
+            stock_data = fno_future.result()
+            equity_data = equity_future.result()
+
+            # Merge results
+            for stock, data in equity_data.items():
+                if stock in stock_data:
+                    stock_data[stock]["instrument_key"] = data["instrument_key"]
+
+        print(f"Processed stocks in {time.time() - start_time:.2f} seconds")
+        return stock_data
+
+    def _process_fno_data(self, df: pd.DataFrame) -> Dict:
+        """Process F&O data in optimized way"""
+        stock_data = {}
+        self.symbol_to_instrument = {}
+    
+        # Process NSE and BSE F&O data
+        nse_fno = df[df['exchange'] == 'NSE_FO'][['tradingsymbol', 'lot_size', 'instrument_key']].dropna()
+        bse_fno = df[(df['exchange'] == 'BSE_FO') &
+                     (df['tradingsymbol'].str.contains('SENSEX|BANKEX', regex=True))][['tradingsymbol', 'lot_size', 'instrument_key']].dropna()
+    
+        fno_stocks_raw = pd.concat([nse_fno, bse_fno])
+    
+        for _, row in fno_stocks_raw.iterrows():
+            parsed = self._parse_option_symbol(row['tradingsymbol'])
+            if parsed:
+                if parsed["strike_price"] in (5, 5.0):
+                    continue
+                stock = parsed["stock"]
+                if stock not in stock_data:
+                    stock_data[stock] = {"expiries": set(), "options": [], "instrument_key": None}
+    
+                stock_data[stock]["expiries"].add(parsed["expiry"])
+                stock_data[stock]["options"].append({
+                    "expiry": parsed["expiry"],
+                    "strike_price": parsed["strike_price"],
+                    "option_type": parsed["option_type"],
+                    "lot_size": row['lot_size'],
+                    "instrument_key": row['instrument_key'],
+                    "tradingsymbol": row['tradingsymbol']
+                })
+                self.symbol_to_instrument[row['tradingsymbol']] = row['instrument_key']
+    
+        # Convert sets to lists before returning
+        for stock in stock_data:
+            stock_data[stock]["expiries"] = sorted(list(stock_data[stock]["expiries"]))
+    
+        return stock_data
+
+    def _process_equity_data(self, df: pd.DataFrame) -> Dict:
+        """Process equity and index data"""
+        equity_data = {}
+
+        # Process NSE equities
+        nse_eq = df[df['exchange'] == 'NSE_EQ'][['tradingsymbol', 'instrument_key']].dropna()
+        for _, row in nse_eq.iterrows():
+            stock_name = row['tradingsymbol']
+            self.symbol_to_instrument[stock_name] = row['instrument_key']
+            equity_data[stock_name] = {"instrument_key": row['instrument_key']}
+
+        # Add index instrument keys
+        index_keys = {
+            "NIFTY": "NSE_INDEX|Nifty 50",
+            "BANKNIFTY": "NSE_INDEX|Nifty Bank",
+            "MIDCPNIFTY": "NSE_INDEX|Nifty Midcap 50",
+            "FINNIFTY": "NSE_INDEX|Nifty Fin Service",
+            "SENSEX": "BSE_INDEX|SENSEX",
+            "BANKEX": "BSE_INDEX|BANKEX"
+        }
+
+        for index, key in index_keys.items():
+            self.symbol_to_instrument[index] = key
+            equity_data[index] = {"instrument_key": key}
+
+        return equity_data
 
 
     def get_fno_stocks_with_symbols(self):
@@ -169,72 +336,6 @@ class OptionChainService:
 
     def get_fno_stocks(self):
         return self.fno_stocks
-
-    def fetch_stocks(self):
-        df = self._fetch_csv_data(f"{self.BASE_URL}/complete.csv.gz")
-        if df is None:
-            return {"error": "Failed to fetch stocks"}
-
-        df.columns = df.columns.str.lower()
-        if not {'exchange', 'tradingsymbol', 'lot_size', 'instrument_key'}.issubset(df.columns):
-            return {"error": "Required columns not found"}
-
-        # Process NSE and BSE F&O data
-        nse_fno = df[df['exchange'] == 'NSE_FO'][['tradingsymbol', 'lot_size', 'instrument_key']].dropna()
-        bse_fno = df[(df['exchange'] == 'BSE_FO') &
-                     (df['tradingsymbol'].str.contains('SENSEX|BANKEX', regex=True))][['tradingsymbol', 'lot_size', 'instrument_key']].dropna()
-
-        fno_stocks_raw = pd.concat([nse_fno, bse_fno])
-        stock_data = {}
-        self.symbol_to_instrument = {}
-
-        for _, row in fno_stocks_raw.iterrows():
-            parsed = self._parse_option_symbol(row['tradingsymbol'])
-            if parsed:
-                if parsed["strike_price"] in (5, 5.0):
-                    continue
-                stock = parsed["stock"]
-                if stock not in stock_data:
-                    stock_data[stock] = {"expiries": set(), "options": [], "instrument_key": None}
-
-                stock_data[stock]["expiries"].add(parsed["expiry"])
-                stock_data[stock]["options"].append({
-                    "expiry": parsed["expiry"],
-                    "strike_price": parsed["strike_price"],
-                    "option_type": parsed["option_type"],
-                    "lot_size": row['lot_size'],
-                    "instrument_key": row['instrument_key'],
-                    "tradingsymbol": row['tradingsymbol']
-                })
-                self.symbol_to_instrument[row['tradingsymbol']] = row['instrument_key']
-
-        # Add equity instrument keys
-        nse_eq = df[df['exchange'] == 'NSE_EQ'][['tradingsymbol', 'instrument_key']].dropna()
-        for _, row in nse_eq.iterrows():
-            stock_name = row['tradingsymbol']
-            self.symbol_to_instrument[stock_name] = row['instrument_key']
-            if stock_name in stock_data:
-                stock_data[stock_name]["instrument_key"] = row['instrument_key']
-
-        # Add index instrument keys
-        index_keys = {
-            "NIFTY": "NSE_INDEX|Nifty 50",
-            "BANKNIFTY": "NSE_INDEX|Nifty Bank",
-            "MIDCPNIFTY": "NSE_INDEX|Nifty Midcap 50",
-            "FINNIFTY": "NSE_INDEX|Nifty Fin Service",
-            "SENSEX": "BSE_INDEX|SENSEX",
-            "BANKEX": "BSE_INDEX|BANKEX"
-        }
-
-        for index, key in index_keys.items():
-            if index in stock_data:
-                stock_data[index]["instrument_key"] = key
-                self.symbol_to_instrument[index] = key
-
-        for stock in stock_data:
-            stock_data[stock]["expiries"] = sorted(stock_data[stock]["expiries"])
-
-        return stock_data
 
     def fetch_price(self, instrument_key):
         if not instrument_key:
@@ -824,14 +925,15 @@ class OptionChainService:
                 'futures_orders': [],
                 'oi_records': []
             }
-            
+
             fut_instrument_key = next(
-                (key for key in market_quotes 
+                (key for key in market_quotes
                  if key.startswith(f"NSE_FO:{stock_symbol}") and "FUT" in key),
                 None
             )
-
+            print("Futures instrument key:", fut_instrument_key)
             if fut_instrument_key and fut_instrument_key in market_quotes:
+                print("data found for futures")
                 fut_data = market_quotes[fut_instrument_key]
                 result['oi_records'].append({
                     'symbol': stock_symbol,
@@ -901,7 +1003,6 @@ class OptionChainService:
                     'price': Decimal(str(ltp)),
                     'timestamp': datetime.now(pytz.timezone('Asia/Kolkata')).strftime("%H:%M")
                 })
-            
             print(f"{stock_symbol}: {len(result['options_orders'])} orders, {len(result['oi_records'])} OI records")
             return result
 
