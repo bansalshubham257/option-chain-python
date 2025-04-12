@@ -410,3 +410,72 @@ class StockAnalysisService:
         p.legend.location = "top_left"
         script, div = components(column(p, p_rsi, p_macd))
         return script, div
+
+    def save_52_week_data(self, data):
+        """Save 52-week high/low data to database"""
+        if not data:
+            return
+    
+        timestamp = datetime.now(pytz.timezone('Asia/Kolkata'))
+    
+        # Convert NumPy types to native Python types
+        processed_data = []
+        for item in data:
+            processed_data.append((
+                str(item['symbol']),
+                float(item['current_price']),  # Convert to native float
+                float(item['week52_high']),
+                float(item['week52_low']),
+                float(item['pct_from_high']),
+                float(item['pct_from_low']),
+                int(item['days_since_high']),  # Convert to native int
+                int(item['days_since_low']),
+                str(item['status']),
+                timestamp
+            ))
+    
+        with self._get_cursor() as cur:
+            # Clear old data
+            cur.execute("DELETE FROM fiftytwo_week_extremes")
+    
+            # Insert new data with proper type conversion
+            execute_batch(cur, """
+                INSERT INTO fiftytwo_week_extremes 
+                (symbol, current_price, week52_high, week52_low, 
+                 pct_from_high, pct_from_low, days_since_high, 
+                 days_since_low, status, timestamp)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+            """, processed_data, page_size=100)
+        
+    def get_52_week_data(self, limit=50):
+        """Get cached 52-week high/low data"""
+        with self._get_cursor() as cur:
+            cur.execute("""
+                SELECT symbol, current_price, week52_high, week52_low,
+                       pct_from_high, pct_from_low, days_since_high,
+                       days_since_low, status, timestamp
+                FROM fiftytwo_week_extremes
+                ORDER BY 
+                    CASE WHEN status = 'near_high' THEN pct_from_high ELSE pct_from_low END,
+                    timestamp DESC
+                LIMIT %s
+            """, (limit,))
+    
+            results = []
+            for row in cur.fetchall():
+                results.append({
+                    'symbol': row[0],
+                    'current_price': float(row[1]),
+                    'week52_high': float(row[2]),
+                    'week52_low': float(row[3]),
+                    'pct_from_high': float(row[4]),
+                    'pct_from_low': float(row[5]),
+                    'days_since_high': row[6],
+                    'days_since_low': row[7],
+                    'status': row[8],
+                    'timestamp': row[9].isoformat()
+                })
+            return results
+
+
+    
