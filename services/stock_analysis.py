@@ -411,71 +411,86 @@ class StockAnalysisService:
         script, div = components(column(p, p_rsi, p_macd))
         return script, div
 
-    def save_52_week_data(self, data):
-        """Save 52-week high/low data to database"""
-        if not data:
-            return
-    
-        timestamp = datetime.now(pytz.timezone('Asia/Kolkata'))
-    
-        # Convert NumPy types to native Python types
-        processed_data = []
-        for item in data:
-            processed_data.append((
-                str(item['symbol']),
-                float(item['current_price']),  # Convert to native float
-                float(item['week52_high']),
-                float(item['week52_low']),
-                float(item['pct_from_high']),
-                float(item['pct_from_low']),
-                int(item['days_since_high']),  # Convert to native int
-                int(item['days_since_low']),
-                str(item['status']),
-                timestamp
-            ))
-    
-        with self._get_cursor() as cur:
-            # Clear old data
-            cur.execute("DELETE FROM fiftytwo_week_extremes")
-    
-            # Insert new data with proper type conversion
-            execute_batch(cur, """
-                INSERT INTO fiftytwo_week_extremes 
-                (symbol, current_price, week52_high, week52_low, 
-                 pct_from_high, pct_from_low, days_since_high, 
-                 days_since_low, status, timestamp)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-            """, processed_data, page_size=100)
-        
-    def get_52_week_data(self, limit=50):
-        """Get cached 52-week high/low data"""
-        with self._get_cursor() as cur:
-            cur.execute("""
-                SELECT symbol, current_price, week52_high, week52_low,
-                       pct_from_high, pct_from_low, days_since_high,
-                       days_since_low, status, timestamp
-                FROM fiftytwo_week_extremes
-                ORDER BY 
-                    CASE WHEN status = 'near_high' THEN pct_from_high ELSE pct_from_low END,
-                    timestamp DESC
-                LIMIT %s
-            """, (limit,))
+    def get_52_week_extremes(self, threshold=0.05):
+        """Get stocks near 52-week highs or lows within threshold percentage"""
+        try:
+            nse_stocks = self.fetch_all_nse_stocks()
+            if not nse_stocks:
+                return {"error": "No stocks found"}
     
             results = []
-            for row in cur.fetchall():
-                results.append({
-                    'symbol': row[0],
-                    'current_price': float(row[1]),
-                    'week52_high': float(row[2]),
-                    'week52_low': float(row[3]),
-                    'pct_from_high': float(row[4]),
-                    'pct_from_low': float(row[5]),
-                    'days_since_high': row[6],
-                    'days_since_low': row[7],
-                    'status': row[8],
-                    'timestamp': row[9].isoformat()
-                })
+            ist = pytz.timezone('Asia/Kolkata')
+            now = datetime.now(ist)
+    
+            for symbol in nse_stocks:
+                try:
+                    if not symbol or len(symbol) < 2:
+                        continue
+    
+                    full_symbol = f"{symbol}.NS"
+                    stock = yf.Ticker(full_symbol)
+                    hist = stock.history(period="1y")
+    
+                    if hist.empty or len(hist) < 5:  # Minimum data points
+                        continue
+    
+                    # Robust timezone handling
+                    if hist.index.tz is None:
+                        # If naive, localize to UTC (Yahoo Finance default)
+                        hist.index = hist.index.tz_localize('UTC')
+                    # Convert to IST regardless of original timezone
+                    hist.index = hist.index.tz_convert(ist)
+    
+                    high_52 = hist["High"].max()
+                    low_52 = hist["Low"].min()
+                    current = hist["Close"].iloc[-1]
+    
+                    pct_from_high = (high_52 - current) / high_52
+                    pct_from_low = (current - low_52) / low_52
+    
+                    # Get timezone-aware timestamps for highs and lows
+                    high_date = hist["High"].idxmax()
+                    low_date = hist["Low"].idxmin()
+    
+                    # Calculate days since high/low
+                    days_since_high = (now - high_date).days
+                    days_since_low = (now - low_date).days
+    
+                    # Near 52-week high
+                    if pct_from_high <= threshold:
+                        results.append({
+                            "symbol": symbol,
+                            "current_price": round(current, 2),
+                            "week52_high": round(high_52, 2),
+                            "week52_low": round(low_52, 2),
+                            "pct_from_high": round(pct_from_high * 100, 2),
+                            "pct_from_low": round(pct_from_low * 100, 2),
+                            "days_since_high": days_since_high,
+                            "days_since_low": days_since_low,
+                            "status": "near_high"
+                        })
+    
+                    # Near 52-week low
+                    if pct_from_low <= threshold:
+                        results.append({
+                            "symbol": symbol,
+                            "current_price": round(current, 2),
+                            "week52_high": round(high_52, 2),
+                            "week52_low": round(low_52, 2),
+                            "pct_from_high": round(pct_from_high * 100, 2),
+                            "pct_from_low": round(pct_from_low * 100, 2),
+                            "days_since_high": days_since_high,
+                            "days_since_low": days_since_low,
+                            "status": "near_low"
+                        })
+    
+                except Exception as e:
+                    print(f"Error processing {symbol}: {str(e)}")
+                    continue
+    
             return results
-
-
+    
+        except Exception as e:
+            print(f"Error in get_52_week_extremes: {str(e)}")
+            return []
     
