@@ -7,6 +7,7 @@ from bokeh.models import ColumnDataSource
 from bokeh.embed import components
 from bokeh.layouts import column
 from decimal import Decimal
+import pytz
 
 class StockAnalysisService:
     def __init__(self):
