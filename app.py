@@ -273,16 +273,77 @@ def run_option_chain_worker():
     """Background worker for option chain processing"""
     option_chain_service.run_market_processing()
 
+@app.route("/52-week-extremes", methods=["GET"])
+def get_52_week_extremes():
+    limit = int(request.args.get("limit", 50))
+    threshold = float(request.args.get("threshold", 5.0))  # in percentage
+
+    # Get data from database
+    data = database_service.get_52_week_data(limit=limit)
+
+    if not data:
+        return jsonify({"error": "No 52-week data available", "timestamp": datetime.now().isoformat()})
+
+    # Filter by threshold if provided
+    if threshold:
+        filtered_data = [
+            item for item in data
+            if (item['status'] == 'near_high' and item['pct_from_high'] <= threshold) or
+               (item['status'] == 'near_low' and item['pct_from_low'] <= threshold)
+        ]
+    else:
+        filtered_data = data
+
+    return jsonify({
+        "data": filtered_data,
+        "timestamp": datetime.now().isoformat()
+    })
+
+def run_52_week_worker():
+    """Background worker to update 52-week highs/lows"""
+    while True:
+        try:
+            ist = pytz.timezone('Asia/Kolkata')
+            now = datetime.now(ist)
+
+            # Run once per hour during market hours
+            if now.weekday() < 5 and Config.MARKET_OPEN <= now.time() <= Config.MARKET_CLOSE:
+                print(f"{now}: Running 52-week high/low update...")
+
+                # Get fresh data
+                data = stock_analysis_service.get_52_week_extremes(threshold=0.05)
+
+                print("Saving 52-week data", data)
+
+                # Save to database
+                if data and not isinstance(data, dict) and 'error' not in data:
+                    database_service.save_52_week_data(data)
+                    print(f"Updated 52-week data with {len(data)} records")
+                else:
+                    print("No valid data received for 52-week update")
+
+                # Sleep for 1 hour
+                time.sleep(3600)
+            else:
+                # Sleep for 15 minutes when market is closed
+                time.sleep(900)
+
+        except Exception as e:
+            print(f"Error in 52-week worker: {e}")
+            time.sleep(300)  # Retry after 5 minutes on error
+
 def run_background_workers():
     """Run all background workers in separate threads"""
     # Use threading for parallel execution
     market_data_thread = threading.Thread(target=run_market_data_worker, daemon=True)
     option_chain_thread = threading.Thread(target=run_option_chain_worker, daemon=True)
     oi_buildup_thread = threading.Thread(target=option_chain_service.run_analytics_worker, daemon=True)
+    fiftytwo_week_thread = threading.Thread(target=run_52_week_worker, daemon=True)
 
     market_data_thread.start()
     option_chain_thread.start()
     oi_buildup_thread.start()
+    fiftytwo_week_thread.start()
     print("Background workers started successfully")
 
     # Keep main thread alive
