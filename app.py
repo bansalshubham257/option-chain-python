@@ -14,6 +14,8 @@ from services.stock_analysis import StockAnalysisService
 from services.database import DatabaseService
 from config import Config
 
+import yfinance as yf
+
 
 app = Flask(__name__)
 CORS(app, resources={r"/*": {"origins": [
