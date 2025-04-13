@@ -68,6 +68,47 @@ CREATE TABLE fiftytwo_week_extremes (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
+-- Scanner tables
+CREATE TABLE IF NOT EXISTS saved_scanners (
+    id SERIAL PRIMARY KEY,
+    name VARCHAR(100) NOT NULL UNIQUE,
+    conditions JSONB NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    logic VARCHAR(10) NOT NULL CHECK (logic IN ('AND', 'OR')),
+    stock_type VARCHAR(10) NOT NULL CHECK (stock_type IN ('fno', 'equity')),
+);
+
+
+CREATE TABLE IF NOT EXISTS stock_data_cache (
+                    symbol VARCHAR(20) NOT NULL,
+                    interval VARCHAR(5) NOT NULL,
+                    timestamp TIMESTAMP NOT NULL,
+                    open NUMERIC(10,2),
+                    high NUMERIC(10,2),
+                    low NUMERIC(10,2),
+                    close NUMERIC(10,2),
+                    volume NUMERIC(16,2),
+                    pivot NUMERIC(10,2),
+                    r1 NUMERIC(10,2),
+                    r2 NUMERIC(10,2),
+                    r3 NUMERIC(10,2),
+                    s1 NUMERIC(10,2),
+                    s2 NUMERIC(10,2),
+                    s3 NUMERIC(10,2),
+                    sma20 NUMERIC(10,2),
+                    sma50 NUMERIC(10,2),
+                    sma200 NUMERIC(10,2),
+                    last_updated TIMESTAMP DEFAULT NOW(),
+                    PRIMARY KEY (symbol, interval, timestamp)
+                );
+
+CREATE INDEX idx_scanner_name ON saved_scanners(name);
+CREATE INDEX IF NOT EXISTS idx_stock_data_symbol_interval
+                ON stock_data_cache(symbol, interval);
+
+CREATE INDEX IF NOT EXISTS idx_stock_data_interval_timestamp
+                ON stock_data_cache(interval, timestamp);
+
 -- Indexes for performance
 CREATE INDEX idx_options_symbol_time ON options_orders(symbol, timestamp);
 CREATE INDEX idx_futures_symbol_time ON futures_orders(symbol, timestamp);
