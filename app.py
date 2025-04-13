@@ -332,6 +332,245 @@ def run_52_week_worker():
             print(f"Error in 52-week worker: {e}")
             time.sleep(300)  # Retry after 5 minutes on error
 
+@app.route('/api/scanner/save', methods=['POST'])
+def save_scanner():
+    try:
+        data = request.json
+        if not data or 'name' not in data or 'conditions' not in data:
+            return jsonify({"error": "Name and conditions are required"}), 400
+
+        result = scanner_service.save_scanner(
+            data['name'],
+            data['conditions'],
+            data.get('stock_type', 'fno'),
+            data.get('logic', 'AND')  # Pass the logic parameter
+        )
+        return jsonify(result)
+
+    except Exception as e:
+        logging.error(f"Error saving scanner: {str(e)}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/scanner/load', methods=['GET'])
+def load_scanners():
+    try:
+        result = scanner_service.load_scanners()
+        return jsonify(result)
+    except Exception as e:
+        logging.error(f"Error loading scanners: {str(e)}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/scanner/delete/<int:scanner_id>', methods=['DELETE'])
+def delete_scanner(scanner_id):
+    try:
+        result = scanner_service.delete_scanner(scanner_id)
+        return jsonify(result)
+    except Exception as e:
+        logging.error(f"Error deleting scanner: {str(e)}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/scanner/run', methods=['POST'])
+def run_scanner():
+    try:
+        data = request.json
+        if not data or 'conditions' not in data or 'stock_type' not in data:
+            return jsonify({"error": "Conditions and stock type are required"}), 400
+
+        # Default interval is used when an indicator doesn't specify one
+        default_interval = data.get('interval', '1d')
+
+        # Execute scanner query with SQL approach
+        results = scanner_service.query_stocks_with_sql(
+            data['conditions'],
+            data['stock_type'],
+            default_interval,
+            data.get('logic', 'AND')
+        )
+
+        return jsonify({
+            "status": "success",
+            "data": results,
+            "count": len(results)
+        })
+
+    except Exception as e:
+        logging.error(f"Error running scanner: {str(e)}")
+        return jsonify({"error": str(e)}), 500
+
+# Scanner routes
+
+def run_stock_data_updater():
+    """Hyper-optimized stock data updater to complete all intervals in 4-5 minutes"""
+    last_cache_clear_date = None
+    intervals = ['1d', '1h', '15m', '5m']
+
+    # Aggressive parallel configuration
+    interval_threads = 4      # One thread per interval
+    stocks_per_worker = 10    # Each worker handles 10 stocks
+    max_workers_per_interval = 5  # 10 workers per interval
+
+    while True:
+        try:
+            ist = pytz.timezone('Asia/Kolkata')
+            now = datetime.now(ist)
+            current_date = now.date()
+
+            # Clear cache on new day
+            if last_cache_clear_date != current_date:
+                database_service.pivot_calculation_cache.clear()
+                last_cache_clear_date = current_date
+                print(f"{now}: New day - cleared pivot calculation cache")
+
+            # Check market hours
+            if now.weekday() in Config.TRADING_DAYS and Config.MARKET_OPEN <= now.time() <= Config.MARKET_CLOSE:
+                print(f"{now}: Running high-speed stock data update...")
+                fno_stocks = option_chain_service.get_fno_stocks_with_symbols()
+
+                from concurrent.futures import ThreadPoolExecutor
+                import concurrent.futures
+
+                # Process all intervals in parallel
+                interval_futures = []
+                with ThreadPoolExecutor(max_workers=interval_threads) as interval_executor:
+                    for interval in intervals:
+                        # Submit each interval as a separate task
+                        interval_futures.append(
+                            interval_executor.submit(
+                                update_stocks_for_interval,
+                                fno_stocks,
+                                interval,
+                                stocks_per_worker,
+                                max_workers_per_interval
+                            )
+                        )
+
+                # Wait for all intervals to complete and log results
+                for future, interval in zip(concurrent.futures.as_completed(interval_futures), intervals):
+                    try:
+                        success_count, total_time = future.result()
+                        #print(f"✅ {interval} completed: {success_count} stocks in {total_time:.2f}s")
+                    except Exception as e:
+                        print(f"❌ Error processing {interval}: {e}")
+
+                print(f"{now}: Full stock data update completed")
+                time.sleep(600)  # 10 minutes between full updates
+            else:
+                # Sleep when market is closed
+                time.sleep(1800)  # 30 minutes
+
+        except Exception as e:
+            print(f"Error in stock data updater: {e}")
+            time.sleep(300)
+
+def update_stocks_for_interval(stocks, interval, stocks_per_worker, max_workers):
+    """Process all stocks for a specific interval with parallel workers"""
+    from concurrent.futures import ThreadPoolExecutor
+    import time
+
+    start_time = time.time()
+    success_count = 0
+
+    # Divide stocks into chunks for parallel processing
+    stock_chunks = [stocks[i:i+stocks_per_worker] for i in range(0, len(stocks), stocks_per_worker)]
+
+    # Create a thread pool to process chunks in parallel
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        chunk_futures = []
+
+        # Submit each chunk for processing
+        for chunk_idx, chunk in enumerate(stock_chunks):
+            chunk_futures.append(
+                executor.submit(
+                    process_stock_chunk,
+                    chunk,
+                    interval,
+                    chunk_idx,
+                    len(stock_chunks)
+                )
+            )
+
+        # Process results as they complete
+        for future in concurrent.futures.as_completed(chunk_futures):
+            try:
+                chunk_success_count = future.result()
+                success_count += chunk_success_count
+            except Exception as e:
+                print(f"Error in chunk processing: {e}")
+
+    total_time = time.time() - start_time
+    return success_count, total_time
+
+def process_stock_chunk(stock_chunk, interval, chunk_idx, total_chunks):
+    """Process a chunk of stocks for the given interval"""
+    success_count = 0
+
+    # Get period settings for this interval
+    period_map = {
+        '1d': ('1y', '1d'),
+        '1h': ('7d', '1h'),
+        '15m': ('5d', '15m'),
+        '5m': ('5d', '5m')
+    }
+    period, interval_str = period_map.get(interval, ('1mo', interval))
+
+    # Optimize by creating a single YFinance session
+    yf_session = yf.Tickers(" ".join(stock_chunk))
+
+    # Process each stock in the chunk
+    for stock in stock_chunk:
+        try:
+            # Get data using the shared session
+            data = yf_session.tickers[stock].history(period=period, interval=interval_str)
+
+            if not data.empty:
+                # Process the data
+                success = database_service.update_stock_data(stock, interval, data)
+                if success:
+                    success_count += 1
+                    #print(f"Updated {stock} {interval} data: {len(data)} records")
+            else:
+                print(f"No data for {stock} {interval}")
+
+        except Exception as e:
+            print(f"Error updating {stock} {interval}: {e}")
+
+    print(f"Completed chunk {chunk_idx+1}/{total_chunks} for {interval}")
+    return success_count
+
+def update_stock_batch(stocks, interval):
+    """Update a batch of stocks using the bulk Tickers API"""
+    try:
+        # Get period settings
+        period_map = {
+            '1d': ('1y', '1d'),
+            '1h': ('7d', '1h'),
+            '15m': ('5d', '15m'),
+            '5m': ('5d', '5m')
+        }
+        period, interval_str = period_map.get(interval, ('1mo', interval))
+
+        # Create a single Tickers object for all stocks in batch
+        tickers = yf.Tickers(" ".join(stocks))
+
+        success_count = 0
+        for stock in stocks:
+            try:
+                # Get data from the batch request
+                data = tickers.tickers[stock].history(period=period, interval=interval_str)
+
+                if not data.empty:
+                    success = database_service.update_stock_data(stock, interval, data)
+                    if success:
+                        success_count += 1
+            except Exception as e:
+                print(f"Error in batch update for {stock}: {e}")
+
+        return success_count
+    except Exception as e:
+        print(f"Batch update failed: {e}")
+        return 0
+
+
 def run_background_workers():
     """Run all background workers in separate threads"""
     # Use threading for parallel execution
@@ -339,11 +578,13 @@ def run_background_workers():
     option_chain_thread = threading.Thread(target=run_option_chain_worker, daemon=True)
     oi_buildup_thread = threading.Thread(target=option_chain_service.run_analytics_worker, daemon=True)
     fiftytwo_week_thread = threading.Thread(target=run_52_week_worker, daemon=True)
+    stock_data_thread = threading.Thread(target=run_stock_data_updater, daemon=True)
 
     market_data_thread.start()
     option_chain_thread.start()
     oi_buildup_thread.start()
     fiftytwo_week_thread.start()
+    stock_data_thread.start()
     print("Background workers started successfully")
 
     # Keep main thread alive
@@ -355,7 +596,7 @@ if __name__ == "__main__":
         ist = pytz.timezone('Asia/Kolkata')
         now = datetime.now(ist)
         current_time = now.time()
-        is_weekday = now.weekday() < 5  #
+        is_weekday = now.weekday() in Config.TRADING_DAYS #
         if is_weekday and (Config.MARKET_OPEN <= current_time <= Config.MARKET_CLOSE):
             print("Market is open, starting background workers...")
             run_background_workers()
