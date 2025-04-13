@@ -1,15 +1,20 @@
 import json
 import os
 import time
-import pytz
-from datetime import datetime
+from functools import lru_cache
+import pandas as pd
 import psycopg2
 from psycopg2._psycopg import OperationalError
 from psycopg2.extras import execute_batch
 from decimal import Decimal
 from contextlib import contextmanager
 
+from datetime import datetime, date
+import pytz
+
 class DatabaseService:
+
+    pivot_calculation_cache = {}
 
     def __init__(self, max_retries=3, retry_delay=2):
         self.conn_params = {
@@ -472,3 +477,236 @@ class DatabaseService:
                     'timestamp': row[9].isoformat()
                 })
             return results
+
+    @lru_cache(maxsize=100)
+    def get_anchored_pivot_data(self, ticker, interval):
+        """Cache yfinance data for pivot calculations to reduce API calls"""
+        try:
+            import yfinance as yf
+            stock = yf.Ticker(ticker)
+
+            # Determine anchor timeframe based on current interval
+            if interval in ['5m', '15m']:
+                # Intraday pivots use previous day's daily data
+                return stock.history(period='2d', interval='1d')
+            elif interval in ['30m', '1h', '1d']:
+                # Daily pivots use previous month's monthly data
+                return stock.history(period='2mo', interval='1mo')
+            elif interval == '1wk':
+                # Weekly pivots use previous quarter's data
+                return stock.history(period='6mo', interval='3mo')
+
+            # Default case - return None
+            return None
+        except Exception as e:
+            print(f"Error fetching anchor data for {ticker}: {str(e)}")
+            return None
+
+    def update_stock_data(self, symbol, interval, data):
+        """Update stock data with daily recalculation of pivot points"""
+        try:
+            # Convert to DataFrame if it's not already
+            if not isinstance(data, pd.DataFrame):
+                if isinstance(data, dict):
+                    data = pd.DataFrame(data)
+                else:
+                    raise TypeError(f"Expected DataFrame or dict, got {type(data)}")
+
+            # Make copy to avoid modifying original
+            df = data.copy()
+
+            # Ensure the index is datetime
+            if not isinstance(df.index, pd.DatetimeIndex):
+                df.index = pd.to_datetime(df.index)
+
+            # Sort by date
+            df = df.sort_index()
+
+            # Calculate SMAs efficiently
+            if len(df) >= 200:
+                df['SMA20'] = df['Close'].rolling(window=20).mean()
+                df['SMA50'] = df['Close'].rolling(window=50).mean()
+                df['SMA200'] = df['Close'].rolling(window=200).mean()
+            else:
+                # Handle smaller datasets
+                df['SMA20'] = df['Close'].rolling(window=min(20, len(df))).mean() if len(df) >= 20 else None
+                df['SMA50'] = df['Close'].rolling(window=min(50, len(df))).mean() if len(df) >= 50 else None
+                df['SMA200'] = df['Close'].rolling(window=min(200, len(df))).mean() if len(df) >= 200 else None
+
+            # Take only the most recent data point
+            latest_data = df.iloc[-1] if not df.empty else None
+            if latest_data is None:
+                return False
+
+            # Extract values for current data
+            timestamp = latest_data.name.to_pydatetime()
+            high = float(latest_data['High'])
+            low = float(latest_data['Low'])
+            close = float(latest_data['Close'])
+            open_price = float(latest_data['Open'])
+            volume = float(latest_data['Volume']) if 'Volume' in latest_data else 0
+
+            if len(df) > 1:
+                prev_close = float(df.iloc[-2]['Close'])
+                price_change = close - prev_close
+                percent_change = (price_change / prev_close) * 100 if prev_close != 0 else 0
+            else:
+                price_change = None
+                percent_change = None
+                
+            # Get SMAs with proper null handling
+            sma20 = float(latest_data['SMA20']) if not pd.isna(latest_data['SMA20']) else None
+            sma50 = float(latest_data['SMA50']) if not pd.isna(latest_data['SMA50']) else None
+            sma200 = float(latest_data['SMA200']) if not pd.isna(latest_data['SMA200']) else None
+
+            # Check if we need to recalculate pivot points
+            current_date = datetime.now().date()
+
+            # Create a cache key for this symbol/interval
+            cache_key = f"{symbol}_{interval}"
+
+            # Check if we've already calculated pivots today
+            pivot_needs_update = True
+            pivot = r1 = r2 = r3 = s1 = s2 = s3 = None
+
+            if cache_key in self.pivot_calculation_cache:
+                last_calc_date = self.pivot_calculation_cache[cache_key]['date']
+                if last_calc_date == current_date:
+                    # We already calculated pivots today, reuse them from cache
+                    pivot_data = self.pivot_calculation_cache[cache_key]
+                    pivot, r1, r2, r3, s1, s2, s3 = (
+                        pivot_data['pivot'], pivot_data['r1'], pivot_data['r2'],
+                        pivot_data['r3'], pivot_data['s1'], pivot_data['s2'], pivot_data['s3']
+                    )
+                    pivot_needs_update = False
+
+            # Calculate new pivot points if needed
+            if pivot_needs_update:
+                # First check if we can get them from the database
+                with self._get_cursor() as cur:
+                    cur.execute("""
+                        SELECT pivot, r1, r2, r3, s1, s2, s3, DATE(last_updated)
+                        FROM stock_data_cache
+                        WHERE symbol = %s AND interval = %s
+                        ORDER BY last_updated DESC
+                        LIMIT 1
+                    """, (symbol, interval))
+
+                    existing_data = cur.fetchone()
+
+                    if existing_data and existing_data[7] == current_date:
+                        # Already calculated today, reuse from database
+                        pivot, r1, r2, r3, s1, s2, s3 = existing_data[0:7]
+                        pivot_needs_update = False
+                    else:
+                        # Need to calculate new pivot points
+                        try:
+                            # Get anchor data efficiently using cached function
+                            anchor_data = self.get_anchored_pivot_data(symbol, interval)
+
+                            if anchor_data is not None and len(anchor_data) >= 2:
+                                prev_data = anchor_data.iloc[-2]
+                                prev_high = float(prev_data['High'])
+                                prev_low = float(prev_data['Low'])
+                                prev_close = float(prev_data['Close'])
+
+                                # Calculate pivot points
+                                pivot = (prev_high + prev_low + prev_close) / 3
+                                r1 = (2 * pivot) - prev_low
+                                r2 = pivot + (prev_high - prev_low)
+                                r3 = prev_high + 2 * (pivot - prev_low)
+                                s1 = (2 * pivot) - prev_high
+                                s2 = pivot - (prev_high - prev_low)
+                                s3 = prev_low - 2 * (prev_high - pivot)
+                            else:
+                                # Fallback: use previous data point if available
+                                if len(df) >= 2:
+                                    prev_data = df.iloc[-2]
+                                    prev_high = float(prev_data['High'])
+                                    prev_low = float(prev_data['Low'])
+                                    prev_close = float(prev_data['Close'])
+
+                                    pivot = (prev_high + prev_low + prev_close) / 3
+                                    r1 = (2 * pivot) - prev_low
+                                    r2 = pivot + (prev_high - prev_low)
+                                    r3 = prev_high + 2 * (pivot - prev_low)
+                                    s1 = (2 * pivot) - prev_high
+                                    s2 = pivot - (prev_high - prev_low)
+                                    s3 = prev_low - 2 * (prev_high - pivot)
+                        except Exception as e:
+                            print(f"Error calculating pivot points for {symbol}: {str(e)}")
+                            # Try to use existing data if available
+                            if existing_data:
+                                pivot, r1, r2, r3, s1, s2, s3 = existing_data[0:7]
+                                pivot_needs_update = False
+
+                # If we've calculated new pivot points, update the cache
+                if pivot_needs_update and pivot is not None:
+                    self.pivot_calculation_cache[cache_key] = {
+                        'date': current_date,
+                        'pivot': pivot,
+                        'r1': r1, 'r2': r2, 'r3': r3,
+                        's1': s1, 's2': s2, 's3': s3
+                    }
+
+            # Update database using a single query with upsert
+            with self._get_cursor() as cur:
+                upsert_sql = """
+                    INSERT INTO stock_data_cache (
+                        symbol, interval, timestamp, open, high, low, close, volume,
+                        pivot, r1, r2, r3, s1, s2, s3, sma20, sma50, sma200, price_change, percent_change, last_updated
+                    ) VALUES (
+                        %s, %s, %s, %s, %s, %s, %s, %s, 
+                        %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                        CASE WHEN %s THEN NOW() ELSE 
+                            (SELECT last_updated FROM stock_data_cache 
+                             WHERE symbol = %s AND interval = %s 
+                             ORDER BY last_updated DESC LIMIT 1)
+                        END
+                    )
+                    ON CONFLICT (symbol, interval, timestamp)
+                    DO UPDATE SET
+                        open = EXCLUDED.open,
+                        high = EXCLUDED.high,
+                        low = EXCLUDED.low,
+                        close = EXCLUDED.close,
+                        volume = EXCLUDED.volume,
+                        sma20 = EXCLUDED.sma20,
+                        sma50 = EXCLUDED.sma50,
+                        sma200 = EXCLUDED.sma200,
+                        pivot = EXCLUDED.pivot,
+                        r1 = EXCLUDED.r1,
+                        r2 = EXCLUDED.r2,
+                        r3 = EXCLUDED.r3,
+                        s1 = EXCLUDED.s1,
+                        s2 = EXCLUDED.s2,
+                        s3 = EXCLUDED.s3,
+                        price_change = EXCLUDED.price_change,
+                        percent_change = EXCLUDED.percent_change,
+                        last_updated = CASE WHEN %s THEN NOW() ELSE stock_data_cache.last_updated END
+                """
+
+                # Execute the upsert
+                cur.execute(upsert_sql, (
+                    symbol, interval, timestamp, open_price, high, low, close, volume,
+                    pivot, r1, r2, r3, s1, s2, s3, sma20, sma50, sma200,
+                    price_change, percent_change,
+                    pivot_needs_update, symbol, interval, pivot_needs_update
+                ))
+
+            return True
+        except Exception as e:
+            import traceback
+            print(f"Error updating {symbol} data: {str(e)}")
+            traceback.print_exc()
+            return False
+        
+    def get_stock_data(self, symbol, interval):
+        """Get cached stock data"""
+        with self._get_cursor() as cur:
+            cur.execute("""
+                SELECT data FROM stock_data_cache
+                WHERE symbol = %s AND interval = %s
+            """, (symbol, interval))
+            result = cur.fetchone()
+            return json.loads(result[0]) if result else None
