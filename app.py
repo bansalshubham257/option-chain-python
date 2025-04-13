@@ -12,6 +12,7 @@ from services.option_chain import OptionChainService
 from services.market_data import MarketDataService
 from services.stock_analysis import StockAnalysisService
 from services.database import DatabaseService
+from services.scanner import ScannerService
 from config import Config
 
 import yfinance as yf
@@ -33,6 +34,7 @@ market_data_service = MarketDataService(
     option_chain_service=option_chain_service
 )
 stock_analysis_service = StockAnalysisService()
+scanner_service = ScannerService(database_service, option_chain_service)
 
 
 # API Routes
