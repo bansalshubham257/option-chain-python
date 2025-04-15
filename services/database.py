@@ -5,7 +5,7 @@ from functools import lru_cache
 
 import pandas as pd
 import psycopg2
-import talib
+from services.custom_ta import ta
 from psycopg2._psycopg import OperationalError
 from psycopg2.extras import execute_batch
 from decimal import Decimal
@@ -567,10 +567,15 @@ class DatabaseService:
                 df['VWAP'] = df['Close']  # Fallback if no volume
 
             if len(df) > 1:
-                df['macd_line'], df['macd_signal'], df['macd_histogram'] = talib.MACD(df['Close'])
-                df['adx'] = talib.ADX(df['High'], df['Low'], df['Close'])
-                df['adx_di_positive'] = talib.PLUS_DI(df['High'], df['Low'], df['Close'])
-                df['adx_di_negative'] = talib.MINUS_DI(df['High'], df['Low'], df['Close'])
+                df['macd_line'], df['macd_signal'], df['macd_histogram'] = ta.MACD(df['Close'])
+                try:
+                    # Technical indicator calculation
+                    df['adx'] = ta.ADX(df['High'], df['Low'], df['Close'])
+                except Exception as e:
+                    print(f"Error calculating ADX: {str(e)}")
+                    df['adx'] = None
+                df['adx_di_positive'] = ta.PLUS_DI(df['High'], df['Low'], df['Close'])
+                df['adx_di_negative'] = ta.MINUS_DI(df['High'], df['Low'], df['Close'])
                 
                 # Enhanced Bollinger Bands calculation to match TradingView implementation
                 # Using SMA as basis with 2.0 standard deviations by default
@@ -597,9 +602,9 @@ class DatabaseService:
                 # df['upper_bollinger_ema'] = ema_basis + (mult * df['Close'].rolling(window=length).std())
                 # df['lower_bollinger_ema'] = ema_basis - (mult * df['Close'].rolling(window=length).std())
                 
-                df['parabolic_sar'] = talib.SAR(df['High'], df['Low'])
-                df['rsi'] = talib.RSI(df['Close'])
-                stoch_rsi_k, stoch_rsi_d = talib.STOCHRSI(df['Close'])
+                df['parabolic_sar'] = ta.SAR(df['High'], df['Low'])
+                df['rsi'] = ta.RSI(df['Close'])
+                stoch_rsi_k, stoch_rsi_d = ta.STOCHRSI(df['Close'])
                 df['stoch_rsi'] = stoch_rsi_k  # Use only the first output (fastk)
                 df['ichimoku_base'] = (df['High'].rolling(window=26).max() + df['Low'].rolling(window=26).min()) / 2
                 df['ichimoku_conversion'] = (df['High'].rolling(window=9).max() + df['Low'].rolling(window=9).min()) / 2
@@ -611,9 +616,10 @@ class DatabaseService:
                 # Calculate Bollinger %B
                 #df['Bollinger_B'] = (df['Close'] - df['lower_bollinger']) / (df['upper_bollinger'] - df['lower_bollinger'])
 
+
             # Calculate Supertrend
             if len(df) > 1:
-                atr = talib.ATR(df['High'], df['Low'], df['Close'], timeperiod=14)
+                atr = ta.ATR(df['High'], df['Low'], df['Close'], timeperiod=14)
                 hl2 = (df['High'] + df['Low']) / 2
                 df['Supertrend'] = hl2 - (2 * atr)
 
@@ -624,7 +630,7 @@ class DatabaseService:
 
             # Calculate Commodity Channel Index (CCI)
             if len(df) > 1:
-                df['CCI'] = talib.CCI(df['High'], df['Low'], df['Close'], timeperiod=20)
+                df['CCI'] = ta.CCI(df['High'], df['Low'], df['Close'], timeperiod=20)
 
             # Calculate Chaikin Money Flow (CMF)
             if len(df) > 1:
@@ -633,15 +639,15 @@ class DatabaseService:
 
             # Calculate Money Flow Index (MFI)
             if len(df) > 1:
-                df['MFI'] = talib.MFI(df['High'], df['Low'], df['Close'], df['Volume'], timeperiod=14)
+                df['MFI'] = ta.MFI(df['High'], df['Low'], df['Close'], df['Volume'], timeperiod=14)
 
             # Calculate On Balance Volume (OBV)
             if len(df) > 1:
-                df['On_Balance_Volume'] = talib.OBV(df['Close'], df['Volume'])
+                df['On_Balance_Volume'] = ta.OBV(df['Close'], df['Volume'])
 
             # Calculate Williams %R
             if len(df) > 1:
-                df['Williams_R'] = talib.WILLR(df['High'], df['Low'], df['Close'], timeperiod=14)
+                df['Williams_R'] = ta.WILLR(df['High'], df['Low'], df['Close'], timeperiod=14)
 
             # Calculate Bollinger Band %B
             # Replace the problematic Bollinger Bands calculation with this code:
@@ -651,10 +657,10 @@ class DatabaseService:
                 mult = 2.0   # Default multiplier for standard deviation
 
                 # Calculate basis (middle band) using SMA
-                basis = talib.SMA(df['Close'], timeperiod=length)
+                basis = ta.SMA(df['Close'], timeperiod=length)
 
                 # Calculate standard deviation
-                dev = talib.STDDEV(df['Close'], timeperiod=length)
+                dev = ta.STDDEV(df['Close'], timeperiod=length)
 
                 # Calculate upper and lower bands
                 df['upper_bollinger'] = basis + (mult * dev)
@@ -679,31 +685,31 @@ class DatabaseService:
 
             # Calculate Schaff Trend Cycle (STC)
             if len(df) > 1:
-                macd, macd_signal, _ = talib.MACD(df['Close'])
-                df['STC'] = talib.STOCH(macd, macd_signal, macd_signal, fastk_period=14, slowk_period=3, slowd_period=3)[0]
+                macd, macd_signal, _ = ta.MACD(df['Close'])
+                df['STC'] = ta.STOCH(macd, macd_signal, macd_signal, fastk_period=14, slowk_period=3, slowd_period=3)[0]
 
             # Calculate new indicators
             if len(df) > 1:
                 for period in [10, 20, 50, 100, 200]:
                     df[f'sma{period}'] = df['Close'].rolling(window=period).mean()
-                    df[f'ema{period}'] = talib.EMA(df['Close'], timeperiod=period)
-                    df[f'wma{period}'] = talib.WMA(df['Close'], timeperiod=period)
+                    df[f'ema{period}'] = ta.EMA(df['Close'], timeperiod=period)
+                    df[f'wma{period}'] = ta.WMA(df['Close'], timeperiod=period)
                     df[f'tma{period}'] = df['Close'].rolling(window=period).mean().rolling(window=period).mean()
                     df[f'rma{period}'] = df['Close'].ewm(span=period, adjust=False).mean()
-                    df[f'tema{period}'] = talib.TEMA(df['Close'], timeperiod=period)
-                    df[f'hma{period}'] = talib.WMA(2 * talib.WMA(df['Close'], timeperiod=period // 2) - talib.WMA(df['Close'], timeperiod=period), timeperiod=int(period**0.5))
+                    df[f'tema{period}'] = ta.TEMA(df['Close'], timeperiod=period)
+                    df[f'hma{period}'] = ta.WMA(2 * ta.WMA(df['Close'], timeperiod=period // 2) - ta.WMA(df['Close'], timeperiod=period), timeperiod=int(period**0.5))
                     df[f'vwma{period}'] = (df['Close'] * df['Volume']).rolling(window=period).sum() / df['Volume'].rolling(window=period).sum()
                     df[f'std{period}'] = df['Close'].rolling(window=period).std()
 
             if len(df) > 1:
                 # ATR (Average True Range)
-                df['ATR'] = talib.ATR(df['High'], df['Low'], df['Close'], timeperiod=14)
+                df['ATR'] = ta.ATR(df['High'], df['Low'], df['Close'], timeperiod=14)
 
                 # TRIX (Triple Exponential Average)
-                df['TRIX'] = talib.TRIX(df['Close'], timeperiod=14)
+                df['TRIX'] = ta.TRIX(df['Close'], timeperiod=14)
 
                 # ROC (Rate of Change)
-                df['ROC'] = talib.ROC(df['Close'], timeperiod=10)
+                df['ROC'] = ta.ROC(df['Close'], timeperiod=10)
 
                 # Keltner Channels
                 df['Keltner_Middle'] = df['Close'].rolling(window=20).mean()
@@ -715,8 +721,8 @@ class DatabaseService:
                 df['Donchian_Low'] = df['Low'].rolling(window=20).min()
 
                 # Chaikin Oscillator
-                ad_line = talib.AD(df['High'], df['Low'], df['Close'], df['Volume'])
-                df['Chaikin_Oscillator'] = talib.ADOSC(df['High'], df['Low'], df['Close'], df['Volume'], fastperiod=3, slowperiod=10)
+                ad_line = ta.AD(df['High'], df['Low'], df['Close'], df['Volume'])
+                df['Chaikin_Oscillator'] = ta.ADOSC(df['High'], df['Low'], df['Close'], df['Volume'], fastperiod=3, slowperiod=10)
 
             # Ensure all required columns exist in the DataFrame
             # Filter out rows with NaN in critical indicators like Supertrend
@@ -775,7 +781,7 @@ class DatabaseService:
                     )
                     pivot_needs_update = False
             if len(df) > 1:
-                df['rsi'] = talib.RSI(df['Close'])
+                df['rsi'] = ta.RSI(df['Close'])
             # Calculate new pivot points if needed
             if pivot_needs_update:
                 # First check if we can get them from the database
