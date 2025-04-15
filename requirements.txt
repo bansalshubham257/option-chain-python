@@ -19,4 +19,5 @@ flask-socketio==5.3.4
 python-socketio==5.8.0
 python-engineio==4.5.1
 flask_caching
-TA-Lib
+TA-Lib==0.4.24; sys_platform == 'win32'
+https://github.com/mrjbq7/ta-lib/releases/download/v0.4.24/TA_Lib-0.4.24-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl; sys_platform == 'linux'
