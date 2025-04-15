@@ -570,7 +570,7 @@ class DatabaseService:
                 df['macd_line'], df['macd_signal'], df['macd_histogram'] = ta.MACD(df['Close'])
                 try:
                     # Technical indicator calculation
-                    df['adx'] = ta.ADX(df['High'], df['Low'], df['Close'])
+                    df['adx'] = ta.ADX(df['High'], df['Low'], df['Close'], timeperiod=14)
                 except Exception as e:
                     print(f"Error calculating ADX: {str(e)}")
                     df['adx'] = None
@@ -634,9 +634,7 @@ class DatabaseService:
 
             # Calculate Chaikin Money Flow (CMF)
             if len(df) > 1:
-                mfv = ((df['Close'] - df['Low']) - (df['High'] - df['Close'])) / (df['High'] - df['Low']).replace(0, np.nan) * df['Volume']
-                df['CMF'] = mfv.rolling(window=20).sum() / df['Volume'].rolling(window=20).sum()
-
+                df['CMF'] = ta.CMF(df['High'], df['Low'], df['Close'], df['Volume'], timeperiod=20)
             # Calculate Money Flow Index (MFI)
             if len(df) > 1:
                 df['MFI'] = ta.MFI(df['High'], df['Low'], df['Close'], df['Volume'], timeperiod=14)
