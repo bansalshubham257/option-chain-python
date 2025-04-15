@@ -166,7 +166,7 @@ class ScannerService:
                             std10, std50, std100, std200,
                             ATR, TRIX, ROC, Keltner_Middle, Keltner_Upper, Keltner_Lower,
                             Donchian_High, Donchian_Low, Chaikin_Oscillator,
-                            timestamp,
+                            timestamp, true_range, aroon_up, aroon_down, aroon_osc,
                             ROW_NUMBER() OVER (PARTITION BY symbol ORDER BY timestamp DESC) as rn
                         FROM stock_data_cache
                         WHERE symbol IN ({placeholders})
@@ -303,5 +303,3 @@ class ScannerService:
         except Exception as e:
             print(f"SQL scanner error: {str(e)}")
             return []
-
-
