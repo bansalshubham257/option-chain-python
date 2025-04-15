@@ -74,9 +74,16 @@ class ScannerService:
                 all_stocks = self.option_chain_service.get_fno_stocks_with_symbols()
             else:  # nifty50
                 all_stocks = [
-                    'RELIANCE.NS', 'HDFCBANK.NS', 'TCS.NS', 'ICICIBANK.NS', 'HDFC.NS',
-                    # Add more stocks as needed
-                    'GAIL.NS', 'DIVISLAB.NS', 'NESTLEIND.NS', 'HDFCLIFE.NS', 'SBILIFE.NS'
+                    'ADANIENT.NS', 'ADANIPORTS.NS', 'APOLLOHOSP.NS', 'ASIANPAINT.NS', 'AXISBANK.NS',
+                    'BAJAJ-AUTO.NS', 'BAJFINANCE.NS', 'BAJAJFINSV.NS', 'BHARTIARTL.NS', 'BPCL.NS',
+                    'BRITANNIA.NS', 'CIPLA.NS', 'COALINDIA.NS', 'DIVISLAB.NS', 'DRREDDY.NS',
+                    'EICHERMOT.NS', 'GRASIM.NS', 'HCLTECH.NS', 'HDFCBANK.NS', 'HDFCLIFE.NS',
+                    'HEROMOTOCO.NS', 'HINDALCO.NS', 'HINDUNILVR.NS', 'ICICIBANK.NS', 'ITC.NS',
+                    'INDUSINDBK.NS', 'INFY.NS', 'JSWSTEEL.NS', 'KOTAKBANK.NS', 'LT.NS',
+                    'M&M.NS', 'MARUTI.NS', 'NTPC.NS', 'NESTLEIND.NS', 'ONGC.NS',
+                    'POWERGRID.NS', 'RELIANCE.NS', 'SBILIFE.NS', 'SBIN.NS', 'SUNPHARMA.NS',
+                    'TCS.NS', 'TATACONSUM.NS', 'TATAMOTORS.NS', 'TATASTEEL.NS', 'TECHM.NS',
+                    'TITAN.NS', 'ULTRACEMCO.NS', 'UPL.NS', 'WIPRO.NS', 'HDFC.NS'
                 ]
 
             # Analyze conditions to collect required intervals and indicators
@@ -116,9 +123,49 @@ class ScannerService:
                             pivot,
                             r1, r2, r3,
                             s1, s2, s3,
-                            sma20, sma50, sma200,
+                            vwap,
+                            macd_line,
+                            macd_signal,
+                            macd_histogram,
+                            adx,
+                            adx_di_positive,
+                            adx_di_negative,
+                            upper_bollinger,
+                            lower_bollinger,
+                            parabolic_sar,
+                            rsi,
+                            stoch_rsi,
+                            ichimoku_base,
+                            ichimoku_conversion,
+                            ichimoku_span_a,
+                            ichimoku_span_b,
+                            ichimoku_cloud_top,
+                            ichimoku_cloud_bottom,
                             price_change,
                             percent_change,
+                            ha_open, ha_close, ha_high, ha_low,
+                            supertrend,
+                            acc_dist,
+                            cci,
+                            cmf,
+                            mfi,
+                            on_balance_volume,
+                            williams_r,
+                            bollinger_b,
+                            intraday_intensity,
+                            force_index,
+                            stc,
+                            sma10, sma20, sma50, sma100, sma200,
+                            ema10, ema50, ema100, ema200,
+                            wma10, wma50, wma100, wma200,
+                            tma10, tma50, tma100, tma200,
+                            rma10, rma50, rma100, rma200,
+                            tema10, tema50, tema100, tema200,
+                            hma10, hma50, hma100, hma200,
+                            vwma10, vwma50, vwma100, vwma200,
+                            std10, std50, std100, std200,
+                            ATR, TRIX, ROC, Keltner_Middle, Keltner_Upper, Keltner_Lower,
+                            Donchian_High, Donchian_Low, Chaikin_Oscillator,
                             timestamp,
                             ROW_NUMBER() OVER (PARTITION BY symbol ORDER BY timestamp DESC) as rn
                         FROM stock_data_cache
@@ -256,3 +303,5 @@ class ScannerService:
         except Exception as e:
             print(f"SQL scanner error: {str(e)}")
             return []
+
+
