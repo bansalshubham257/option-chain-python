@@ -199,11 +199,33 @@ class TA:
     @staticmethod
     def ATR(high, low, close, timeperiod=14):
         """Average True Range"""
+        true_range = TA.TRUE_RANGE(high, low, close)
+        return true_range.rolling(window=timeperiod).mean()
+
+    @staticmethod
+    def TRUE_RANGE(high, low, close):
+        """True Range"""
         tr1 = high - low
         tr2 = abs(high - close.shift(1))
         tr3 = abs(low - close.shift(1))
-        tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
-        return tr.rolling(window=timeperiod).mean()
+        return pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
+
+    @staticmethod
+    def AROON_UP(high, timeperiod=14):
+        """Aroon Up"""
+        return 100 * (timeperiod - high.rolling(window=timeperiod).apply(lambda x: timeperiod - x.argmax() - 1)) / timeperiod
+
+    @staticmethod
+    def AROON_DOWN(low, timeperiod=14):
+        """Aroon Down"""
+        return 100 * (timeperiod - low.rolling(window=timeperiod).apply(lambda x: timeperiod - x.argmin() - 1)) / timeperiod
+
+    @staticmethod
+    def AROON_OSC(high, low, timeperiod=14):
+        """Aroon Oscillator"""
+        aroon_up = TA.AROON_UP(high, timeperiod)
+        aroon_down = TA.AROON_DOWN(low, timeperiod)
+        return aroon_up - aroon_down
 
     @staticmethod
     def STOCH(high, low, close, fastk_period=5, slowk_period=3, slowd_period=3):
