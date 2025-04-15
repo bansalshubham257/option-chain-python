@@ -45,33 +45,104 @@ class TA:
         lower = middle - (stddev * nbdevdn)
         return upper, middle, lower
 
+    # Fix for CMF calculation
+    @staticmethod
+    def CMF(high, low, close, volume, timeperiod=20):
+        """Chaikin Money Flow"""
+        # Money Flow Multiplier
+        mfm = pd.Series(np.zeros(len(close)), index=close.index)
+        range_mask = (high - low) > 0  # Avoid division by zero
+
+        # Calculate only where range is non-zero
+        mfm[range_mask] = ((close[range_mask] - low[range_mask]) -
+                           (high[range_mask] - close[range_mask])) / (high[range_mask] - low[range_mask])
+
+        # Money Flow Volume
+        mfv = mfm * volume
+
+        # CMF is the sum of Money Flow Volume divided by the sum of Volume over n periods
+        cmf = pd.Series(np.nan, index=close.index)
+        vol_sum = volume.rolling(window=timeperiod).sum()
+        mfv_sum = mfv.rolling(window=timeperiod).sum()
+
+        # Calculate only where volume sum is non-zero
+        mask = vol_sum > 0
+        cmf[mask] = mfv_sum[mask] / vol_sum[mask]
+
+        return cmf
+
+    # Fix for ADX calculation
     @staticmethod
     def ADX(high, low, close, timeperiod=14):
         """Average Directional Index"""
+        if len(high) < timeperiod + 1:
+            return pd.Series(np.nan, index=high.index)
+
         # Calculate True Range
-        tr1 = abs(high - low)
-        tr2 = abs(high - pd.Series(close).shift(1))
-        tr3 = abs(low - pd.Series(close).shift(1))
-        tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
-        atr = tr.ewm(span=timeperiod, adjust=False).mean()
+        tr = pd.Series(np.zeros(len(high)), index=high.index)
+        for i in range(1, len(high)):
+            tr.iloc[i] = max(
+                high.iloc[i] - low.iloc[i],  # Current high - current low
+                abs(high.iloc[i] - close.iloc[i-1]),  # Current high - previous close
+                abs(low.iloc[i] - close.iloc[i-1])  # Current low - previous close
+            )
 
-        # Calculate Directional Movement
-        up_move = high - high.shift(1)
-        down_move = low.shift(1) - low
+        # Smooth the TR using Wilder's smoothing
+        atr = pd.Series(np.zeros(len(high)), index=high.index)
+        atr.iloc[timeperiod] = tr.iloc[1:timeperiod+1].sum() / timeperiod
+        for i in range(timeperiod + 1, len(high)):
+            atr.iloc[i] = (atr.iloc[i-1] * (timeperiod - 1) + tr.iloc[i]) / timeperiod
 
-        # Positive Directional Movement
-        plus_dm = np.where((up_move > down_move) & (up_move > 0), up_move, 0)
-        plus_dm = pd.Series(plus_dm).ewm(span=timeperiod, adjust=False).mean()
-        plus_di = 100 * plus_dm / atr.replace(0, np.finfo(float).eps)
+        # +DM and -DM
+        plus_dm = pd.Series(np.zeros(len(high)), index=high.index)
+        minus_dm = pd.Series(np.zeros(len(high)), index=high.index)
 
-        # Negative Directional Movement
-        minus_dm = np.where((down_move > up_move) & (down_move > 0), down_move, 0)
-        minus_dm = pd.Series(minus_dm).ewm(span=timeperiod, adjust=False).mean()
-        minus_di = 100 * minus_dm / atr.replace(0, np.finfo(float).eps)
+        for i in range(1, len(high)):
+            up_move = high.iloc[i] - high.iloc[i-1]
+            down_move = low.iloc[i-1] - low.iloc[i]
 
-        # Calculate ADX
-        dx = 100 * abs(plus_di - minus_di) / (plus_di + minus_di).replace(0, np.finfo(float).eps)
-        adx = dx.ewm(span=timeperiod, adjust=False).mean()
+            if up_move > down_move and up_move > 0:
+                plus_dm.iloc[i] = up_move
+            else:
+                plus_dm.iloc[i] = 0
+
+            if down_move > up_move and down_move > 0:
+                minus_dm.iloc[i] = down_move
+            else:
+                minus_dm.iloc[i] = 0
+
+        # Smooth +DM and -DM
+        smoothed_plus_dm = pd.Series(np.zeros(len(high)), index=high.index)
+        smoothed_minus_dm = pd.Series(np.zeros(len(high)), index=high.index)
+
+        smoothed_plus_dm.iloc[timeperiod] = plus_dm.iloc[1:timeperiod+1].sum()
+        smoothed_minus_dm.iloc[timeperiod] = minus_dm.iloc[1:timeperiod+1].sum()
+
+        for i in range(timeperiod + 1, len(high)):
+            smoothed_plus_dm.iloc[i] = smoothed_plus_dm.iloc[i-1] - (smoothed_plus_dm.iloc[i-1] / timeperiod) + plus_dm.iloc[i]
+            smoothed_minus_dm.iloc[i] = smoothed_minus_dm.iloc[i-1] - (smoothed_minus_dm.iloc[i-1] / timeperiod) + minus_dm.iloc[i]
+
+        # +DI and -DI
+        plus_di = pd.Series(np.zeros(len(high)), index=high.index)
+        minus_di = pd.Series(np.zeros(len(high)), index=high.index)
+
+        for i in range(timeperiod, len(high)):
+            if atr.iloc[i] != 0:
+                plus_di.iloc[i] = 100 * smoothed_plus_dm.iloc[i] / atr.iloc[i]
+                minus_di.iloc[i] = 100 * smoothed_minus_dm.iloc[i] / atr.iloc[i]
+
+        # DX
+        dx = pd.Series(np.zeros(len(high)), index=high.index)
+        for i in range(timeperiod, len(high)):
+            if (plus_di.iloc[i] + minus_di.iloc[i]) != 0:
+                dx.iloc[i] = 100 * abs(plus_di.iloc[i] - minus_di.iloc[i]) / (plus_di.iloc[i] + minus_di.iloc[i])
+
+        # ADX
+        adx = pd.Series(np.zeros(len(high)), index=high.index)
+        adx.iloc[2 * timeperiod - 1] = dx.iloc[timeperiod:2*timeperiod].mean()
+
+        for i in range(2 * timeperiod, len(high)):
+            adx.iloc[i] = (adx.iloc[i-1] * (timeperiod - 1) + dx.iloc[i]) / timeperiod
 
         return adx
 
