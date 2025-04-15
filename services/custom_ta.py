@@ -1,0 +1,431 @@
+# custom_ta.py
+import numpy as np
+import pandas as pd
+
+class TA:
+    """Custom Technical Analysis functions"""
+
+    @staticmethod
+    def SMA(series, timeperiod=None):
+        """Simple Moving Average"""
+        return series.rolling(window=timeperiod).mean()
+
+    @staticmethod
+    def EMA(series, timeperiod=None):
+        """Exponential Moving Average"""
+        return series.ewm(span=timeperiod, adjust=False).mean()
+
+    @staticmethod
+    def MACD(close, fastperiod=12, slowperiod=26, signalperiod=9):
+        """Moving Average Convergence Divergence"""
+        fast_ema = pd.Series(close).ewm(span=fastperiod, adjust=False).mean()
+        slow_ema = pd.Series(close).ewm(span=slowperiod, adjust=False).mean()
+        macd_line = fast_ema - slow_ema
+        signal_line = macd_line.ewm(span=signalperiod, adjust=False).mean()
+        histogram = macd_line - signal_line
+        return macd_line, signal_line, histogram
+
+    @staticmethod
+    def RSI(close, timeperiod=14):
+        """Relative Strength Index"""
+        delta = pd.Series(close).diff()
+        up = delta.clip(lower=0)
+        down = -delta.clip(upper=0)
+        ema_up = up.ewm(com=timeperiod-1, adjust=False).mean()
+        ema_down = down.ewm(com=timeperiod-1, adjust=False).mean()
+        rs = ema_up / ema_down.replace(0, np.finfo(float).eps)
+        return 100 - (100 / (1 + rs))
+
+    @staticmethod
+    def BBANDS(close, timeperiod=20, nbdevup=2, nbdevdn=2):
+        """Bollinger Bands"""
+        middle = pd.Series(close).rolling(window=timeperiod).mean()
+        stddev = pd.Series(close).rolling(window=timeperiod).std()
+        upper = middle + (stddev * nbdevup)
+        lower = middle - (stddev * nbdevdn)
+        return upper, middle, lower
+
+    @staticmethod
+    def ADX(high, low, close, timeperiod=14):
+        """Average Directional Index"""
+        # Calculate True Range
+        tr1 = abs(high - low)
+        tr2 = abs(high - pd.Series(close).shift(1))
+        tr3 = abs(low - pd.Series(close).shift(1))
+        tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
+        atr = tr.ewm(span=timeperiod, adjust=False).mean()
+
+        # Calculate Directional Movement
+        up_move = high - high.shift(1)
+        down_move = low.shift(1) - low
+
+        # Positive Directional Movement
+        plus_dm = np.where((up_move > down_move) & (up_move > 0), up_move, 0)
+        plus_dm = pd.Series(plus_dm).ewm(span=timeperiod, adjust=False).mean()
+        plus_di = 100 * plus_dm / atr.replace(0, np.finfo(float).eps)
+
+        # Negative Directional Movement
+        minus_dm = np.where((down_move > up_move) & (down_move > 0), down_move, 0)
+        minus_dm = pd.Series(minus_dm).ewm(span=timeperiod, adjust=False).mean()
+        minus_di = 100 * minus_dm / atr.replace(0, np.finfo(float).eps)
+
+        # Calculate ADX
+        dx = 100 * abs(plus_di - minus_di) / (plus_di + minus_di).replace(0, np.finfo(float).eps)
+        adx = dx.ewm(span=timeperiod, adjust=False).mean()
+
+        return adx
+
+    @staticmethod
+    def PLUS_DI(high, low, close, timeperiod=14):
+        """Plus Directional Indicator"""
+        # Calculate True Range
+        tr1 = abs(high - low)
+        tr2 = abs(high - pd.Series(close).shift(1))
+        tr3 = abs(low - pd.Series(close).shift(1))
+        tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
+        atr = tr.ewm(span=timeperiod, adjust=False).mean()
+
+        # Calculate Directional Movement
+        up_move = high - high.shift(1)
+        down_move = low.shift(1) - low
+
+        # Positive Directional Movement
+        plus_dm = np.where((up_move > down_move) & (up_move > 0), up_move, 0)
+        plus_dm = pd.Series(plus_dm).ewm(span=timeperiod, adjust=False).mean()
+        plus_di = 100 * plus_dm / atr.replace(0, np.finfo(float).eps)
+
+        return plus_di
+
+    @staticmethod
+    def MINUS_DI(high, low, close, timeperiod=14):
+        """Minus Directional Indicator"""
+        # Calculate True Range
+        tr1 = abs(high - low)
+        tr2 = abs(high - pd.Series(close).shift(1))
+        tr3 = abs(low - pd.Series(close).shift(1))
+        tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
+        atr = tr.ewm(span=timeperiod, adjust=False).mean()
+
+        # Calculate Directional Movement
+        up_move = high - high.shift(1)
+        down_move = low.shift(1) - low
+
+        # Negative Directional Movement
+        minus_dm = np.where((down_move > up_move) & (down_move > 0), down_move, 0)
+        minus_dm = pd.Series(minus_dm).ewm(span=timeperiod, adjust=False).mean()
+        minus_di = 100 * minus_dm / atr.replace(0, np.finfo(float).eps)
+
+        return minus_di
+
+    @staticmethod
+    def STOCHRSI(close, timeperiod=14, fastk_period=5, fastd_period=3):
+        """StochRSI"""
+        rsi = TA.RSI(close, timeperiod)
+        stoch_k = 100 * (rsi - rsi.rolling(fastk_period).min()) / (rsi.rolling(fastk_period).max() - rsi.rolling(fastk_period).min()).replace(0, np.finfo(float).eps)
+        stoch_d = stoch_k.rolling(fastd_period).mean()
+        return stoch_k, stoch_d
+
+    @staticmethod
+    def ATR(high, low, close, timeperiod=14):
+        """Average True Range"""
+        tr1 = high - low
+        tr2 = abs(high - close.shift(1))
+        tr3 = abs(low - close.shift(1))
+        tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
+        return tr.rolling(window=timeperiod).mean()
+
+    @staticmethod
+    def STOCH(high, low, close, fastk_period=5, slowk_period=3, slowd_period=3):
+        """Stochastic Oscillator"""
+        highest_high = high.rolling(window=fastk_period).max()
+        lowest_low = low.rolling(window=fastk_period).min()
+
+        # Fast %K
+        fastk = 100 * (close - lowest_low) / (highest_high - lowest_low).replace(0, np.finfo(float).eps)
+
+        # Slow %K (smoothed fast %K)
+        slowk = fastk.rolling(window=slowk_period).mean()
+
+        # Slow %D (smoothed slow %K)
+        slowd = slowk.rolling(window=slowd_period).mean()
+
+        return slowk, slowd
+
+    @staticmethod
+    def SAR(high, low, acceleration=0.02, maximum=0.2):
+        """Parabolic SAR"""
+        prices = pd.DataFrame({'high': high, 'low': low})
+        prices.index = pd.RangeIndex(len(prices))
+
+        sar = np.zeros(len(prices))
+        trend = np.zeros(len(prices))
+        ep = np.zeros(len(prices))
+        af = np.zeros(len(prices))
+
+        # Initialize
+        trend[0] = 1  # Start with uptrend
+        sar[0] = prices['low'].iloc[0]
+        ep[0] = prices['high'].iloc[0]
+        af[0] = acceleration
+
+        # Calculate SAR values
+        for i in range(1, len(prices)):
+            # Previous trend was up
+            if trend[i-1] == 1:
+                sar[i] = sar[i-1] + af[i-1] * (ep[i-1] - sar[i-1])
+                # Ensure SAR is below previous low
+                sar[i] = min(sar[i], prices['low'].iloc[i-1], prices['low'].iloc[max(0, i-2)])
+
+                # Check for trend reversal
+                if prices['low'].iloc[i] < sar[i]:
+                    trend[i] = -1  # Trend changes to down
+                    sar[i] = ep[i-1]  # SAR becomes previous EP
+                    ep[i] = prices['low'].iloc[i]  # EP becomes current low
+                    af[i] = acceleration  # Reset AF
+                else:
+                    trend[i] = 1  # Trend remains up
+                    if prices['high'].iloc[i] > ep[i-1]:
+                        ep[i] = prices['high'].iloc[i]  # New high becomes EP
+                        af[i] = min(af[i-1] + acceleration, maximum)  # Increase AF
+                    else:
+                        ep[i] = ep[i-1]  # EP remains the same
+                        af[i] = af[i-1]  # AF remains the same
+            # Previous trend was down
+            else:
+                sar[i] = sar[i-1] - af[i-1] * (sar[i-1] - ep[i-1])
+                # Ensure SAR is above previous high
+                sar[i] = max(sar[i], prices['high'].iloc[i-1], prices['high'].iloc[max(0, i-2)])
+
+                # Check for trend reversal
+                if prices['high'].iloc[i] > sar[i]:
+                    trend[i] = 1  # Trend changes to up
+                    sar[i] = ep[i-1]  # SAR becomes previous EP
+                    ep[i] = prices['high'].iloc[i]  # EP becomes current high
+                    af[i] = acceleration  # Reset AF
+                else:
+                    trend[i] = -1  # Trend remains down
+                    if prices['low'].iloc[i] < ep[i-1]:
+                        ep[i] = prices['low'].iloc[i]  # New low becomes EP
+                        af[i] = min(af[i-1] + acceleration, maximum)  # Increase AF
+                    else:
+                        ep[i] = ep[i-1]  # EP remains the same
+                        af[i] = af[i-1]  # AF remains the same
+
+        return pd.Series(sar, index=high.index)
+
+    @staticmethod
+    def CCI(high, low, close, timeperiod=20):
+        """Commodity Channel Index"""
+        tp = (high + low + close) / 3
+        tp_ma = tp.rolling(window=timeperiod).mean()
+        md = (tp - tp_ma).abs().rolling(window=timeperiod).mean()
+        return (tp - tp_ma) / (0.015 * md.replace(0, np.finfo(float).eps))
+
+    @staticmethod
+    def MFI(high, low, close, volume, timeperiod=14):
+        """Money Flow Index"""
+        typical_price = (high + low + close) / 3
+        money_flow = typical_price * volume
+
+        delta = typical_price.diff()
+        pos_flow = (money_flow * (delta > 0)).rolling(window=timeperiod).sum()
+        neg_flow = (money_flow * (delta < 0)).rolling(window=timeperiod).sum()
+
+        money_ratio = pos_flow / neg_flow.replace(0, np.finfo(float).eps)
+        return 100 - (100 / (1 + money_ratio))
+
+    @staticmethod
+    def ROC(close, timeperiod=10):
+        """Rate of Change"""
+        return 100 * (close / close.shift(timeperiod) - 1)
+
+    @staticmethod
+    def WILLR(high, low, close, timeperiod=14):
+        """Williams' %R"""
+        highest = high.rolling(window=timeperiod).max()
+        lowest = low.rolling(window=timeperiod).min()
+        return -100 * (highest - close) / (highest - lowest).replace(0, np.finfo(float).eps)
+
+    @staticmethod
+    def OBV(close, volume):
+        """On Balance Volume"""
+        obv = np.zeros(len(close))
+        for i in range(1, len(close)):
+            if close.iloc[i] > close.iloc[i-1]:
+                obv[i] = obv[i-1] + volume.iloc[i]
+            elif close.iloc[i] < close.iloc[i-1]:
+                obv[i] = obv[i-1] - volume.iloc[i]
+            else:
+                obv[i] = obv[i-1]
+        return pd.Series(obv, index=close.index)
+
+    @staticmethod
+    def AD(high, low, close, volume):
+        """Accumulation/Distribution Line"""
+        clv = ((close - low) - (high - close)) / (high - low).replace(0, np.finfo(float).eps)
+        ad = clv * volume
+        return ad.cumsum()
+
+    @staticmethod
+    def ADOSC(high, low, close, volume, fastperiod=3, slowperiod=10):
+        """Chaikin A/D Oscillator"""
+        ad = TA.AD(high, low, close, volume)
+        fast_ema = ad.ewm(span=fastperiod, adjust=False).mean()
+        slow_ema = ad.ewm(span=slowperiod, adjust=False).mean()
+        return fast_ema - slow_ema
+
+    @staticmethod
+    def TRIX(close, timeperiod=14):
+        """Triple Exponential Moving Average (TRIX)"""
+        ema1 = close.ewm(span=timeperiod, adjust=False).mean()
+        ema2 = ema1.ewm(span=timeperiod, adjust=False).mean()
+        ema3 = ema2.ewm(span=timeperiod, adjust=False).mean()
+        return 100 * (ema3 / ema3.shift(1) - 1)
+
+    @staticmethod
+    def STDDEV(close, timeperiod=20, nbdev=1):
+        """Standard Deviation"""
+        return close.rolling(window=timeperiod).std() * nbdev
+
+    @staticmethod
+    def VAR(close, timeperiod=20, nbdev=1):
+        """Variance"""
+        return close.rolling(window=timeperiod).var() * nbdev
+
+    @staticmethod
+    def TSF(close, timeperiod=14):
+        """Time Series Forecast"""
+        # Simple linear regression forecast
+        x = np.arange(1, timeperiod + 1)
+        result = pd.Series(index=close.index)
+
+        for i in range(timeperiod, len(close) + 1):
+            y = close.iloc[i - timeperiod:i].values
+            if len(y) == timeperiod:
+                slope, intercept = np.polyfit(x, y, 1)
+                result.iloc[i - 1] = slope * (timeperiod + 1) + intercept
+
+        return result
+
+    @staticmethod
+    def NATR(high, low, close, timeperiod=14):
+        """Normalized Average True Range"""
+        atr = TA.ATR(high, low, close, timeperiod)
+        return 100 * atr / close
+
+    @staticmethod
+    def HT_TRENDLINE(close):
+        """Hilbert Transform - Instantaneous Trendline"""
+        # This is a simplified approximation
+        return close.ewm(span=40, adjust=False).mean()
+
+    @staticmethod
+    def LINEARREG(close, timeperiod=14):
+        """Linear Regression"""
+        result = pd.Series(index=close.index)
+        for i in range(timeperiod, len(close) + 1):
+            y = close.iloc[i - timeperiod:i].values
+            if len(y) == timeperiod:
+                x = np.arange(timeperiod)
+                slope, intercept = np.polyfit(x, y, 1)
+                result.iloc[i - 1] = slope * (timeperiod - 1) + intercept
+        return result
+
+    @staticmethod
+    def LINEARREG_SLOPE(close, timeperiod=14):
+        """Linear Regression Slope"""
+        result = pd.Series(index=close.index)
+        for i in range(timeperiod, len(close) + 1):
+            y = close.iloc[i - timeperiod:i].values
+            if len(y) == timeperiod:
+                x = np.arange(timeperiod)
+                slope, _ = np.polyfit(x, y, 1)
+                result.iloc[i - 1] = slope
+        return result
+
+    @staticmethod
+    def LINEARREG_ANGLE(close, timeperiod=14):
+        """Linear Regression Angle"""
+        slope = TA.LINEARREG_SLOPE(close, timeperiod)
+        return np.degrees(np.arctan(slope))
+
+    @staticmethod
+    def LINEARREG_INTERCEPT(close, timeperiod=14):
+        """Linear Regression Intercept"""
+        result = pd.Series(index=close.index)
+        for i in range(timeperiod, len(close) + 1):
+            y = close.iloc[i - timeperiod:i].values
+            if len(y) == timeperiod:
+                x = np.arange(timeperiod)
+                _, intercept = np.polyfit(x, y, 1)
+                result.iloc[i - 1] = intercept
+        return result
+
+    @staticmethod
+    def bbands(close, length=20, std=2):
+        """Bollinger Bands for pandas_ta compatibility"""
+        upper, middle, lower = TA.BBANDS(close, timeperiod=length, nbdevup=std, nbdevdn=std)
+        return pd.DataFrame({
+            'BBU_20_2.0': upper,
+            'BBM_20_2.0': middle,
+            'BBL_20_2.0': lower
+        })
+
+    @staticmethod
+    def sma(close, length=None):
+        """Simple Moving Average for pandas_ta compatibility"""
+        return TA.SMA(close, timeperiod=length)
+
+    @staticmethod
+    def ema(close, length=None):
+        """Exponential Moving Average for pandas_ta compatibility"""
+        return TA.EMA(close, timeperiod=length)
+
+    @staticmethod
+    def WMA(series, timeperiod=None):
+        """Weighted Moving Average"""
+        weights = np.arange(1, timeperiod + 1)
+        result = pd.Series(index=series.index)
+
+        for i in range(timeperiod - 1, len(series)):
+            window = series.iloc[i - timeperiod + 1:i + 1]
+            result.iloc[i] = np.sum(weights * window) / weights.sum()
+
+        return result
+
+    @staticmethod
+    def DEMA(series, timeperiod=None):
+        """Double Exponential Moving Average"""
+        ema = series.ewm(span=timeperiod, adjust=False).mean()
+        return 2 * ema - ema.ewm(span=timeperiod, adjust=False).mean()
+
+    @staticmethod
+    def TEMA(series, timeperiod=None):
+        """Triple Exponential Moving Average"""
+        ema1 = series.ewm(span=timeperiod, adjust=False).mean()
+        ema2 = ema1.ewm(span=timeperiod, adjust=False).mean()
+        ema3 = ema2.ewm(span=timeperiod, adjust=False).mean()
+        return 3 * ema1 - 3 * ema2 + ema3
+
+    @staticmethod
+    def KAMA(close, timeperiod=10, fast_period=2, slow_period=30):
+        """Kaufman Adaptive Moving Average"""
+        # Calculate efficiency ratio
+        change = abs(close - close.shift(timeperiod))
+        volatility = (abs(close - close.shift(1))).rolling(window=timeperiod).sum()
+        er = change / volatility.replace(0, np.finfo(float).eps)
+
+        # Calculate smoothing constant
+        fast_sc = 2/(fast_period + 1)
+        slow_sc = 2/(slow_period + 1)
+        sc = (er * (fast_sc - slow_sc) + slow_sc) ** 2
+
+        # Calculate KAMA
+        kama = pd.Series(index=close.index)
+        kama.iloc[timeperiod-1] = close.iloc[timeperiod-1]
+        for i in range(timeperiod, len(close)):
+            kama.iloc[i] = kama.iloc[i-1] + sc.iloc[i] * (close.iloc[i] - kama.iloc[i-1])
+
+        return kama
+# Create a singleton instance
+ta = TA()
