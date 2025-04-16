@@ -18,9 +18,9 @@ import pytz
 # Memory cache for pivot point calculation tracking
 
 class DatabaseService:
-    
+
     pivot_calculation_cache = {}
-    
+
     def __init__(self, max_retries=3, retry_delay=2):
         self.conn_params = {
             'dbname': os.getenv('DB_NAME', 'your_db_name'),
@@ -274,7 +274,7 @@ class DatabaseService:
                 DO NOTHING
             """, processed_records, page_size=100)
 
-   
+
     def clear_old_data(self):
         """Delete previous day's data"""
         print("inside clear_old_data")
@@ -434,9 +434,9 @@ class DatabaseService:
         """Save 52-week high/low data to database"""
         if not data:
             return
-    
+
         timestamp = datetime.now(pytz.timezone('Asia/Kolkata'))
-    
+
         # Convert NumPy types to native Python types
         processed_data = []
         for item in data:
@@ -452,11 +452,11 @@ class DatabaseService:
                 str(item['status']),
                 timestamp
             ))
-    
+
         with self._get_cursor() as cur:
             # Clear old data
             cur.execute("DELETE FROM fiftytwo_week_extremes")
-    
+
             # Insert new data with proper type conversion
             execute_batch(cur, """
                 INSERT INTO fiftytwo_week_extremes 
@@ -465,7 +465,7 @@ class DatabaseService:
                  days_since_low, status, timestamp)
                 VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
             """, processed_data, page_size=100)
-        
+
     def get_52_week_data(self, limit=50):
         """Get cached 52-week high/low data"""
         with self._get_cursor() as cur:
@@ -479,7 +479,7 @@ class DatabaseService:
                     timestamp DESC
                 LIMIT %s
             """, (limit,))
-    
+
             results = []
             for row in cur.fetchall():
                 results.append({
@@ -554,7 +554,7 @@ class DatabaseService:
                     df[col] = None  # Add the column with default None values
 
             if 'Volume' in df.columns and len(df) > 0:
-            # Calculate VWAP for each row
+                # Calculate VWAP for each row
                 df['VP'] = df['Close'] * df['Volume']  # Value * Price
                 df['CV'] = df['Volume'].cumsum()  # Cumulative Volume
                 df['CVP'] = df['VP'].cumsum()  # Cumulative Value * Price
@@ -572,8 +572,8 @@ class DatabaseService:
                     df['adx'] = None
                 df['adx_di_positive'] = ta.PLUS_DI(df['High'], df['Low'], df['Close'])
                 df['adx_di_negative'] = ta.MINUS_DI(df['High'], df['Low'], df['Close'])
-                
-                
+
+
                 df['parabolic_sar'] = ta.SAR(df['High'], df['Low'])
                 df['rsi'] = ta.RSI(df['Close'])
                 stoch_rsi_k, stoch_rsi_d = ta.STOCHRSI(df['Close'])
@@ -585,7 +585,7 @@ class DatabaseService:
                 df['ichimoku_cloud_top'] = df[['ichimoku_span_a', 'ichimoku_span_b']].max(axis=1)
                 df['ichimoku_cloud_bottom'] = df[['ichimoku_span_a', 'ichimoku_span_b']].min(axis=1)
 
-            
+
 
             # Calculate Supertrend
             if len(df) > 1:
@@ -703,12 +703,18 @@ class DatabaseService:
                 df['aroon_up'] = ta.AROON_UP(df['High'], timeperiod=14)
                 df['aroon_down'] = ta.AROON_DOWN(df['Low'], timeperiod=14)
                 df['aroon_osc'] = ta.AROON_OSC(df['High'], df['Low'], timeperiod=14)
-           
+
             if len(df) > 1:
                 # Calculate buyer/seller initiated trades and related metrics
                 buyer_seller_metrics = ta.buyer_seller_initiated_trades(df['Close'], df['Volume'])
                 # Add all new columns to the DataFrame at once using pd.concat
                 df = pd.concat([df, pd.DataFrame(buyer_seller_metrics, index=df.index)], axis=1)
+
+            if len(df) > 1:
+                # Calculate Wave Trend indicators
+                df['wave_trend'], df['wave_trend_trigger'], df['wave_trend_momentum'] = ta.WAVE_TREND(
+                    df['High'], df['Low'], df['Close']
+                )
 
             # Ensure all required columns exist in the DataFrame
             # Filter out rows with NaN in critical indicators like Supertrend
@@ -744,7 +750,7 @@ class DatabaseService:
             else:
                 price_change = None
                 percent_change = None
-                
+
 
             # Check if we need to recalculate pivot points
             current_date = datetime.now().date()
@@ -884,7 +890,8 @@ class DatabaseService:
                 'true_range', 'aroon_up', 'aroon_down', 'aroon_osc',
                 'buyer_initiated_trades', 'buyer_initiated_quantity', 'buyer_initiated_avg_qty',
                 'seller_initiated_trades', 'seller_initiated_quantity', 'seller_initiated_avg_qty',
-                'buyer_seller_ratio', 'buyer_seller_quantity_ratio', 'buyer_initiated_vwap', 'seller_initiated_vwap'
+                'buyer_seller_ratio', 'buyer_seller_quantity_ratio', 'buyer_initiated_vwap', 'seller_initiated_vwap',
+                'wave_trend', 'wave_trend_trigger', 'wave_trend_momentum'
             ]
 
 
@@ -918,17 +925,19 @@ class DatabaseService:
                         Chaikin_Oscillator, rsi, true_range, aroon_up, aroon_down, aroon_osc,
                         buyer_initiated_trades, buyer_initiated_quantity, buyer_initiated_avg_qty,
                         seller_initiated_trades, seller_initiated_quantity, seller_initiated_avg_qty,
-                        buyer_seller_ratio, buyer_seller_quantity_ratio, buyer_initiated_vwap, seller_initiated_vwap
+                        buyer_seller_ratio, buyer_seller_quantity_ratio, buyer_initiated_vwap, seller_initiated_vwap,
+                        wave_trend, wave_trend_trigger, wave_trend_momentum
                     ) VALUES (
                         %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
                         %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
                         %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
                         %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
                         %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
-                        %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
+                        %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
                     )
-                    ON CONFLICT (symbol, interval, timestamp)
+                    ON CONFLICT (symbol, interval)
                     DO UPDATE SET
+                        timestamp = EXCLUDED.timestamp,
                         open = EXCLUDED.open, high = EXCLUDED.high, low = EXCLUDED.low,
                         close = EXCLUDED.close, volume = EXCLUDED.volume, pivot = EXCLUDED.pivot,
                         r1 = EXCLUDED.r1, r2 = EXCLUDED.r2, r3 = EXCLUDED.r3, s1 = EXCLUDED.s1,
@@ -971,7 +980,10 @@ class DatabaseService:
                         buyer_seller_ratio = EXCLUDED.buyer_seller_ratio,
                         buyer_seller_quantity_ratio = EXCLUDED.buyer_seller_quantity_ratio,
                         buyer_initiated_vwap = EXCLUDED.buyer_initiated_vwap,
-                        seller_initiated_vwap = EXCLUDED.seller_initiated_vwap
+                        seller_initiated_vwap = EXCLUDED.seller_initiated_vwap,
+                        wave_trend = EXCLUDED.wave_trend,
+                        wave_trend_trigger = EXCLUDED.wave_trend_trigger,
+                        wave_trend_momentum = EXCLUDED.wave_trend_momentum
                 """
 
                 # Convert all numpy values to native Python types
@@ -1103,7 +1115,10 @@ class DatabaseService:
                     self._convert_numpy_types(latest_data['buyer_seller_ratio']),
                     self._convert_numpy_types(latest_data['buyer_seller_quantity_ratio']),
                     self._convert_numpy_types(latest_data['buyer_initiated_vwap']),
-                    self._convert_numpy_types(latest_data['seller_initiated_vwap'])
+                    self._convert_numpy_types(latest_data['seller_initiated_vwap']),
+                    self._convert_numpy_types(latest_data['wave_trend']),
+                    self._convert_numpy_types(latest_data['wave_trend_trigger']),
+                    self._convert_numpy_types(latest_data['wave_trend_momentum'])
                 )
 
                 cur.execute(upsert_sql, params)
@@ -1114,7 +1129,7 @@ class DatabaseService:
             print(f"Error updating {symbol} data: {str(e)}")
             traceback.print_exc()
             return False
-        
+
     def get_stock_data(self, symbol, interval):
         """Get cached stock data"""
         with self._get_cursor() as cur:
@@ -1139,3 +1154,4 @@ class DatabaseService:
         elif isinstance(value, dict):
             return {k: self._convert_numpy_types(v) for k, v in value.items()}
         return value
+
