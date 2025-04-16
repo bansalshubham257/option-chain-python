@@ -173,6 +173,45 @@ class ScannerService:
                             wave_trend,
                             wave_trend_trigger,
                             wave_trend_momentum,
+                            pe_ratio,
+                            market_cap,
+                            dividend_yield,
+                            price_to_book,
+                            beta,
+                            book_value,
+                            debt_to_equity,
+                            dividend_rate,
+                            earnings_growth,
+                            earnings_quarterly_growth,
+                            ebitda_margins,
+                            enterprise_to_ebitda,
+                            enterprise_to_revenue,
+                            enterprise_value,
+                            eps_trailing_twelve_months,
+                            five_year_avg_dividend_yield,
+                            float_shares,
+                            forward_eps,
+                            forward_pe,
+                            free_cashflow,
+                            gross_margins,
+                            gross_profits,
+                            industry,
+                            operating_cashflow,
+                            operating_margins,
+                            payout_ratio,
+                            profit_margins,
+                            return_on_assets,
+                            return_on_equity,
+                            revenue_growth,
+                            revenue_per_share,
+                            sector,
+                            total_cash,
+                            total_cash_per_share,
+                            total_debt,
+                            total_revenue,
+                            trailing_eps,
+                            trailing_pe,
+                            trailing_peg_ratio,
                             ROW_NUMBER() OVER (PARTITION BY symbol ORDER BY timestamp DESC) as rn
                         FROM stock_data_cache
                         WHERE symbol IN ({placeholders})
@@ -276,7 +315,12 @@ class ScannerService:
                     d{main_idx}.close as lastPrice,
                     d{main_idx}.volume as volume,
                     d{main_idx}.price_change as change,
-                    d{main_idx}.percent_change as pChange
+                    d{main_idx}.percent_change as pChange,
+                    d{main_idx}.pe_ratio,
+                    d{main_idx}.market_cap,
+                    d{main_idx}.dividend_yield,
+                    d{main_idx}.price_to_book,
+                    d{main_idx}.beta
                 FROM {from_clause}
                 {' '.join(join_clauses)}
                 WHERE {where_clause}
@@ -299,7 +343,12 @@ class ScannerService:
                             'lastPrice': last_price,
                             'volume': volume,
                             'change': price_change,
-                            'pChange': percent_change
+                            'pChange': percent_change,
+                            'pe_ratio': float(row[5]) if row[5] is not None else None,
+                            'market_cap': float(row[6]) if row[6] is not None else None,
+                            'dividend_yield': float(row[7]) if row[7] is not None else None,
+                            'price_to_book': float(row[8]) if row[8] is not None else None,
+                            'beta': float(row[9]) if row[9] is not None else None
                         })
                     except Exception as e:
                         print(f"Error processing result for {row[0]}: {str(e)}")
