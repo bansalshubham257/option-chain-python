@@ -28,10 +28,10 @@ class ScannerService:
                         created_at = NOW()
                     RETURNING id
                 """, (name, json.dumps(conditions), stock_type, logic))
-    
+
                 scanner_id = cur.fetchone()[0]
                 return {"status": "success", "id": scanner_id}
-    
+
         except Exception as e:
             logging.error(f"Error saving scanner: {str(e)}")
             raise
@@ -48,9 +48,9 @@ class ScannerService:
                     'stock_type': row[3],
                     'logic': row[4] or 'AND'  # Default to AND if NULL
                 } for row in cur.fetchall()]
-    
+
                 return {"status": "success", "data": scanners}
-    
+
         except Exception as e:
             logging.error(f"Error loading scanners: {str(e)}")
             raise
@@ -170,6 +170,9 @@ class ScannerService:
                             buyer_initiated_trades, buyer_initiated_quantity, buyer_avg_quantity,
                             seller_initiated_trades, seller_initiated_quantity, seller_avg_quantity,
                             buyer_seller_ratio, buyer_seller_quantity_ratio, buyer_vwap, seller_vwap,
+                            wave_trend,
+                            wave_trend_trigger,
+                            wave_trend_momentum,
                             ROW_NUMBER() OVER (PARTITION BY symbol ORDER BY timestamp DESC) as rn
                         FROM stock_data_cache
                         WHERE symbol IN ({placeholders})
