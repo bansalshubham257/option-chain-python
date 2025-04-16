@@ -527,9 +527,11 @@ def process_stock_chunk(stock_chunk, interval, chunk_idx, total_chunks):
             # Get data using the shared session
             data = yf_session.tickers[stock].history(period=period, interval=interval_str)
 
+            info_data = yf_session.tickers[stock].info
+
             if not data.empty:
                 # Process the data
-                success = database_service.update_stock_data(stock, interval, data)
+                success = database_service.update_stock_data(stock, interval, data, info_data)
                 if success:
                     success_count += 1
                     #print(f"Updated {stock} {interval} data: {len(data)} records")
