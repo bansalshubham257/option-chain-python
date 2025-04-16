@@ -590,6 +590,21 @@ class TA:
 
         return metrics
 
+    @staticmethod
+    def WAVE_TREND(high, low, close, channel_length=10, average_length=21):
+        """
+        Calculate Wave Trend (WT), Wave Trend Trigger (WTT), and Wave Trend Momentum (WTM).
+        """
+        hlc3 = (high + low + close) / 3  # Typical price
+        esa = hlc3.ewm(span=channel_length, adjust=False).mean()  # Exponential smoothing
+        de = abs(hlc3 - esa).ewm(span=channel_length, adjust=False).mean()  # Deviation
+        ci = (hlc3 - esa) / (0.015 * de.replace(0, np.finfo(float).eps))  # Channel Index
+        wt = ci.ewm(span=average_length, adjust=False).mean()  # Wave Trend
+        wt_trigger = wt.shift(1)  # Trigger line
+        wt_momentum = wt - wt_trigger  # Momentum
+
+        return wt, wt_trigger, wt_momentum
+
 # Create a singleton instance
 ta = TA()
 
