@@ -167,6 +167,9 @@ class ScannerService:
                             ATR, TRIX, ROC, Keltner_Middle, Keltner_Upper, Keltner_Lower,
                             Donchian_High, Donchian_Low, Chaikin_Oscillator,
                             timestamp, true_range, aroon_up, aroon_down, aroon_osc,
+                            buyer_initiated_trades, buyer_initiated_quantity, buyer_avg_quantity,
+                            seller_initiated_trades, seller_initiated_quantity, seller_avg_quantity,
+                            buyer_seller_ratio, buyer_seller_quantity_ratio, buyer_vwap, seller_vwap,
                             ROW_NUMBER() OVER (PARTITION BY symbol ORDER BY timestamp DESC) as rn
                         FROM stock_data_cache
                         WHERE symbol IN ({placeholders})
@@ -303,3 +306,4 @@ class ScannerService:
         except Exception as e:
             print(f"SQL scanner error: {str(e)}")
             return []
+
