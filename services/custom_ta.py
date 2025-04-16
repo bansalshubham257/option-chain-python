@@ -520,5 +520,76 @@ class TA:
             kama.iloc[i] = kama.iloc[i-1] + sc.iloc[i] * (close.iloc[i] - kama.iloc[i-1])
 
         return kama
+
+    @staticmethod
+    def buyer_seller_initiated_trades(close, volume):
+        """
+        Calculate buyer/seller initiated trades and related metrics.
+        Assumes 'close' is a pandas Series of prices and 'volume' is a pandas Series of volumes.
+        """
+        price_diff = close.diff()
+        buyer_initiated = volume.where(price_diff > 0, 0)  # Volume when price increases
+        seller_initiated = volume.where(price_diff < 0, 0)  # Volume when price decreases
+
+        buyer_initiated_trades = (buyer_initiated > 0).astype(int).cumsum()
+        seller_initiated_trades = (seller_initiated > 0).astype(int).cumsum()
+
+        buyer_initiated_quantity = buyer_initiated.cumsum()
+        seller_initiated_quantity = seller_initiated.cumsum()
+
+        buyer_initiated_avg_qty = buyer_initiated_quantity / buyer_initiated_trades.replace(0, np.nan)
+        seller_initiated_avg_qty = seller_initiated_quantity / seller_initiated_trades.replace(0, np.nan)
+
+        buyer_seller_ratio = buyer_initiated_trades / seller_initiated_trades.replace(0, np.nan)
+        buyer_seller_quantity_ratio = buyer_initiated_quantity / seller_initiated_quantity.replace(0, np.nan)
+
+        buyer_initiated_vwap = (close * buyer_initiated).cumsum() / buyer_initiated_quantity.replace(0, np.nan)
+        seller_initiated_vwap = (close * seller_initiated).cumsum() / seller_initiated_quantity.replace(0, np.nan)
+
+        return {
+            "buyer_initiated_trades": buyer_initiated_trades,
+            "buyer_initiated_quantity": buyer_initiated_quantity,
+            "buyer_initiated_avg_qty": buyer_initiated_avg_qty,
+            "seller_initiated_trades": seller_initiated_trades,
+            "seller_initiated_quantity": seller_initiated_quantity,
+            "seller_initiated_avg_qty": seller_initiated_avg_qty,
+            "buyer_seller_ratio": buyer_seller_ratio,
+            "buyer_seller_quantity_ratio": buyer_seller_quantity_ratio,
+            "buyer_initiated_vwap": buyer_initiated_vwap,
+            "seller_initiated_vwap": seller_initiated_vwap,
+        }
+
+    @staticmethod
+    def calculate_order_metrics(orders, prices):
+        """
+        Calculate various order-related metrics.
+        :param orders: DataFrame with columns ['buy_orders', 'sell_orders', 'buy_qty', 'sell_qty', 'cancelled_buy_orders', 'cancelled_sell_orders']
+        :param prices: Series of prices corresponding to the orders.
+        :return: Dictionary of calculated metrics.
+        """
+        metrics = {}
+
+        # Total orders and quantities
+        metrics['total_orders'] = orders['buy_orders'] + orders['sell_orders']
+        metrics['total_orders_quantity'] = orders['buy_qty'] + orders['sell_qty']
+
+        # Buy vs Sell ratios
+        metrics['buy_sell_orders_ratio'] = orders['buy_orders'] / orders['sell_orders'].replace(0, np.nan)
+        metrics['buy_sell_quantity_ratio'] = orders['buy_qty'] / orders['sell_qty'].replace(0, np.nan)
+
+        # Cancelled orders and quantities
+        metrics['total_cancelled_orders'] = orders['cancelled_buy_orders'] + orders['cancelled_sell_orders']
+        metrics['total_cancelled_quantity'] = orders['cancelled_buy_qty'] + orders['cancelled_sell_qty']
+        metrics['cancelled_orders_ratio'] = metrics['total_cancelled_orders'] / metrics['total_orders'].replace(0, np.nan)
+        metrics['cancelled_quantity_ratio'] = metrics['total_cancelled_quantity'] / metrics['total_orders_quantity'].replace(0, np.nan)
+
+        # VWAP calculations
+        metrics['buy_orders_vwap'] = (prices * orders['buy_qty']).cumsum() / orders['buy_qty'].cumsum().replace(0, np.nan)
+        metrics['sell_orders_vwap'] = (prices * orders['sell_qty']).cumsum() / orders['sell_qty'].cumsum().replace(0, np.nan)
+        metrics['orders_vwap'] = (prices * metrics['total_orders_quantity']).cumsum() / metrics['total_orders_quantity'].cumsum().replace(0, np.nan)
+
+        return metrics
+
 # Create a singleton instance
 ta = TA()
+
