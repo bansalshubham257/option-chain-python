@@ -521,7 +521,7 @@ class DatabaseService:
             print(f"Error fetching anchor data for {ticker}: {str(e)}")
             return None
 
-    def update_stock_data(self, symbol, interval, data):
+    def update_stock_data(self, symbol, interval, data, info_data=None):
         """Update stock data with daily recalculation of pivot points and indicators"""
         try:
             # Convert to DataFrame if it's not already
@@ -865,6 +865,48 @@ class DatabaseService:
             else:
                 raise TypeError("Expected `latest_data` to be a pandas Series, but got: {}".format(type(latest_data)))
 
+            # Extract fundamental data from info_data if provided
+            pe_ratio = info_data.get('trailingPE') if info_data else None
+            beta = info_data.get('beta') if info_data else None
+
+            book_value = info_data.get('bookValue')
+            debt_to_equity = info_data.get('debtToEquity')
+            dividend_rate = info_data.get('dividendRate')
+            dividend_yield = info_data.get('dividendYield')
+            earnings_growth = info_data.get('earningsGrowth')
+            earnings_quarterly_growth = info_data.get('earningsQuarterlyGrowth')
+            ebitda_margins = info_data.get('ebitdaMargins')
+            enterprise_to_ebitda = info_data.get('enterpriseToEbitda')
+            enterprise_to_revenue = info_data.get('enterpriseToRevenue')
+            enterprise_value = info_data.get('enterpriseValue')
+            eps_trailing_twelve_months = info_data.get('epsTrailingTwelveMonths')
+            five_year_avg_dividend_yield = info_data.get('fiveYearAvgDividendYield')
+            float_shares = info_data.get('floatShares')
+            forward_eps = info_data.get('forwardEps')
+            forward_pe = info_data.get('forwardPE')
+            free_cashflow = info_data.get('freeCashflow')
+            gross_margins = info_data.get('grossMargins')
+            gross_profits = info_data.get('grossProfits')
+            industry = info_data.get('industry')
+            market_cap = info_data.get('marketCap')
+            operating_cashflow = info_data.get('operatingCashflow')
+            operating_margins = info_data.get('operatingMargins')
+            payout_ratio = info_data.get('payoutRatio')
+            price_to_book = info_data.get('priceToBook')
+            profit_margins = info_data.get('profitMargins')
+            return_on_assets = info_data.get('returnOnAssets')
+            return_on_equity = info_data.get('returnOnEquity')
+            revenue_growth = info_data.get('revenueGrowth')
+            revenue_per_share = info_data.get('revenuePerShare')
+            sector = info_data.get('sector')
+            total_cash = info_data.get('totalCash')
+            total_cash_per_share = info_data.get('totalCashPerShare')
+            total_debt = info_data.get('totalDebt')
+            total_revenue = info_data.get('totalRevenue')
+            trailing_eps = info_data.get('trailingEps')
+            trailing_pe = info_data.get('trailingPE')
+            trailing_peg_ratio = info_data.get('trailingPegRatio')
+
             # Prepare data for insertion
             required_columns = [
                 'HA_Open', 'HA_Close', 'HA_High', 'HA_Low', 'Supertrend',
@@ -911,6 +953,7 @@ class DatabaseService:
                     INSERT INTO stock_data_cache (
                         symbol, interval, timestamp, open, high, low, close, volume,
                         pivot, r1, r2, r3, s1, s2, s3, price_change, percent_change, vwap,
+                        pe_ratio, beta,
                         ichimoku_base, ichimoku_conversion, ichimoku_span_a, ichimoku_span_b,
                         ichimoku_cloud_top, ichimoku_cloud_bottom, stoch_rsi, parabolic_sar,
                         upper_bollinger, lower_bollinger, middle_bollinger, macd_line, macd_signal, macd_histogram,
@@ -926,14 +969,26 @@ class DatabaseService:
                         buyer_initiated_trades, buyer_initiated_quantity, buyer_initiated_avg_qty,
                         seller_initiated_trades, seller_initiated_quantity, seller_initiated_avg_qty,
                         buyer_seller_ratio, buyer_seller_quantity_ratio, buyer_initiated_vwap, seller_initiated_vwap,
-                        wave_trend, wave_trend_trigger, wave_trend_momentum
+                        wave_trend, wave_trend_trigger, wave_trend_momentum,
+                        book_value, debt_to_equity, dividend_rate, dividend_yield,
+                        earnings_growth, earnings_quarterly_growth, ebitda_margins,
+                        enterprise_to_ebitda, enterprise_to_revenue, enterprise_value,
+                        eps_trailing_twelve_months, five_year_avg_dividend_yield, float_shares,
+                        forward_eps, forward_pe, free_cashflow, gross_margins, gross_profits,
+                        industry, market_cap, operating_cashflow, operating_margins,
+                        payout_ratio, price_to_book, profit_margins, return_on_assets,
+                        return_on_equity, revenue_growth, revenue_per_share, sector,
+                        total_cash, total_cash_per_share, total_debt, total_revenue,
+                        trailing_eps, trailing_pe, trailing_peg_ratio
                     ) VALUES (
                         %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
                         %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
                         %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
                         %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
                         %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
-                        %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
+                        %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                        %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                        %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
                     )
                     ON CONFLICT (symbol, interval)
                     DO UPDATE SET
@@ -943,6 +998,9 @@ class DatabaseService:
                         r1 = EXCLUDED.r1, r2 = EXCLUDED.r2, r3 = EXCLUDED.r3, s1 = EXCLUDED.s1,
                         s2 = EXCLUDED.s2, s3 = EXCLUDED.s3, price_change = EXCLUDED.price_change,
                         percent_change = EXCLUDED.percent_change, vwap = EXCLUDED.vwap,
+                        pe_ratio = EXCLUDED.pe_ratio, market_cap = EXCLUDED.market_cap,
+                        dividend_yield = EXCLUDED.dividend_yield, price_to_book = EXCLUDED.price_to_book,
+                        beta = EXCLUDED.beta,
                         ichimoku_base = EXCLUDED.ichimoku_base, ichimoku_conversion = EXCLUDED.ichimoku_conversion,
                         ichimoku_span_a = EXCLUDED.ichimoku_span_a, ichimoku_span_b = EXCLUDED.ichimoku_span_b,
                         ichimoku_cloud_top = EXCLUDED.ichimoku_cloud_top, ichimoku_cloud_bottom = EXCLUDED.ichimoku_cloud_bottom,
@@ -983,7 +1041,41 @@ class DatabaseService:
                         seller_initiated_vwap = EXCLUDED.seller_initiated_vwap,
                         wave_trend = EXCLUDED.wave_trend,
                         wave_trend_trigger = EXCLUDED.wave_trend_trigger,
-                        wave_trend_momentum = EXCLUDED.wave_trend_momentum
+                        wave_trend_momentum = EXCLUDED.wave_trend_momentum,
+                        book_value = EXCLUDED.book_value,
+                        debt_to_equity = EXCLUDED.debt_to_equity,
+                        dividend_rate = EXCLUDED.dividend_rate,
+                        earnings_growth = EXCLUDED.earnings_growth,
+                        earnings_quarterly_growth = EXCLUDED.earnings_quarterly_growth,
+                        ebitda_margins = EXCLUDED.ebitda_margins,
+                        enterprise_to_ebitda = EXCLUDED.enterprise_to_ebitda,
+                        enterprise_to_revenue = EXCLUDED.enterprise_to_revenue,
+                        enterprise_value = EXCLUDED.enterprise_value,
+                        eps_trailing_twelve_months = EXCLUDED.eps_trailing_twelve_months,
+                        five_year_avg_dividend_yield = EXCLUDED.five_year_avg_dividend_yield,
+                        float_shares = EXCLUDED.float_shares,
+                        forward_eps = EXCLUDED.forward_eps,
+                        forward_pe = EXCLUDED.forward_pe,
+                        free_cashflow = EXCLUDED.free_cashflow,
+                        gross_margins = EXCLUDED.gross_margins,
+                        gross_profits = EXCLUDED.gross_profits,
+                        industry = EXCLUDED.industry,
+                        operating_cashflow = EXCLUDED.operating_cashflow,
+                        operating_margins = EXCLUDED.operating_margins,
+                        payout_ratio = EXCLUDED.payout_ratio,
+                        profit_margins = EXCLUDED.profit_margins,
+                        return_on_assets = EXCLUDED.return_on_assets,
+                        return_on_equity = EXCLUDED.return_on_equity,
+                        revenue_growth = EXCLUDED.revenue_growth,
+                        revenue_per_share = EXCLUDED.revenue_per_share,
+                        sector = EXCLUDED.sector,
+                        total_cash = EXCLUDED.total_cash,
+                        total_cash_per_share = EXCLUDED.total_cash_per_share,
+                        total_debt = EXCLUDED.total_debt,
+                        total_revenue = EXCLUDED.total_revenue,
+                        trailing_eps = EXCLUDED.trailing_eps,
+                        trailing_pe = EXCLUDED.trailing_pe,
+                        trailing_peg_ratio = EXCLUDED.trailing_peg_ratio
                 """
 
                 # Convert all numpy values to native Python types
@@ -1008,104 +1100,106 @@ class DatabaseService:
                     self._convert_numpy_types(price_change),                  # 16
                     self._convert_numpy_types(percent_change),                # 17
                     self._convert_numpy_types(vwap),                          # 18
+                    self._convert_numpy_types(pe_ratio),                      # 19
+                    self._convert_numpy_types(beta),                          # 23
                     # Ichimoku
-                    self._convert_numpy_types(latest_data['ichimoku_base']),            # 19
-                    self._convert_numpy_types(latest_data['ichimoku_conversion']),      # 20
-                    self._convert_numpy_types(latest_data['ichimoku_span_a']),          # 21
-                    self._convert_numpy_types(latest_data['ichimoku_span_b']),          # 22
-                    self._convert_numpy_types(latest_data['ichimoku_cloud_top']),       # 23
-                    self._convert_numpy_types(latest_data['ichimoku_cloud_bottom']),    # 24
+                    self._convert_numpy_types(latest_data['ichimoku_base']),            # 24
+                    self._convert_numpy_types(latest_data['ichimoku_conversion']),      # 25
+                    self._convert_numpy_types(latest_data['ichimoku_span_a']),          # 26
+                    self._convert_numpy_types(latest_data['ichimoku_span_b']),          # 27
+                    self._convert_numpy_types(latest_data['ichimoku_cloud_top']),       # 28
+                    self._convert_numpy_types(latest_data['ichimoku_cloud_bottom']),    # 29
                     # Other indicators
-                    self._convert_numpy_types(latest_data['stoch_rsi']),               # 25
-                    self._convert_numpy_types(latest_data['parabolic_sar']),           # 26
+                    self._convert_numpy_types(latest_data['stoch_rsi']),               # 30
+                    self._convert_numpy_types(latest_data['parabolic_sar']),           # 31
                     # Bollinger Bands
-                    self._convert_numpy_types(latest_data['upper_bollinger']),         # 27
-                    self._convert_numpy_types(latest_data['lower_bollinger']),         # 28
-                    self._convert_numpy_types(latest_data['middle_bollinger']),        # 29
+                    self._convert_numpy_types(latest_data['upper_bollinger']),         # 32
+                    self._convert_numpy_types(latest_data['lower_bollinger']),         # 33
+                    self._convert_numpy_types(latest_data['middle_bollinger']),        # 34
                     # MACD
-                    self._convert_numpy_types(latest_data['macd_line']),               # 30
-                    self._convert_numpy_types(latest_data['macd_signal']),             # 31
-                    self._convert_numpy_types(latest_data['macd_histogram']),          # 32
+                    self._convert_numpy_types(latest_data['macd_line']),               # 35
+                    self._convert_numpy_types(latest_data['macd_signal']),             # 36
+                    self._convert_numpy_types(latest_data['macd_histogram']),          # 37
                     # ADX
-                    self._convert_numpy_types(latest_data['adx']),                     # 33
-                    self._convert_numpy_types(latest_data['adx_di_positive']),         # 34
-                    self._convert_numpy_types(latest_data['adx_di_negative']),         # 35
+                    self._convert_numpy_types(latest_data['adx']),                     # 38
+                    self._convert_numpy_types(latest_data['adx_di_positive']),         # 39
+                    self._convert_numpy_types(latest_data['adx_di_negative']),         # 40
                     # Heikin Ashi
-                    self._convert_numpy_types(latest_data['HA_Open']),                 # 36
-                    self._convert_numpy_types(latest_data['HA_Close']),                # 37
-                    self._convert_numpy_types(latest_data['HA_High']),                 # 38
-                    self._convert_numpy_types(latest_data['HA_Low']),                  # 39
+                    self._convert_numpy_types(latest_data['HA_Open']),                 # 41
+                    self._convert_numpy_types(latest_data['HA_Close']),                # 42
+                    self._convert_numpy_types(latest_data['HA_High']),                 # 43
+                    self._convert_numpy_types(latest_data['HA_Low']),                  # 44
                     # Volume indicators
-                    self._convert_numpy_types(latest_data['Supertrend']),              # 40
-                    self._convert_numpy_types(latest_data['Acc_Dist']),                # 41
-                    self._convert_numpy_types(latest_data['CCI']),                     # 42
-                    self._convert_numpy_types(latest_data['CMF']),                     # 43
-                    self._convert_numpy_types(latest_data['MFI']),                     # 44
-                    self._convert_numpy_types(latest_data['On_Balance_Volume']),       # 45
-                    self._convert_numpy_types(latest_data['Williams_R']),              # 46
-                    self._convert_numpy_types(latest_data['Bollinger_B']),             # 47
-                    self._convert_numpy_types(latest_data['Intraday_Intensity']),      # 48
-                    self._convert_numpy_types(latest_data['Force_Index']),             # 49
-                    self._convert_numpy_types(latest_data['STC']),                     # 50
+                    self._convert_numpy_types(latest_data['Supertrend']),              # 45
+                    self._convert_numpy_types(latest_data['Acc_Dist']),                # 46
+                    self._convert_numpy_types(latest_data['CCI']),                     # 47
+                    self._convert_numpy_types(latest_data['CMF']),                     # 48
+                    self._convert_numpy_types(latest_data['MFI']),                     # 49
+                    self._convert_numpy_types(latest_data['On_Balance_Volume']),       # 50
+                    self._convert_numpy_types(latest_data['Williams_R']),              # 51
+                    self._convert_numpy_types(latest_data['Bollinger_B']),             # 52
+                    self._convert_numpy_types(latest_data['Intraday_Intensity']),      # 53
+                    self._convert_numpy_types(latest_data['Force_Index']),             # 54
+                    self._convert_numpy_types(latest_data['STC']),                     # 55
                     # Moving averages
                     self._convert_numpy_types(latest_data['sma10']),
-                    self._convert_numpy_types(latest_data.get('sma20', None)),# 51
-                    self._convert_numpy_types(latest_data['sma50']),                   # 52
-                    self._convert_numpy_types(latest_data['sma100']),                  # 53
-                    self._convert_numpy_types(latest_data['sma200']),                  # 54
-                    self._convert_numpy_types(latest_data['ema10']),                   # 55
-                    self._convert_numpy_types(latest_data['ema50']),                   # 56
-                    self._convert_numpy_types(latest_data['ema100']),                  # 57
-                    self._convert_numpy_types(latest_data['ema200']),                  # 58
-                    self._convert_numpy_types(latest_data['wma10']),                   # 59
-                    self._convert_numpy_types(latest_data['wma50']),                   # 60
-                    self._convert_numpy_types(latest_data['wma100']),                  # 61
-                    self._convert_numpy_types(latest_data['wma200']),                  # 62
-                    self._convert_numpy_types(latest_data['tma10']),                   # 63
-                    self._convert_numpy_types(latest_data['tma50']),                   # 64
-                    self._convert_numpy_types(latest_data['tma100']),                  # 65
-                    self._convert_numpy_types(latest_data['tma200']),                  # 66
-                    self._convert_numpy_types(latest_data['rma10']),                   # 67
-                    self._convert_numpy_types(latest_data['rma50']),                   # 68
-                    self._convert_numpy_types(latest_data['rma100']),                  # 69
-                    self._convert_numpy_types(latest_data['rma200']),                  # 70
-                    self._convert_numpy_types(latest_data['tema10']),                  # 71
-                    self._convert_numpy_types(latest_data['tema50']),                  # 72
-                    self._convert_numpy_types(latest_data['tema100']),                 # 73
-                    self._convert_numpy_types(latest_data['tema200']),                 # 74
-                    self._convert_numpy_types(latest_data['hma10']),                   # 75
-                    self._convert_numpy_types(latest_data['hma50']),                   # 76
-                    self._convert_numpy_types(latest_data['hma100']),                  # 77
-                    self._convert_numpy_types(latest_data['hma200']),                  # 78
-                    self._convert_numpy_types(latest_data['vwma10']),                  # 79
-                    self._convert_numpy_types(latest_data['vwma50']),                  # 80
-                    self._convert_numpy_types(latest_data['vwma100']),                 # 81
-                    self._convert_numpy_types(latest_data['vwma200']),                 # 82
+                    self._convert_numpy_types(latest_data.get('sma20', None)),# 56
+                    self._convert_numpy_types(latest_data['sma50']),                   # 57
+                    self._convert_numpy_types(latest_data['sma100']),                  # 58
+                    self._convert_numpy_types(latest_data['sma200']),                  # 59
+                    self._convert_numpy_types(latest_data['ema10']),                   # 60
+                    self._convert_numpy_types(latest_data['ema50']),                   # 61
+                    self._convert_numpy_types(latest_data['ema100']),                  # 62
+                    self._convert_numpy_types(latest_data['ema200']),                  # 63
+                    self._convert_numpy_types(latest_data['wma10']),                   # 64
+                    self._convert_numpy_types(latest_data['wma50']),                   # 65
+                    self._convert_numpy_types(latest_data['wma100']),                  # 66
+                    self._convert_numpy_types(latest_data['wma200']),                  # 67
+                    self._convert_numpy_types(latest_data['tma10']),                   # 68
+                    self._convert_numpy_types(latest_data['tma50']),                   # 69
+                    self._convert_numpy_types(latest_data['tma100']),                  # 70
+                    self._convert_numpy_types(latest_data['tma200']),                  # 71
+                    self._convert_numpy_types(latest_data['rma10']),                   # 72
+                    self._convert_numpy_types(latest_data['rma50']),                   # 73
+                    self._convert_numpy_types(latest_data['rma100']),                  # 74
+                    self._convert_numpy_types(latest_data['rma200']),                  # 75
+                    self._convert_numpy_types(latest_data['tema10']),                  # 76
+                    self._convert_numpy_types(latest_data['tema50']),                  # 77
+                    self._convert_numpy_types(latest_data['tema100']),                 # 78
+                    self._convert_numpy_types(latest_data['tema200']),                 # 79
+                    self._convert_numpy_types(latest_data['hma10']),                   # 80
+                    self._convert_numpy_types(latest_data['hma50']),                   # 81
+                    self._convert_numpy_types(latest_data['hma100']),                  # 82
+                    self._convert_numpy_types(latest_data['hma200']),                  # 83
+                    self._convert_numpy_types(latest_data['vwma10']),                  # 84
+                    self._convert_numpy_types(latest_data['vwma50']),                  # 85
+                    self._convert_numpy_types(latest_data['vwma100']),                 # 86
+                    self._convert_numpy_types(latest_data['vwma200']),                 # 87
                     # Standard deviations
-                    self._convert_numpy_types(latest_data['std10']),                   # 83
-                    self._convert_numpy_types(latest_data['std50']),                   # 84
-                    self._convert_numpy_types(latest_data['std100']),                  # 85
-                    self._convert_numpy_types(latest_data['std200']),                  # 86
+                    self._convert_numpy_types(latest_data['std10']),                   # 88
+                    self._convert_numpy_types(latest_data['std50']),                   # 89
+                    self._convert_numpy_types(latest_data['std100']),                  # 90
+                    self._convert_numpy_types(latest_data['std200']),                  # 91
                     # Other indicators
-                    self._convert_numpy_types(latest_data['ATR']),                     # 87
-                    self._convert_numpy_types(latest_data['TRIX']),                    # 88
-                    self._convert_numpy_types(latest_data['ROC']),                     # 89
+                    self._convert_numpy_types(latest_data['ATR']),                     # 92
+                    self._convert_numpy_types(latest_data['TRIX']),                    # 93
+                    self._convert_numpy_types(latest_data['ROC']),                     # 94
                     # Keltner Channels
-                    self._convert_numpy_types(latest_data['Keltner_Middle']),          # 90
-                    self._convert_numpy_types(latest_data['Keltner_Upper']),           # 91
-                    self._convert_numpy_types(latest_data['Keltner_Lower']),           # 92
+                    self._convert_numpy_types(latest_data['Keltner_Middle']),          # 95
+                    self._convert_numpy_types(latest_data['Keltner_Upper']),           # 96
+                    self._convert_numpy_types(latest_data['Keltner_Lower']),           # 97
                     # Donchian Channels
-                    self._convert_numpy_types(latest_data['Donchian_High']),           # 93
-                    self._convert_numpy_types(latest_data['Donchian_Low']),            # 94
+                    self._convert_numpy_types(latest_data['Donchian_High']),           # 98
+                    self._convert_numpy_types(latest_data['Donchian_Low']),            # 99
                     # Chaikin
-                    self._convert_numpy_types(latest_data['Chaikin_Oscillator']),      # 95
+                    self._convert_numpy_types(latest_data['Chaikin_Oscillator']),      # 100
 
                     # These may be the missing parameters:
-                    self._convert_numpy_types(latest_data.get('rsi', None)),           # 96  <-- RSI was missing
-                    self._convert_numpy_types(latest_data.get('true_range', None)),    # 97  <-- true_range was missing
-                    self._convert_numpy_types(latest_data.get('aroon_up', None)),      # 98  <-- aroon_up was missing
-                    self._convert_numpy_types(latest_data.get('aroon_down', None)),    # 99  <-- aroon_down was missing
-                    self._convert_numpy_types(latest_data.get('aroon_osc', None)),     # 100 <-- aroon_osc was missing
+                    self._convert_numpy_types(latest_data.get('rsi', None)),           # 101  <-- RSI was missing
+                    self._convert_numpy_types(latest_data.get('true_range', None)),    # 102  <-- true_range was missing
+                    self._convert_numpy_types(latest_data.get('aroon_up', None)),      # 103  <-- aroon_up was missing
+                    self._convert_numpy_types(latest_data.get('aroon_down', None)),    # 104  <-- aroon_down was missing
+                    self._convert_numpy_types(latest_data.get('aroon_osc', None)),     # 105 <-- aroon_osc was missing
                     self._convert_numpy_types(latest_data['buyer_initiated_trades']),
                     self._convert_numpy_types(latest_data['buyer_initiated_quantity']),
                     self._convert_numpy_types(latest_data['buyer_initiated_avg_qty']),
@@ -1118,7 +1212,44 @@ class DatabaseService:
                     self._convert_numpy_types(latest_data['seller_initiated_vwap']),
                     self._convert_numpy_types(latest_data['wave_trend']),
                     self._convert_numpy_types(latest_data['wave_trend_trigger']),
-                    self._convert_numpy_types(latest_data['wave_trend_momentum'])
+                    self._convert_numpy_types(latest_data['wave_trend_momentum']),
+                    self._convert_numpy_types(book_value),                      # book_value
+                    self._convert_numpy_types(debt_to_equity),                  # debt_to_equity
+                    self._convert_numpy_types(dividend_rate),                   # dividend_rate
+                    self._convert_numpy_types(dividend_yield),                  # dividend_yield
+                    self._convert_numpy_types(earnings_growth),                 # earnings_growth
+                    self._convert_numpy_types(earnings_quarterly_growth),       # earnings_quarterly_growth
+                    self._convert_numpy_types(ebitda_margins),                  # ebitda_margins
+                    self._convert_numpy_types(enterprise_to_ebitda),            # enterprise_to_ebitda
+                    self._convert_numpy_types(enterprise_to_revenue),           # enterprise_to_revenue
+                    self._convert_numpy_types(enterprise_value),                # enterprise_value
+                    self._convert_numpy_types(eps_trailing_twelve_months),      # eps_trailing_twelve_months
+                    self._convert_numpy_types(five_year_avg_dividend_yield),    # five_year_avg_dividend_yield
+                    self._convert_numpy_types(float_shares),                    # float_shares
+                    self._convert_numpy_types(forward_eps),                     # forward_eps
+                    self._convert_numpy_types(forward_pe),                      # forward_pe
+                    self._convert_numpy_types(free_cashflow),                   # free_cashflow
+                    self._convert_numpy_types(gross_margins),                   # gross_margins
+                    self._convert_numpy_types(gross_profits),                   # gross_profits
+                    self._convert_numpy_types(industry),                        # industry
+                    self._convert_numpy_types(market_cap),                      # market_cap
+                    self._convert_numpy_types(operating_cashflow),              # operating_cashflow
+                    self._convert_numpy_types(operating_margins),               # operating_margins
+                    self._convert_numpy_types(payout_ratio),                    # payout_ratio
+                    self._convert_numpy_types(price_to_book),                   # price_to_book
+                    self._convert_numpy_types(profit_margins),                  # profit_margins
+                    self._convert_numpy_types(return_on_assets),                # return_on_assets
+                    self._convert_numpy_types(return_on_equity),                # return_on_equity
+                    self._convert_numpy_types(revenue_growth),                  # revenue_growth
+                    self._convert_numpy_types(revenue_per_share),               # revenue_per_share
+                    self._convert_numpy_types(sector),                          # sector
+                    self._convert_numpy_types(total_cash),                      # total_cash
+                    self._convert_numpy_types(total_cash_per_share),            # total_cash_per_share
+                    self._convert_numpy_types(total_debt),                      # total_debt
+                    self._convert_numpy_types(total_revenue),                   # total_revenue
+                    self._convert_numpy_types(trailing_eps),                    # trailing_eps
+                    self._convert_numpy_types(trailing_pe),                     # trailing_pe
+                    self._convert_numpy_types(trailing_peg_ratio)               # trailing_peg_ratio
                 )
 
                 cur.execute(upsert_sql, params)
@@ -1153,5 +1284,12 @@ class DatabaseService:
             return [self._convert_numpy_types(x) for x in value]
         elif isinstance(value, dict):
             return {k: self._convert_numpy_types(v) for k, v in value.items()}
+        elif isinstance(value, pd.Timestamp):
+            return value.to_pydatetime()
+        elif isinstance(value, Decimal):
+            return float(value)
         return value
+
+
+
 
