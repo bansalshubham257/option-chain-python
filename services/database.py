@@ -496,10 +496,6 @@ class DatabaseService:
                 })
             return results
 
-    # Add these methods to your DatabaseService class
-
-    # At the top of app.py, add this dictionary to track pivot calculation status
-
 
     @lru_cache(maxsize=100)
     def get_anchored_pivot_data(self, ticker, interval):
@@ -577,30 +573,6 @@ class DatabaseService:
                 df['adx_di_positive'] = ta.PLUS_DI(df['High'], df['Low'], df['Close'])
                 df['adx_di_negative'] = ta.MINUS_DI(df['High'], df['Low'], df['Close'])
                 
-                # Enhanced Bollinger Bands calculation to match TradingView implementation
-                # Using SMA as basis with 2.0 standard deviations by default
-                """
-                length = 20  # Default length 
-                mult = 2.0   # Default multiplier for standard deviation
-                
-                # Calculate basis (middle band) using SMA
-                basis = df['Close'].rolling(window=length).mean()
-                
-                # Calculate standard deviation
-                dev = mult * df['Close'].rolling(window=length).std()
-                
-                # Calculate upper and lower bands
-                df['upper_bollinger'] = basis + dev
-                df['middle_bollinger'] = basis  # Adding middle band for completeness
-                df['lower_bollinger'] = basis - dev
-                
-                """
-                
-                # Additional bands with different MA types could be added here
-                # For example, EMA-based Bollinger Bands:
-                # ema_basis = df['Close'].ewm(span=length, adjust=False).mean()
-                # df['upper_bollinger_ema'] = ema_basis + (mult * df['Close'].rolling(window=length).std())
-                # df['lower_bollinger_ema'] = ema_basis - (mult * df['Close'].rolling(window=length).std())
                 
                 df['parabolic_sar'] = ta.SAR(df['High'], df['Low'])
                 df['rsi'] = ta.RSI(df['Close'])
@@ -613,9 +585,7 @@ class DatabaseService:
                 df['ichimoku_cloud_top'] = df[['ichimoku_span_a', 'ichimoku_span_b']].max(axis=1)
                 df['ichimoku_cloud_bottom'] = df[['ichimoku_span_a', 'ichimoku_span_b']].min(axis=1)
 
-                # Calculate Bollinger %B
-                #df['Bollinger_B'] = (df['Close'] - df['lower_bollinger']) / (df['upper_bollinger'] - df['lower_bollinger'])
-
+            
 
             # Calculate Supertrend
             if len(df) > 1:
@@ -721,6 +691,24 @@ class DatabaseService:
                 # Chaikin Oscillator
                 ad_line = ta.AD(df['High'], df['Low'], df['Close'], df['Volume'])
                 df['Chaikin_Oscillator'] = ta.ADOSC(df['High'], df['Low'], df['Close'], df['Volume'], fastperiod=3, slowperiod=10)
+
+            if len(df) > 1:
+                # Calculate TRUE_RANGE
+                df['true_range'] = ta.TRUE_RANGE(df['High'], df['Low'], df['Close'])
+
+                # Calculate ATR
+                df['ATR'] = ta.ATR(df['High'], df['Low'], df['Close'], timeperiod=14)
+
+                # Calculate AROON indicators
+                df['aroon_up'] = ta.AROON_UP(df['High'], timeperiod=14)
+                df['aroon_down'] = ta.AROON_DOWN(df['Low'], timeperiod=14)
+                df['aroon_osc'] = ta.AROON_OSC(df['High'], df['Low'], timeperiod=14)
+           
+            if len(df) > 1:
+                # Calculate buyer/seller initiated trades and related metrics
+                buyer_seller_metrics = ta.buyer_seller_initiated_trades(df['Close'], df['Volume'])
+                # Add all new columns to the DataFrame at once using pd.concat
+                df = pd.concat([df, pd.DataFrame(buyer_seller_metrics, index=df.index)], axis=1)
 
             # Ensure all required columns exist in the DataFrame
             # Filter out rows with NaN in critical indicators like Supertrend
@@ -892,7 +880,11 @@ class DatabaseService:
                 'std10', 'std50', 'std100', 'std200',
                 'ATR', 'TRIX', 'ROC', 'rsi', 'VWAP',  # Added rsi, VWAP
                 'Keltner_Middle', 'Keltner_Upper', 'Keltner_Lower',
-                'Donchian_High', 'Donchian_Low', 'Chaikin_Oscillator'
+                'Donchian_High', 'Donchian_Low', 'Chaikin_Oscillator',
+                'true_range', 'aroon_up', 'aroon_down', 'aroon_osc',
+                'buyer_initiated_trades', 'buyer_initiated_quantity', 'buyer_initiated_avg_qty',
+                'seller_initiated_trades', 'seller_initiated_quantity', 'seller_initiated_avg_qty',
+                'buyer_seller_ratio', 'buyer_seller_quantity_ratio', 'buyer_initiated_vwap', 'seller_initiated_vwap'
             ]
 
 
@@ -923,13 +915,17 @@ class DatabaseService:
                         tema50, tema100, tema200, hma10, hma50, hma100, hma200, vwma10, vwma50,
                         vwma100, vwma200, std10, std50, std100, std200, ATR, TRIX, ROC,
                         Keltner_Middle, Keltner_Upper, Keltner_Lower, Donchian_High, Donchian_Low,
-                        Chaikin_Oscillator,rsi
+                        Chaikin_Oscillator, rsi, true_range, aroon_up, aroon_down, aroon_osc,
+                        buyer_initiated_trades, buyer_initiated_quantity, buyer_initiated_avg_qty,
+                        seller_initiated_trades, seller_initiated_quantity, seller_initiated_avg_qty,
+                        buyer_seller_ratio, buyer_seller_quantity_ratio, buyer_initiated_vwap, seller_initiated_vwap
                     ) VALUES (
                         %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
                         %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
                         %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
                         %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
-                        %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
+                        %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                        %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
                     )
                     ON CONFLICT (symbol, interval, timestamp)
                     DO UPDATE SET
@@ -944,27 +940,38 @@ class DatabaseService:
                         stoch_rsi = EXCLUDED.stoch_rsi, parabolic_sar = EXCLUDED.parabolic_sar,
                         upper_bollinger = EXCLUDED.upper_bollinger, lower_bollinger = EXCLUDED.lower_bollinger,
                         middle_bollinger = EXCLUDED.middle_bollinger, macd_line = EXCLUDED.macd_line, 
-                        macd_signal = EXCLUDED.macd_signal,
-                        macd_histogram = EXCLUDED.macd_histogram, adx = EXCLUDED.adx,
-                        adx_di_positive = EXCLUDED.adx_di_positive, adx_di_negative = EXCLUDED.adx_di_negative,
-                        HA_Open = EXCLUDED.HA_Open, HA_Close = EXCLUDED.HA_Close, ha_high = EXCLUDED.HA_High,
-                        HA_Low = EXCLUDED.HA_Low, Supertrend = EXCLUDED.Supertrend, Acc_Dist = EXCLUDED.Acc_Dist,
-                        CCI = EXCLUDED.CCI, CMF = EXCLUDED.CMF, MFI = EXCLUDED.MFI, On_Balance_Volume = EXCLUDED.On_Balance_Volume,
+                        macd_signal = EXCLUDED.macd_signal, macd_histogram = EXCLUDED.macd_histogram, 
+                        adx = EXCLUDED.adx, adx_di_positive = EXCLUDED.adx_di_positive, 
+                        adx_di_negative = EXCLUDED.adx_di_negative, HA_Open = EXCLUDED.HA_Open, 
+                        HA_Close = EXCLUDED.HA_Close, ha_high = EXCLUDED.HA_High, HA_Low = EXCLUDED.HA_Low, 
+                        Supertrend = EXCLUDED.Supertrend, Acc_Dist = EXCLUDED.Acc_Dist, CCI = EXCLUDED.CCI, 
+                        CMF = EXCLUDED.CMF, MFI = EXCLUDED.MFI, On_Balance_Volume = EXCLUDED.On_Balance_Volume,
                         Williams_R = EXCLUDED.Williams_R, Bollinger_B = EXCLUDED.Bollinger_B,
                         Intraday_Intensity = EXCLUDED.Intraday_Intensity, Force_Index = EXCLUDED.Force_Index,
-                        STC = EXCLUDED.STC, sma10 = EXCLUDED.sma10, sma20 = EXCLUDED.sma20, sma50 = EXCLUDED.sma50, sma100 = EXCLUDED.sma100,
-                        sma200 = EXCLUDED.sma200, ema10 = EXCLUDED.ema10, ema50 = EXCLUDED.ema50, ema100 = EXCLUDED.ema100,
-                        ema200 = EXCLUDED.ema200, wma10 = EXCLUDED.wma10, wma50 = EXCLUDED.wma50, wma100 = EXCLUDED.wma100,
-                        wma200 = EXCLUDED.wma200, tma10 = EXCLUDED.tma10, tma50 = EXCLUDED.tma50, tma100 = EXCLUDED.tma100,
-                        tma200 = EXCLUDED.tma200, rma10 = EXCLUDED.rma10, rma50 = EXCLUDED.rma50, rma100 = EXCLUDED.rma100,
-                        rma200 = EXCLUDED.rma200, tema10 = EXCLUDED.tema10, tema50 = EXCLUDED.tema50, tema100 = EXCLUDED.tema100,
-                        tema200 = EXCLUDED.tema200, hma10 = EXCLUDED.hma10, hma50 = EXCLUDED.hma50, hma100 = EXCLUDED.hma100,
-                        hma200 = EXCLUDED.hma200, vwma10 = EXCLUDED.vwma10, vwma50 = EXCLUDED.vwma50, vwma100 = EXCLUDED.vwma100,
-                        vwma200 = EXCLUDED.vwma200, std10 = EXCLUDED.std10, std50 = EXCLUDED.std50, std100 = EXCLUDED.std100,
-                        std200 = EXCLUDED.std200, ATR = EXCLUDED.ATR, TRIX = EXCLUDED.TRIX, ROC = EXCLUDED.ROC,
-                        Keltner_Middle = EXCLUDED.Keltner_Middle, Keltner_Upper = EXCLUDED.Keltner_Upper,
-                        Keltner_Lower = EXCLUDED.Keltner_Lower, Donchian_High = EXCLUDED.Donchian_High,
-                        Donchian_Low = EXCLUDED.Donchian_Low, Chaikin_Oscillator = EXCLUDED.Chaikin_Oscillator, rsi = EXCLUDED.rsi
+                        STC = EXCLUDED.STC, sma10 = EXCLUDED.sma10, sma20 = EXCLUDED.sma20, sma50 = EXCLUDED.sma50, 
+                        sma100 = EXCLUDED.sma100, sma200 = EXCLUDED.sma200, ema10 = EXCLUDED.ema10, ema50 = EXCLUDED.ema50, 
+                        ema100 = EXCLUDED.ema100, ema200 = EXCLUDED.ema200, wma10 = EXCLUDED.wma10, wma50 = EXCLUDED.wma50, 
+                        wma100 = EXCLUDED.wma100, wma200 = EXCLUDED.wma200, tma10 = EXCLUDED.tma10, tma50 = EXCLUDED.tma50, 
+                        tma100 = EXCLUDED.tma100, tma200 = EXCLUDED.tma200, rma10 = EXCLUDED.rma10, rma50 = EXCLUDED.rma50, 
+                        rma100 = EXCLUDED.rma100, rma200 = EXCLUDED.rma200, tema10 = EXCLUDED.tema10, tema50 = EXCLUDED.tema50, 
+                        tema100 = EXCLUDED.tema100, tema200 = EXCLUDED.tema200, hma10 = EXCLUDED.hma10, hma50 = EXCLUDED.hma50, 
+                        hma100 = EXCLUDED.hma100, hma200 = EXCLUDED.hma200, vwma10 = EXCLUDED.vwma10, vwma50 = EXCLUDED.vwma50, 
+                        vwma100 = EXCLUDED.vwma100, vwma200 = EXCLUDED.vwma200, std10 = EXCLUDED.std10, std50 = EXCLUDED.std50, 
+                        std100 = EXCLUDED.std100, std200 = EXCLUDED.std200, ATR = EXCLUDED.ATR, TRIX = EXCLUDED.TRIX, 
+                        ROC = EXCLUDED.ROC, Keltner_Middle = EXCLUDED.Keltner_Middle, Keltner_Upper = EXCLUDED.Keltner_Upper, 
+                        Keltner_Lower = EXCLUDED.Keltner_Lower, Donchian_High = EXCLUDED.Donchian_High, Donchian_Low = EXCLUDED.Donchian_Low, 
+                        Chaikin_Oscillator = EXCLUDED.Chaikin_Oscillator, rsi = EXCLUDED.rsi, true_range = EXCLUDED.true_range, 
+                        aroon_up = EXCLUDED.aroon_up, aroon_down = EXCLUDED.aroon_down, aroon_osc = EXCLUDED.aroon_osc,
+                        buyer_initiated_trades = EXCLUDED.buyer_initiated_trades,
+                        buyer_initiated_quantity = EXCLUDED.buyer_initiated_quantity,
+                        buyer_initiated_avg_qty = EXCLUDED.buyer_initiated_avg_qty,
+                        seller_initiated_trades = EXCLUDED.seller_initiated_trades,
+                        seller_initiated_quantity = EXCLUDED.seller_initiated_quantity,
+                        seller_initiated_avg_qty = EXCLUDED.seller_initiated_avg_qty,
+                        buyer_seller_ratio = EXCLUDED.buyer_seller_ratio,
+                        buyer_seller_quantity_ratio = EXCLUDED.buyer_seller_quantity_ratio,
+                        buyer_initiated_vwap = EXCLUDED.buyer_initiated_vwap,
+                        seller_initiated_vwap = EXCLUDED.seller_initiated_vwap
                 """
 
                 # Convert all numpy values to native Python types
@@ -1083,6 +1090,20 @@ class DatabaseService:
 
                     # These may be the missing parameters:
                     self._convert_numpy_types(latest_data.get('rsi', None)),           # 96  <-- RSI was missing
+                    self._convert_numpy_types(latest_data.get('true_range', None)),    # 97  <-- true_range was missing
+                    self._convert_numpy_types(latest_data.get('aroon_up', None)),      # 98  <-- aroon_up was missing
+                    self._convert_numpy_types(latest_data.get('aroon_down', None)),    # 99  <-- aroon_down was missing
+                    self._convert_numpy_types(latest_data.get('aroon_osc', None)),     # 100 <-- aroon_osc was missing
+                    self._convert_numpy_types(latest_data['buyer_initiated_trades']),
+                    self._convert_numpy_types(latest_data['buyer_initiated_quantity']),
+                    self._convert_numpy_types(latest_data['buyer_initiated_avg_qty']),
+                    self._convert_numpy_types(latest_data['seller_initiated_trades']),
+                    self._convert_numpy_types(latest_data['seller_initiated_quantity']),
+                    self._convert_numpy_types(latest_data['seller_initiated_avg_qty']),
+                    self._convert_numpy_types(latest_data['buyer_seller_ratio']),
+                    self._convert_numpy_types(latest_data['buyer_seller_quantity_ratio']),
+                    self._convert_numpy_types(latest_data['buyer_initiated_vwap']),
+                    self._convert_numpy_types(latest_data['seller_initiated_vwap'])
                 )
 
                 cur.execute(upsert_sql, params)
