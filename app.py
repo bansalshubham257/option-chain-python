@@ -187,26 +187,21 @@ def get_oi_extremes():
     try:
         limit = int(request.args.get('limit', 10))
         with database_service._get_cursor() as cur:
-            # Get OI extremes
+            # Get OI gainers separately
             cur.execute("""
                 SELECT symbol, strike, option_type as type,
-                       absolute_oi, oi_change, volume_change, 
+                       absolute_oi, oi_change, volume_change,
                        timestamp
                 FROM fno_analytics
                 WHERE analytics_type = 'oi_analytics'
-                ORDER BY 
-                    CASE WHEN category = 'oi_gainer' THEN 0 ELSE 1 END,
-                    ABS(oi_change) DESC
+                AND oi_change > 0
+                ORDER BY oi_change DESC
                 LIMIT %s
-            """, (limit * 2,))
+            """, (limit,))
 
-            oi_results = {
-                'oi_gainers': [],
-                'oi_losers': []
-            }
-
+            oi_gainers = []
             for row in cur.fetchall():
-                item = {
+                oi_gainers.append({
                     'symbol': row[0],
                     'strike': float(row[1]) if row[1] else 0,
                     'type': row[2],
@@ -214,27 +209,47 @@ def get_oi_extremes():
                     'oi_change': float(row[4]),
                     'volume_change': float(row[5]) if row[5] is not None else 0,
                     'timestamp': row[6]
-                }
-                if item['oi_change'] >= 0:
-                    oi_results['oi_gainers'].append(item)
-                else:
-                    oi_results['oi_losers'].append(item)
+                })
 
-            # Get volume extremes - NEW QUERY
+            # Get OI losers separately
             cur.execute("""
                 SELECT symbol, strike, option_type as type,
-                       absolute_oi, oi_change, volume_change, 
+                       absolute_oi, oi_change, volume_change,
+                       timestamp
+                FROM fno_analytics
+                WHERE analytics_type = 'oi_analytics'
+                AND oi_change < 0
+                ORDER BY oi_change ASC
+                LIMIT %s
+            """, (limit,))
+
+            oi_losers = []
+            for row in cur.fetchall():
+                oi_losers.append({
+                    'symbol': row[0],
+                    'strike': float(row[1]) if row[1] else 0,
+                    'type': row[2],
+                    'oi': int(row[3]),
+                    'oi_change': float(row[4]),
+                    'volume_change': float(row[5]) if row[5] is not None else 0,
+                    'timestamp': row[6]
+                })
+
+            # Get volume gainers separately
+            cur.execute("""
+                SELECT symbol, strike, option_type as type,
+                       absolute_oi, oi_change, volume_change,
                        timestamp
                 FROM fno_analytics
                 WHERE analytics_type = 'buildup'
-                AND volume_change IS NOT NULL
-                ORDER BY ABS(volume_change) DESC
+                AND volume_change > 0
+                ORDER BY volume_change DESC
                 LIMIT %s
-            """, (limit * 2,))
+            """, (limit,))
 
-            volume_data = []
+            volume_gainers = []
             for row in cur.fetchall():
-                item = {
+                volume_gainers.append({
                     'symbol': row[0],
                     'strike': float(row[1]) if row[1] else 0,
                     'type': row[2],
@@ -242,30 +257,39 @@ def get_oi_extremes():
                     'oi_change': float(row[4]),
                     'volume_change': float(row[5]),
                     'timestamp': row[6]
-                }
-                volume_data.append(item)
+                })
 
-            # Split volume data into gainers/losers
-            volume_gainers = []
+            # Get volume losers separately
+            cur.execute("""
+                SELECT symbol, strike, option_type as type,
+                       absolute_oi, oi_change, volume_change,
+                       timestamp
+                FROM fno_analytics
+                WHERE analytics_type = 'buildup'
+                AND volume_change < 0
+                ORDER BY volume_change ASC
+                LIMIT %s
+            """, (limit,))
+
             volume_losers = []
-            
-            for item in volume_data:
-                if item['volume_change'] >= 0:
-                    volume_gainers.append(item)
-                else:
-                    volume_losers.append(item)
-            
-            # Sort gainers descending, losers ascending
-            volume_gainers.sort(key=lambda x: -x['volume_change'])
-            volume_losers.sort(key=lambda x: x['volume_change'])
-            
+            for row in cur.fetchall():
+                volume_losers.append({
+                    'symbol': row[0],
+                    'strike': float(row[1]) if row[1] else 0,
+                    'type': row[2],
+                    'oi': int(row[3]),
+                    'oi_change': float(row[4]),
+                    'volume_change': float(row[5]),
+                    'timestamp': row[6]
+                })
+
             return jsonify({
                 "status": "success",
                 "data": {
-                    "oi_gainers": oi_results['oi_gainers'],
-                    "oi_losers": oi_results['oi_losers'],
-                    "volume_gainers": volume_gainers[:limit],
-                    "volume_losers": volume_losers[:limit]
+                    "oi_gainers": oi_gainers,
+                    "oi_losers": oi_losers,
+                    "volume_gainers": volume_gainers,
+                    "volume_losers": volume_losers
                 },
                 "timestamp": datetime.now(pytz.timezone('Asia/Kolkata')).isoformat()
             })
