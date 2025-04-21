@@ -428,6 +428,20 @@ def run_scanner():
 
 # Scanner routes
 
+@app.route('/api/most-gainer-strikes', methods=['GET'])
+def get_most_gainer_strikes():
+    limit = int(request.args.get('limit', 10))
+    offset = int(request.args.get('offset', 0))
+    data = database_service.get_top_strikes(metric="pct_change", limit=limit, offset=offset)
+    return jsonify(data)
+
+@app.route('/api/most-active-strikes', methods=['GET'])
+def get_most_active_strikes():
+    limit = int(request.args.get('limit', 10))
+    offset = int(request.args.get('offset', 0))
+    data = database_service.get_top_strikes(metric="volume", limit=limit, offset=offset)
+    return jsonify(data)
+
 def run_stock_data_updater():
     """Hyper-optimized stock data updater to complete all intervals in 4-5 minutes"""
     last_cache_clear_date = None
