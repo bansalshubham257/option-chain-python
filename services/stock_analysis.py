@@ -8,6 +8,7 @@ from bokeh.embed import components
 from bokeh.layouts import column
 from decimal import Decimal
 import pytz
+from datetime import datetime
 
 class StockAnalysisService:
     def __init__(self):
