@@ -388,21 +388,6 @@ class DatabaseService:
                     absolute_oi = EXCLUDED.absolute_oi
             """, data, page_size=100)
 
-            # Insert into buildup_results (if needed)
-            execute_batch(cur, """
-                INSERT INTO buildup_results 
-                (symbol, result_type, category, strike, option_type,
-                 oi_change, absolute_oi, timestamp)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-                ON CONFLICT (symbol, result_type, category, strike, option_type, timestamp)
-                DO UPDATE SET
-                    oi_change = EXCLUDED.oi_change,
-                    absolute_oi = EXCLUDED.absolute_oi
-            """, [
-                (item[0], item[1], item[2], item[3], item[4], item[6], item[8], item[9])
-                for item in data
-            ], page_size=100)
-
     def get_buildup_results(self, limit=20):
         """Get recent buildup results"""
         with self._get_cursor() as cur:
