@@ -943,7 +943,8 @@ class OptionChainService:
                     'oi': Decimal(str(fut_data.get('oi', 0))),
                     'volume': Decimal(str(fut_data.get('volume', 0))),
                     'price': Decimal(str(fut_data.get('last_price', 0))),
-                    'timestamp': datetime.now(pytz.timezone('Asia/Kolkata')).strftime("%H:%M")
+                    'timestamp': datetime.now(pytz.timezone('Asia/Kolkata')).strftime("%H:%M"),
+                    'pct_change': 0
                 })
             # Process data
 
@@ -975,6 +976,9 @@ class OptionChainService:
                 top_bids = depth.get('buy', [])[:5]
                 top_asks = depth.get('sell', [])[:5]
                 ltp = quote_data.get('last_price', 0)
+                net_change = quote_data.get('net_change', 0)
+                prev_close = ltp - net_change if ltp and net_change else None
+                pct_change = (net_change / prev_close * 100) if prev_close else 0
 
                 threshold = lot_size * 87
                 has_large_bid = any(bid['quantity'] >= threshold for bid in top_bids)
@@ -1001,6 +1005,7 @@ class OptionChainService:
                     'oi': Decimal(str(quote_data.get('oi', 0))),
                     'volume': Decimal(str(quote_data.get('volume', 0))),
                     'price': Decimal(str(ltp)),
+                    'pct_change': Decimal(str(pct_change)),
                     'timestamp': datetime.now(pytz.timezone('Asia/Kolkata')).strftime("%H:%M")
                 })
             print(f"{stock_symbol}: {len(result['options_orders'])} orders, {len(result['oi_records'])} OI records")
