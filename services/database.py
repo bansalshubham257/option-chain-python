@@ -259,7 +259,8 @@ class DatabaseService:
                 float(r['oi']),  # Convert np.float64 to float
                 float(r['volume']),  # Convert np.float64 to float
                 float(r['price']),  # Convert np.float64 to float
-                str(r['timestamp'])
+                str(r['timestamp']),
+                float(r['pct_change'])
             )
             for r in filtered_records
         ]
@@ -268,8 +269,8 @@ class DatabaseService:
             execute_batch(cur, """
                 INSERT INTO oi_volume_history (
                     symbol, expiry_date, strike_price, option_type,
-                    oi, volume, price, display_time
-                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                    oi, volume, price, display_time, pct_change
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
                 ON CONFLICT (symbol, expiry_date, strike_price, option_type, display_time) 
                 DO NOTHING
             """, processed_records, page_size=100)
@@ -1274,6 +1275,41 @@ class DatabaseService:
         elif isinstance(value, Decimal):
             return float(value)
         return value
+
+    def get_top_strikes(self, metric="volume", limit=10, offset=0):
+        """Fetch top strikes based on a given metric (volume or pct_change)"""
+        with self._get_cursor() as cur:
+            cur.execute(f"""
+                WITH ranked_strikes AS (
+                    SELECT 
+                        symbol, 
+                        strike_price, 
+                        option_type, 
+                        {metric}, 
+                        price,
+                        ROW_NUMBER() OVER (PARTITION BY symbol ORDER BY {metric} DESC) AS rank
+                    FROM oi_volume_history
+                    WHERE {metric} IS NOT NULL
+                      AND option_type != 'FU'
+                )
+                SELECT symbol, strike_price, option_type, {metric}, price
+                FROM ranked_strikes
+                WHERE rank = 1
+                ORDER BY {metric} DESC
+                LIMIT %s OFFSET %s
+            """, (limit, offset))
+    
+            return [
+                {
+                    'symbol': row[0],
+                    'strike_price': float(row[1]),
+                    'option_type': row[2],
+                    metric: float(row[3]) if row[3] is not None else 0.0,
+                    'price': float(row[4]) if row[4] is not None else 0.0
+                }
+                for row in cur.fetchall()
+            ]
+    
 
 
 
