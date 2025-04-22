@@ -16,3 +16,11 @@ class Config:
     MARKET_CLOSE = time(15, 30)  # 03:30 PM
 
     TRADING_DAYS = {0, 1, 2, 3, 4}  # Monday to Friday
+
+    SENSEX_EXPIRIES = [
+        "2025-04-29"  # Example weekly expiry dates
+    ]
+
+    NIFTY_EXPIRIES = [
+        "2025-04-24"
+    ]
