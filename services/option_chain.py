@@ -18,6 +18,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import functools
 from typing import List
+from calendar import monthrange
 
 class OptionChainService:
     def __init__(self, max_retries=3):
@@ -335,7 +336,16 @@ class OptionChainService:
         # Load F&O stocks
 
     def get_fno_stocks(self):
-        return self.fno_stocks
+        """Return F&O stocks list with indices included."""
+        indices = {
+            "NIFTY": 75,  # Example lot size
+            "BANKNIFTY": 30,
+            "SENSEX": 20 #,
+            #"BANKEX": 30,
+            #"MIDCPNIFTY": 120,
+            #"FINNIFTY": 65
+        }
+        return {**self.fno_stocks, **indices}
 
     def fetch_price(self, instrument_key):
         if not instrument_key:
@@ -583,7 +593,9 @@ class OptionChainService:
             oi_analytics = {'oi_gainers': [], 'oi_losers': []}
 
             # Process symbols in parallel
-            with ThreadPoolExecutor(max_workers=min(8, len(symbols))) as executor:
+            max_workers = max(1, min(8, len(symbols)))
+
+            with ThreadPoolExecutor(max_workers=max_workers) as executor:
                 futures = {
                     executor.submit(self._analyze_symbol_oi, symbol, threshold_time, top_n): symbol
                     for symbol in symbols
@@ -840,7 +852,18 @@ class OptionChainService:
         MIN_REQUEST_INTERVAL = 0.3  # Rate limiting
         last_api_call = 0
 
-        for stock, lot_size in self.fno_stocks.items():
+        # Add indices manually to fno_stocks
+        indices = {
+            "NIFTY": 75,  # Example lot size
+            "BANKNIFTY": 30,
+            "SENSEX": 20 #,
+            #"BANKEX": 30,
+            #"MIDCPNIFTY": 120,
+            #"FINNIFTY": 65
+        }
+        fno_stocks_with_indices = {**self.fno_stocks, **indices}
+
+        for stock, lot_size in fno_stocks_with_indices.items():
             try:
                 # Rate limiting
                 elapsed = time.time() - last_api_call
@@ -866,32 +889,73 @@ class OptionChainService:
                 continue
 
         total_time = time.time() - total_start
-        print(f"\nCompleted {processed_stocks}/{len(self.fno_stocks)} stocks in {total_time:.1f}s")
+        print(f"\nCompleted {processed_stocks}/{len(fno_stocks_with_indices)} stocks in {total_time:.1f}s")
 
-    def _fetch_option_chain(self, stock_symbol, lot_size, expiry_date="2025-04-24"):
-        """Fetch option chain data for a stock"""
+    def _fetch_option_chain(self, stock_symbol, lot_size):
+        """Fetch option chain data for a stock or index."""
         try:
-            # Get instrument key
-            instrument_key = self._get_instrument_key(stock_symbol)
+            # Handle instrument_key for indices separately
+            index_keys = {
+                "NIFTY": "NSE_INDEX|Nifty 50",
+                "SENSEX": "BSE_INDEX|SENSEX",
+                "BANKNIFTY": "NSE_INDEX|Nifty Bank" #,
+                #"FINNIFTY": "NSE_INDEX|Nifty Financial Services",
+                #"BANKEX": "BSE_INDEX|BANKEX",
+                #"MIDCPNIFTY": "NSE_INDEX|Nifty Midcap 50"
+            }
+            instrument_key = index_keys.get(stock_symbol)
+            if not instrument_key:
+                # Fallback to normal instrument key lookup for non-indices
+                instrument_key = self._get_instrument_key(stock_symbol)
+
             if not instrument_key:
                 print(f"No instrument key for {stock_symbol}")
                 return None
 
-            # Fetch option chain
-            url = 'https://api.upstox.com/v2/option/chain'
-            headers = {'Authorization': f'Bearer {os.getenv("ACCESS_TOKEN")}'}
-            params = {'instrument_key': instrument_key, 'expiry_date': expiry_date}
+            # Fetch all expiries for NIFTY and SENSEX
+            if stock_symbol == "NIFTY":
+                expiries = Config.NIFTY_EXPIRIES
+            elif stock_symbol == "SENSEX":
+                expiries = Config.SENSEX_EXPIRIES  # Use predefined expiries from config
+            else:
+                expiries = [Config.EXPIRY_DATE]  # Default expiry for other stocks
 
-            response = requests.get(url, params=params, headers=headers)
-            if response.status_code != 200:
-                print(f"Option chain API failed for {stock_symbol}: {response.status_code}")
-                return None
+            result = {
+                'options_orders': [],
+                'futures_orders': [],
+                'oi_records': []
+            }
 
-            data = response.json().get('data', [])
-            if not data:
-                print(f"No option chain data for {stock_symbol}")
-                return None
+            for expiry_date in expiries:
+                # Fetch option chain for each expiry
+                url = 'https://api.upstox.com/v2/option/chain'
+                headers = {'Authorization': f'Bearer {os.getenv("ACCESS_TOKEN")}'}
+                params = {'instrument_key': instrument_key, 'expiry_date': expiry_date}
 
+                response = requests.get(url, params=params, headers=headers)
+                if response.status_code != 200:
+                    print(f"Option chain API failed for {stock_symbol} ({expiry_date}): {response.status_code}")
+                    continue
+
+                data = response.json().get('data', [])
+                if not data:
+                    print(f"No option chain data for {stock_symbol} ({expiry_date})")
+                    continue
+
+                # Process data
+                self._process_option_chain_data(data, stock_symbol, expiry_date, lot_size, result)
+
+            print(f"{stock_symbol}: {len(result['options_orders'])} orders, {len(result['oi_records'])} OI records")
+            return result
+
+        except Exception as e:
+            print(f"Error in fetch_option_chain for {stock_symbol}: {str(e)}")
+            return None
+
+
+    def _process_option_chain_data(self, data, stock_symbol, expiry_date, lot_size, result):
+        """Process option chain data and populate result."""
+        try:
             # Prepare market quotes request
             spot_price = data[0].get('underlying_spot_price', 0)
             strikes = sorted(set(option['strike_price'] for option in data))
@@ -911,47 +975,19 @@ class OptionChainService:
                 instrument_keys.append(fut_instrument_key)
 
             if not instrument_keys:
-                print(f"No valid instrument keys for {stock_symbol}")
-                return None
+                print(f"No valid instrument keys for {stock_symbol} ({expiry_date})")
+                return
 
             # Fetch market quotes
             market_quotes = self._fetch_market_quotes(instrument_keys)
             if not market_quotes:
-                print(f"No market quotes for {stock_symbol}")
-                return None
-            
-            result = {
-                'options_orders': [],
-                'futures_orders': [],
-                'oi_records': []
-            }
-
-            fut_instrument_key = next(
-                (key for key in market_quotes
-                 if key.startswith(f"NSE_FO:{stock_symbol}") and "FUT" in key),
-                None
-            )
-            print("Futures instrument key:", fut_instrument_key)
-            if fut_instrument_key and fut_instrument_key in market_quotes:
-                print("data found for futures")
-                fut_data = market_quotes[fut_instrument_key]
-                result['oi_records'].append({
-                    'symbol': stock_symbol,
-                    'expiry': expiry_date,
-                    'strike': Decimal(str(fut_data.get('last_price', 0))),  # Using 0 for futures
-                    'option_type': 'FU',
-                    'oi': Decimal(str(fut_data.get('oi', 0))),
-                    'volume': Decimal(str(fut_data.get('volume', 0))),
-                    'price': Decimal(str(fut_data.get('last_price', 0))),
-                    'timestamp': datetime.now(pytz.timezone('Asia/Kolkata')).strftime("%H:%M"),
-                    'pct_change': 0
-                })
-            # Process data
+                print(f"No market quotes for {stock_symbol} ({expiry_date})")
+                return
 
             # Process futures
             futures_orders = self._process_futures_orders(market_quotes, stock_symbol, lot_size)
             if futures_orders:
-                result['futures_orders'] = futures_orders
+                result['futures_orders'].extend(futures_orders)
 
             # Process options
             for key, quote_data in market_quotes.items():
@@ -1008,12 +1044,8 @@ class OptionChainService:
                     'pct_change': Decimal(str(pct_change)),
                     'timestamp': datetime.now(pytz.timezone('Asia/Kolkata')).strftime("%H:%M")
                 })
-            print(f"{stock_symbol}: {len(result['options_orders'])} orders, {len(result['oi_records'])} OI records")
-            return result
-
         except Exception as e:
-            print(f"Error in fetch_option_chain for {stock_symbol}: {str(e)}")
-            return None
+            print(f"Error processing option chain data for {stock_symbol} ({expiry_date}): {str(e)}")
 
     def _process_futures_orders(self, market_quotes, stock_symbol, lot_size):
         """Detect large futures orders"""
@@ -1082,3 +1114,18 @@ class OptionChainService:
                 "option_type": match.group(4)
             }
         return None
+
+    def _get_all_weekly_expiries(self):
+        """Get all weekly expiries for the current month."""
+        today = datetime.now()
+        year, month = today.year, today.month
+        num_days = monthrange(year, month)[1]  # Get the number of days in the current month
+
+        expiries = []
+        for day in range(1, num_days + 1):
+            date = datetime(year, month, day)
+            if date.weekday() == 3:  # Thursday
+                expiries.append(date.strftime('%Y-%m-%d'))
+
+        return expiries
+
