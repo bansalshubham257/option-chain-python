@@ -291,30 +291,53 @@ class MarketDataService:
 
 
     def _get_yfinance_top_movers(self):
-        stocks = self.get_fno_stocks()
-        if not stocks:
-            return [], []  # Return empty lists if no stocks available
+        """Fetch top gainers and losers from stock_data_cache for interval '1d'."""
+        try:
+            if not self.database:
+                return [], []  # Return empty lists if database service is not available
 
-        changes = []
-        for symbol in stocks:
-            try:
-                prev_close = self._get_previous_close(symbol)
-                current_price = self._get_current_price(symbol)
+            with self.database._get_cursor() as cur:
+                # Fetch top 5 gainers
+                cur.execute("""
+                    SELECT symbol, close AS last_price, percent_change AS pChange
+                    FROM stock_data_cache
+                    WHERE interval = '1d' AND percent_change IS NOT NULL
+                    ORDER BY percent_change DESC
+                    LIMIT 5
+                """)
+                gainers = [
+                    {
+                        "symbol": row[0],
+                        "lastPrice": float(row[1]),
+                        "pChange": float(row[2]),
+                        "change": round(float(row[1]) * (float(row[2]) / 100), 2)  # Calculate absolute change
+                    }
+                    for row in cur.fetchall()
+                ]
 
-                if prev_close and current_price:
-                    change = round(current_price - prev_close, 2)
-                    pct = round((change/prev_close)*100, 2)
-                    changes.append({
-                        "symbol": symbol.replace(".NS", ""),
-                        "lastPrice": current_price,
-                        "change": change,
-                        "pChange": pct
-                    })
-            except Exception:
-                continue
+                # Fetch top 5 losers
+                cur.execute("""
+                    SELECT symbol, close AS last_price, percent_change AS pChange
+                    FROM stock_data_cache
+                    WHERE interval = '1d' AND percent_change IS NOT NULL
+                    ORDER BY percent_change ASC
+                    LIMIT 5
+                """)
+                losers = [
+                    {
+                        "symbol": row[0],
+                        "lastPrice": float(row[1]),
+                        "pChange": float(row[2]),
+                        "change": round(float(row[1]) * (float(row[2]) / 100), 2)  # Calculate absolute change
+                    }
+                    for row in cur.fetchall()
+                ]
 
-        changes.sort(key=lambda x: x["pChange"], reverse=True)
-        return changes[:5], changes[-5:][::-1]
+            return gainers, losers
+
+        except Exception as e:
+            print(f"Error fetching top movers: {e}")
+            return [], []
 
     def _get_previous_close(self, symbol):
         try:
