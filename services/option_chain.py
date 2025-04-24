@@ -1051,7 +1051,7 @@ class OptionChainService:
         """Detect large futures orders"""
         large_orders = []
         prefix = f"NSE_FO:{stock_symbol}"
-        suffix = "APRFUT"
+        suffix = "MAYFUT"
 
         pattern = re.compile(rf"{prefix}\d+{suffix}")
         fut_instrument_key = next((key for key in market_quotes if pattern.match(key)), None)
