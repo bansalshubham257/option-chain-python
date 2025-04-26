@@ -1264,6 +1264,9 @@ class DatabaseService:
             return float(value)
         elif isinstance(value, (np.integer, np.int32, np.int64)):
             return int(value)
+        elif isinstance(value, str):
+            # Attempt to convert strings to float if possible
+            return float(value) if value.replace('.', '', 1).isdigit() else value
         elif isinstance(value, np.ndarray):
             return value.tolist()
         elif isinstance(value, (list, tuple)):
