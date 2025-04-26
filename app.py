@@ -615,6 +615,143 @@ def update_stock_batch(stocks, interval):
         print(f"Batch update failed: {e}")
         return 0
 
+@app.route('/api/market-breadth', methods=['GET'])
+def get_market_breadth():
+    """API endpoint to fetch market breadth data with technical indicators"""
+    try:
+        with database_service._get_cursor() as cur:
+            # Fetch stock data with technical indicators
+            cur.execute("""
+                SELECT 
+                    symbol, interval, close, price_change, percent_change, volume,
+                    pivot, sma20, sma50, sma100, sma200, ema50, ema100, vwap,
+                    rsi, macd_line, macd_signal,
+                    pe_ratio, market_cap, beta, dividend_yield, price_to_book,
+                    industry, sector
+                FROM stock_data_cache
+                ORDER BY market_cap DESC NULLS LAST
+            """)
+
+            # Convert DB rows to list of dictionaries with proper type conversion
+            results = []
+            for row in cur.fetchall():
+                # Create base data dictionary with None for NaN/NULL values
+                data_dict = {
+                    'symbol': row[0],
+                    'interval': row[1],
+                    'close': float(row[2]) if row[2] is not None else None,
+                    'price_change': float(row[3]) if row[3] is not None else 0.0,
+                    'percent_change': float(row[4]) if row[4] is not None else 0.0,
+                    'volume': float(row[5]) if row[5] is not None else None,
+                    'pivot': float(row[6]) if row[6] is not None else None,
+                    'sma20': float(row[7]) if row[7] is not None else None,
+                    'sma50': float(row[8]) if row[8] is not None else None,
+                    'sma100': float(row[9]) if row[9] is not None else None,
+                    'sma200': float(row[10]) if row[10] is not None else None,
+                    'ema50': float(row[11]) if row[11] is not None else None,
+                    'ema100': float(row[12]) if row[12] is not None else None,
+                    'vwap': float(row[13]) if row[13] is not None else None,
+                    'rsi': float(row[14]) if row[14] is not None else None,
+                    'macd_line': float(row[15]) if row[15] is not None else None,
+                    'macd_signal': float(row[16]) if row[16] is not None else None,
+                    'pe_ratio': float(row[17]) if row[17] is not None else None,
+                    'market_cap': float(row[18]) if row[18] is not None else None,
+                    'beta': float(row[19]) if row[19] is not None else None,
+                    'dividend_yield': float(row[20]) if row[20] is not None else None,
+                    'price_to_book': float(row[21]) if row[21] is not None else None,
+                    'industry': row[22],
+                    'sector': row[23],
+                    'isFnO': row[0].replace('.NS', '') in option_chain_service.fno_stocks
+                }
+                
+                # Explicitly check for NaN values and replace with None
+                import math
+                for key, value in list(data_dict.items()):
+                    if isinstance(value, float) and (math.isnan(value) or math.isinf(value)):
+                        data_dict[key] = None
+                
+                results.append(data_dict)
+
+            return jsonify({
+                "status": "success",
+                "stocks": results,
+                "timestamp": datetime.now(pytz.timezone('Asia/Kolkata')).isoformat()
+            })
+
+    except Exception as e:
+        logging.error(f"Error fetching market breadth data: {str(e)}")
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+@app.route('/api/scanner-results', methods=['GET'])
+def get_scanner_results():
+    try:
+        stock_name = request.args.get('stock_name')
+        scan_date = request.args.get('scan_date')
+
+        # Fetch results from the database
+        results = scanner_service.get_scanner_results(stock_name, scan_date)
+        return jsonify(results)
+    except Exception as e:
+        logging.error(f"Error fetching scanner results: {str(e)}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/stock-data', methods=['GET'])
+def get_stock_data():
+    """API endpoint to fetch stock data for heatmap visualization"""
+    try:
+        with database_service._get_cursor() as cur:
+            # Fetch the latest stock data with interval '1d' (daily)
+            cur.execute("""
+                SELECT 
+                    symbol, interval, close, price_change, percent_change, volume,
+                    pe_ratio, market_cap, beta, dividend_yield, price_to_book,
+                    industry, sector
+                FROM stock_data_cache
+                WHERE interval = '1d'
+                ORDER BY market_cap DESC NULLS LAST
+            """)
+
+            # Convert DB rows to list of dictionaries with proper type conversion
+            results = []
+            for row in cur.fetchall():
+                # Determine if stock is an F&O stock
+                is_fno = False
+                symbol_without_ns = row[0].replace('.NS', '')
+                if symbol_without_ns in option_chain_service.fno_stocks:
+                    is_fno = True
+
+                # Add to results, converting decimal values to floats
+                results.append({
+                    'symbol': row[0],
+                    'interval': row[1],
+                    'close': float(row[2]) if row[2] is not None else None,
+                    'price_change': float(row[3]) if row[3] is not None else 0.0,
+                    'percent_change': float(row[4]) if row[4] is not None else 0.0,
+                    'volume': float(row[5]) if row[5] is not None else None,
+                    'pe_ratio': float(row[6]) if row[6] is not None else None,
+                    'market_cap': float(row[7]) if row[7] is not None else None,
+                    'beta': float(row[8]) if row[8] is not None else None,
+                    'dividend_yield': float(row[9]) if row[9] is not None else None,
+                    'price_to_book': float(row[10]) if row[10] is not None else None,
+                    'industry': row[11],
+                    'sector': row[12],
+                    'isFnO': is_fno
+                })
+
+            return jsonify(results)
+    except Exception as e:
+        logging.error(f"Error fetching stock data: {str(e)}")
+        return jsonify({"error": str(e)}), 500
+        
+def run_scanner_worker():
+    """Background worker to run the scanner every hour."""
+    while True:
+        try:
+            scanner_service.run_hourly_scanner()
+            time.sleep(5400)  # Run every hour
+        except Exception as e:
+            print(f"Error in scanner worker: {e}")
+            time.sleep(300)  # Retry after 5 minutes on error
 
 def run_background_workers():
     """Run all background workers in separate threads"""
@@ -624,12 +761,14 @@ def run_background_workers():
     oi_buildup_thread = threading.Thread(target=option_chain_service.run_analytics_worker, daemon=True)
     fiftytwo_week_thread = threading.Thread(target=run_52_week_worker, daemon=True)
     stock_data_thread = threading.Thread(target=run_stock_data_updater, daemon=True)
+    scanner_thread = threading.Thread(target=run_scanner_worker, daemon=True)
 
     market_data_thread.start()
     option_chain_thread.start()
     oi_buildup_thread.start()
     fiftytwo_week_thread.start()
     stock_data_thread.start()
+    scanner_thread.start()
     print("Background workers started successfully")
 
     # Keep main thread alive
