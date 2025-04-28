@@ -695,6 +695,70 @@ def get_scanner_results():
         logging.error(f"Error fetching scanner results: {str(e)}")
         return jsonify({"error": str(e)}), 500
 
+@app.route('/api/financial-results', methods=['GET'])
+def get_financial_results():
+    """API endpoint to fetch upcoming and declared financial results."""
+    try:
+        # Fetch all upcoming and declared results from the database
+        upcoming_results = database_service.get_upcoming_financial_results()
+        declared_results = database_service.get_declared_financial_results()
+
+        # Replace NaN values with None in the results
+        import math
+        def sanitize_data(data):
+            for item in data:
+                for key, value in item.items():
+                    if isinstance(value, float) and (math.isnan(value) or math.isinf(value)):
+                        item[key] = None
+            return data
+
+        sanitized_upcoming = sanitize_data(upcoming_results)
+        sanitized_declared = sanitize_data(declared_results)
+
+        # Ensure no filtering is applied here; return all results
+        return jsonify({
+            "status": "success",
+            "upcoming": sanitized_upcoming,
+            "declared": sanitized_declared
+        })
+    except Exception as e:
+        logging.error(f"Error fetching financial results: {str(e)}")
+        return jsonify({"status": "error", "message": str(e)}), 500
+        
+def run_financials_worker():
+    """Background worker to fetch and store quarterly financial data with optimized performance."""
+    while True:
+        try:
+            print("Starting financial data collection worker")
+            start_time = time.time()
+            
+            # Execute the optimized batch collection process
+            stats = stock_analysis_service.fetch_and_store_financials()
+            
+            elapsed_time = time.time() - start_time
+            print(f"Financial data collection completed in {elapsed_time/60:.1f} minutes")
+            print(f"Successfully processed {stats['success_count']} stocks with financial data")
+            print(f"Processed {stats['skipped_count']} stocks with only earnings dates")
+            print(f"Failed to process {stats['failed_count']} stocks")
+            
+            # Calculate next run time - wait longer if we had good coverage
+            coverage_ratio = (stats['success_count'] + stats['skipped_count']) / stats['total_stocks']
+            if coverage_ratio > 0.8:
+                # If we got good coverage, wait longer
+                wait_time = 4 * 3600  # 4 hours
+            else:
+                # If coverage was poor, try again sooner
+                wait_time = 2 * 3600  # 2 hours
+            
+            print(f"Sleeping for {wait_time/3600:.1f} hours before next run")
+            time.sleep(wait_time)
+            
+        except Exception as e:
+            print(f"Error in financials worker: {e}")
+            import traceback
+            traceback.print_exc()
+            time.sleep(1800)  # Retry after 30 minutes on error
+
 @app.route('/api/stock-data', methods=['GET'])
 def get_stock_data():
     """API endpoint to fetch stock data for heatmap visualization"""
@@ -762,6 +826,7 @@ def run_background_workers():
     fiftytwo_week_thread = threading.Thread(target=run_52_week_worker, daemon=True)
     stock_data_thread = threading.Thread(target=run_stock_data_updater, daemon=True)
     scanner_thread = threading.Thread(target=run_scanner_worker, daemon=True)
+    financials_thread = threading.Thread(target=run_financials_worker, daemon=True)
 
     market_data_thread.start()
     option_chain_thread.start()
@@ -769,6 +834,7 @@ def run_background_workers():
     fiftytwo_week_thread.start()
     stock_data_thread.start()
     scanner_thread.start()
+    financials_thread.start()
     print("Background workers started successfully")
 
     # Keep main thread alive
