@@ -8,11 +8,15 @@ from bokeh.embed import components
 from bokeh.layouts import column
 from decimal import Decimal
 import pytz
-from datetime import datetime
+from datetime import datetime, timedelta
+from services.database import DatabaseService  # Import DatabaseService
+import concurrent.futures
+import time
 
 class StockAnalysisService:
     def __init__(self):
         self.LOCAL_CSV_FILE = "nse_stocks.csv"
+        self.database_service = DatabaseService()
         print("stock analysis init done")
 
     def fetch_all_nse_stocks(self):
@@ -495,4 +499,260 @@ class StockAnalysisService:
         except Exception as e:
             print(f"Error in get_52_week_extremes: {str(e)}")
             return []
+
+    def fetch_and_store_financials(self):
+        """Fetch and store quarterly financial data for all NSE stocks with optimized batch processing."""
+        nse_stocks = self.fetch_all_nse_stocks()
+        if not nse_stocks:
+            print("No stocks found to fetch financials.")
+            return
+
+        ist = pytz.timezone('Asia/Kolkata')
+        now = datetime.now(ist)
+        print(f"Starting financial data collection for {len(nse_stocks)} stocks at {now.strftime('%Y-%m-%d %H:%M:%S')}")
+
+        # Configuration for batch processing
+        BATCH_SIZE = 50  # Number of stocks in each batch
+        MAX_WORKERS = 8  # Maximum number of parallel workers
+        MAX_RETRIES = 3  # Maximum number of retries for a failed request
+        BASE_DELAY = 1.0  # Base delay between API calls in seconds
+        
+        # Split stocks into batches
+        batches = [nse_stocks[i:i + BATCH_SIZE] for i in range(0, len(nse_stocks), BATCH_SIZE)]
+        total_batches = len(batches)
+        
+        print(f"Processing {total_batches} batches with {BATCH_SIZE} stocks per batch, using {MAX_WORKERS} workers")
+        
+        results_by_batch = []
+        success_count = 0
+        failed_count = 0
+        skipped_count = 0
+        
+        # Track API rate limiting
+        rate_limit_delay = BASE_DELAY
+        consecutive_failures = 0
+        
+        # Process each batch with adaptive rate limiting
+        for batch_idx, batch in enumerate(batches):
+            batch_start_time = time.time()
+            print(f"Processing batch {batch_idx+1}/{total_batches} with {len(batch)} stocks...")
+            
+            batch_results = []
+            batch_failures = 0
+            
+            # Function to fetch financials with retries and adaptive delay
+            def fetch_financials_with_retry(symbol, retry_count=0):
+                nonlocal consecutive_failures, rate_limit_delay
+                
+                try:
+                    # Apply adaptive delay to avoid rate limiting
+                    time.sleep(rate_limit_delay)
+                    
+                    full_symbol = f"{symbol}.NS"
+                    stock = yf.Ticker(full_symbol)
+                    
+                    # Get next earnings date from calendar if available
+                    next_earnings_date = None
+                    try:
+                        # Properly handle different types of calendar data
+                        if hasattr(stock, 'calendar'):
+                            # Check if calendar is a DataFrame
+                            if hasattr(stock.calendar, 'empty') and not stock.calendar.empty:
+                                if 'Earnings Date' in stock.calendar.columns:
+                                    # Handle case where 'Earnings Date' contains a list of dates
+                                    earnings_date_value = stock.calendar['Earnings Date'].iloc[0]
+                                    if isinstance(earnings_date_value, list) or isinstance(earnings_date_value, tuple):
+                                        next_earnings_date = earnings_date_value[0]
+                                    else:
+                                        next_earnings_date = earnings_date_value
+                            # Handle case where calendar is a dict (newer versions of yfinance)
+                            elif isinstance(stock.calendar, dict) and stock.calendar:
+                                # In dictionary format, the key might be 'Earnings Date' or similar
+                                earnings_key = next((k for k in stock.calendar.keys() 
+                                                   if k.lower().startswith('earnings')), None)
+                                if earnings_key and stock.calendar[earnings_key]:
+                                    earnings_date_value = stock.calendar[earnings_key]
+                                    if isinstance(earnings_date_value, list) or isinstance(earnings_date_value, tuple):
+                                        next_earnings_date = earnings_date_value[0]
+                                    else:
+                                        next_earnings_date = earnings_date_value
+                        
+                        # Convert date to datetime object if needed
+                        if isinstance(next_earnings_date, pd.Timestamp):
+                            next_earnings_date = next_earnings_date.to_pydatetime()
+                        elif hasattr(next_earnings_date, 'date') and callable(getattr(next_earnings_date, 'date')):
+                            # Handle date objects that have a date() method
+                            next_earnings_date = datetime.combine(next_earnings_date.date(), datetime.min.time())
+                        elif isinstance(next_earnings_date, (str, int, float)):
+                            # Try to parse strings or convert numbers
+                            try:
+                                next_earnings_date = pd.to_datetime(next_earnings_date).to_pydatetime()
+                            except:
+                                next_earnings_date = None
+                    except Exception as e:
+                        print(f"Error extracting earnings date for {symbol}: {e}")
+                        next_earnings_date = None
+                        # Continue processing despite earnings date extraction failure
+                    
+                    # Attempt to fetch quarterly financials - try multiple report types
+                    financials_data = None
+                    for data_type in ['quarterly_financials', 'quarterly_income_stmt', 'quarterly_balance_sheet']:
+                        try:
+                            data = getattr(stock, data_type, None)
+                            if data is not None and not data.empty:
+                                financials_data = data
+                                break
+                        except Exception:
+                            continue
+                    
+                    # Process fetched data if available
+                    if financials_data is not None and not financials_data.empty:
+                        # Process financial data
+                        financials = []
+                        for quarter in financials_data.columns:
+                            quarter_date = None
+                            if isinstance(quarter, pd.Timestamp):
+                                quarter_date = quarter.to_pydatetime()
+                            else:
+                                try:
+                                    quarter_date = pd.to_datetime(quarter).to_pydatetime()
+                                except:
+                                    continue  # Skip this quarter if date can't be parsed
+                            
+                            if quarter_date.tzinfo is None:
+                                quarter_date = pytz.utc.localize(quarter_date)
+                            
+                            # Calculate type based on the current time
+                            type = "current" if (now - quarter_date).days <= 90 else "previous"
+                            
+                            # Safely access rows using `.get` method
+                            revenue = None
+                            for rev_field in ['Total Revenue', 'Revenue', 'Net Revenue', 'Gross Revenue']:
+                                if rev_field in financials_data.index:
+                                    revenue = financials_data.loc[rev_field, quarter]
+                                    break
+                            
+                            # Handle other financial metrics similarly with failover fields
+                            net_income = None
+                            for ni_field in ['Net Income', 'Net Income Common Stockholders', 'Net Income From Continuing Operations']:
+                                if ni_field in financials_data.index:
+                                    net_income = financials_data.loc[ni_field, quarter]
+                                    break
+                                    
+                            operating_income = None
+                            for oi_field in ['Operating Income', 'EBIT', 'Operating Profit']:
+                                if oi_field in financials_data.index:
+                                    operating_income = financials_data.loc[oi_field, quarter]
+                                    break
+                                    
+                            ebitda = None
+                            if 'EBITDA' in financials_data.index:
+                                ebitda = financials_data.loc['EBITDA', quarter]
+                            
+                            financials.append({
+                                "quarter_ending": quarter_date,
+                                "revenue": revenue,
+                                "net_income": net_income,
+                                "operating_income": operating_income,
+                                "ebitda": ebitda,
+                                "type": type
+                            })
+                        
+                        # Reset rate limit delay on success and consecutive failures
+                        consecutive_failures = 0
+                        rate_limit_delay = max(BASE_DELAY, rate_limit_delay * 0.9)  # Gradually reduce delay on success
+                        
+                        return {"symbol": symbol, "financials": financials, "next_earnings_date": next_earnings_date}
+                    else:
+                        # Still return earnings date if we found it, even without financials
+                        if next_earnings_date:
+                            consecutive_failures = 0  # Not a complete failure
+                            return {"symbol": symbol, "financials": [], "next_earnings_date": next_earnings_date}
+                        
+                        # No usable data found
+                        if retry_count < MAX_RETRIES:
+                            # Increment consecutive failures and retry with backoff
+                            consecutive_failures += 1
+                            retry_delay = BASE_DELAY * (2 ** retry_count)
+                            time.sleep(retry_delay)
+                            return fetch_financials_with_retry(symbol, retry_count + 1)
+                        else:
+                            return None
+                            
+                except Exception as e:
+                    # On exception, increase consecutive failures and retry with backoff
+                    consecutive_failures += 1
+                    
+                    # Adjust rate limit delay based on consecutive failures
+                    if consecutive_failures > 3:
+                        rate_limit_delay = min(5.0, rate_limit_delay * 1.5)  # Increase delay if facing many failures
+                    
+                    if retry_count < MAX_RETRIES:
+                        retry_delay = BASE_DELAY * (2 ** retry_count) 
+                        time.sleep(retry_delay)
+                        return fetch_financials_with_retry(symbol, retry_count + 1)
+                    else:
+                        print(f"Error processing {symbol} after {MAX_RETRIES} retries: {e}")
+                        return None
+            
+            # Process current batch with parallel workers
+            with concurrent.futures.ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
+                # Submit all stocks in the batch
+                future_to_symbol = {executor.submit(fetch_financials_with_retry, symbol): symbol for symbol in batch}
+                
+                # Process results as they complete
+                for future in concurrent.futures.as_completed(future_to_symbol):
+                    symbol = future_to_symbol[future]
+                    try:
+                        result = future.result()
+                        if result:
+                            if result["financials"]:
+                                success_count += 1
+                                batch_results.append(result)
+                            else:
+                                skipped_count += 1
+                                # Still add to results if we have an earnings date
+                                if result.get("next_earnings_date"):
+                                    batch_results.append(result)
+                        else:
+                            failed_count += 1
+                            batch_failures += 1
+                    except Exception as e:
+                        print(f"Exception processing {symbol}: {e}")
+                        failed_count += 1
+                        batch_failures += 1
+            
+            # Save batch results to database in a single batch operation
+            if batch_results:
+                self.database_service.save_quarterly_financials_batch(batch_results)
+                results_by_batch.append(batch_results)
+            
+            # Calculate batch stats
+            batch_time = time.time() - batch_start_time
+            batch_success_rate = (len(batch) - batch_failures) / len(batch) * 100
+            
+            print(f"Batch {batch_idx+1}/{total_batches} completed in {batch_time:.2f}s with {batch_success_rate:.1f}% success rate")
+            print(f"Progress: {success_count} successful, {skipped_count} skipped, {failed_count} failed")
+            
+            # Adaptive batch delay based on success rate
+            if batch_success_rate < 70:
+                # If success rate is low, add a cooldown period
+                cooldown = min(30, 5 * (1 + (70 - batch_success_rate) / 10))
+                print(f"Low success rate detected. Cooling down for {cooldown:.1f}s before next batch")
+                time.sleep(cooldown)
+        
+        total_processed = success_count + skipped_count
+        print(f"Financial data collection completed: {success_count} stocks with financials, "
+              f"{skipped_count} stocks with only earnings date, {failed_count} failed stocks.")
+        print(f"Success rate: {(total_processed / len(nse_stocks)) * 100:.1f}%")
+        
+        # Return overall statistics
+        return {
+            "total_stocks": len(nse_stocks),
+            "success_count": success_count,
+            "skipped_count": skipped_count,
+            "failed_count": failed_count,
+            "completion_time": (datetime.now(ist) - now).total_seconds()
+        }
+
     
