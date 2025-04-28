@@ -560,3 +560,27 @@ weekly_supertrend_signal_changed_to_buy BOOLEAN DEFAULT FALSE,
 CREATE INDEX idx_scanner_results_stock_date ON scanner_results (stock_name, scan_date);
 CREATE INDEX idx_scanner_results_date ON scanner_results (scan_date);
 
+CREATE TABLE IF NOT EXISTS quarterly_financials (
+    id SERIAL PRIMARY KEY,
+    symbol VARCHAR(20) NOT NULL,
+    quarter_ending DATE NOT NULL,
+    revenue NUMERIC(16, 2),
+    net_income NUMERIC(16, 2),
+    operating_income NUMERIC(16, 2),
+    ebitda NUMERIC(16, 2),
+    type VARCHAR(10) NOT NULL CHECK (type IN ('current', 'previous')),
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE (symbol, quarter_ending)
+);
+
+CREATE INDEX idx_quarterly_financials_symbol ON quarterly_financials(symbol);
+CREATE INDEX idx_quarterly_financials_date ON quarterly_financials(quarter_ending);
+
+CREATE TABLE IF NOT EXISTS stock_earnings (
+    symbol VARCHAR(20) PRIMARY KEY,
+    next_earnings_date TIMESTAMP
+);
+
+CREATE INDEX IF NOT EXISTS idx_stock_earnings_date ON stock_earnings(next_earnings_date);
+
+
