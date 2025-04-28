@@ -22,5 +22,5 @@ class Config:
     ]
 
     NIFTY_EXPIRIES = [
-        "2025-04-24"
+        "2025-04-30"
     ]
