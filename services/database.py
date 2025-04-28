@@ -1315,5 +1315,194 @@ class DatabaseService:
     
 
 
+    def save_quarterly_financials(self, symbol, financials, next_earnings_date=None):
+        """Save quarterly financial data to the database."""
+        with self._get_cursor() as cur:
+            # If we have quarterly financials, save them
+            if financials:
+                data = [
+                    (
+                        symbol,
+                        f["quarter_ending"],
+                        f["revenue"],  # Ensure revenue is included
+                        f["net_income"],
+                        f["operating_income"],
+                        f["ebitda"],
+                        f["type"]
+                    )
+                    for f in financials
+                ]
+                execute_batch(cur, """
+                    INSERT INTO quarterly_financials (
+                        symbol, quarter_ending, revenue, net_income, operating_income, ebitda, type
+                    ) VALUES (%s, %s, %s, %s, %s, %s, %s)
+                    ON CONFLICT (symbol, quarter_ending) DO UPDATE SET
+                        revenue = EXCLUDED.revenue,  -- Ensure revenue is updated
+                        net_income = EXCLUDED.net_income,
+                        operating_income = EXCLUDED.operating_income,
+                        ebitda = EXCLUDED.ebitda,
+                        type = EXCLUDED.type
+                """, data)
+            
+            # Save next earnings date to stock_earnings table if provided
+            if next_earnings_date:
+                cur.execute("""
+                    INSERT INTO stock_earnings (symbol, next_earnings_date)
+                    VALUES (%s, %s)
+                    ON CONFLICT (symbol) DO UPDATE SET
+                        next_earnings_date = EXCLUDED.next_earnings_date
+                """, (symbol, next_earnings_date))
+
+    def save_quarterly_financials_batch(self, batch_results):
+        """Save a batch of quarterly financial data more efficiently."""
+        with self._get_cursor() as cur:
+            # Process financial data
+            financials_data = []
+            earnings_data = []
+            
+            for result in batch_results:
+                symbol = result["symbol"]
+                financials = result.get("financials", [])
+                next_earnings_date = result.get("next_earnings_date")
+                
+                # Prepare earnings data if available and handle different types
+                if next_earnings_date:
+                    try:
+                        # Ensure earnings_date is properly converted to datetime
+                        if isinstance(next_earnings_date, str):
+                            next_earnings_date = pd.to_datetime(next_earnings_date)
+                        elif hasattr(next_earnings_date, 'to_pydatetime'):
+                            next_earnings_date = next_earnings_date.to_pydatetime()
+
+                        # Add to earnings data
+                        earnings_data.append((symbol, next_earnings_date))
+                    except Exception as e:
+                        print(f"Error converting earnings date for {symbol}: {e}")
+                        # Simply skip this earnings date
+                
+                # Prepare financials data
+                for fin in financials:
+                    try:
+                        quarter_ending = fin["quarter_ending"]
+                        # Ensure quarter_ending is a datetime
+                        if hasattr(quarter_ending, 'to_pydatetime'):
+                            quarter_ending = quarter_ending.to_pydatetime()
+
+                        financials_data.append((
+                            symbol,
+                            quarter_ending,
+                            self._convert_numpy_types(fin["revenue"]),
+                            self._convert_numpy_types(fin["net_income"]),
+                            self._convert_numpy_types(fin["operating_income"]),
+                            self._convert_numpy_types(fin["ebitda"]),
+                            fin["type"]
+                        ))
+                    except Exception as e:
+                        print(f"Error processing financial data for {symbol}: {e}")
+                        # Skip this financial record
+            
+            # Batch insert quarterly financials
+            if financials_data:
+                execute_batch(cur, """
+                    INSERT INTO quarterly_financials (
+                        symbol, quarter_ending, revenue, net_income, operating_income, ebitda, type
+                    ) VALUES (%s, %s, %s, %s, %s, %s, %s)
+                    ON CONFLICT (symbol, quarter_ending) DO UPDATE SET
+                        revenue = EXCLUDED.revenue,
+                        net_income = EXCLUDED.net_income,
+                        operating_income = EXCLUDED.operating_income,
+                        ebitda = EXCLUDED.ebitda,
+                        type = EXCLUDED.type
+                """, financials_data, page_size=100)
+            
+            # Batch insert earnings dates
+            if earnings_data:
+                execute_batch(cur, """
+                    INSERT INTO stock_earnings (symbol, next_earnings_date)
+                    VALUES (%s, %s)
+                    ON CONFLICT (symbol) DO UPDATE SET
+                        next_earnings_date = EXCLUDED.next_earnings_date
+                """, earnings_data, page_size=100)
+
+    def get_quarterly_financials(self, symbol, limit=5):
+        """Retrieve the last `limit` quarters of financial data for a stock."""
+        with self._get_cursor() as cur:
+            cur.execute("""
+                SELECT quarter_ending, revenue, net_income, operating_income, ebitda, type
+                FROM quarterly_financials
+                WHERE symbol = %s
+                ORDER BY quarter_ending DESC
+                LIMIT %s
+            """, (symbol, limit))
+            return cur.fetchall()
+
+    def get_upcoming_financial_results(self):
+        """Fetch upcoming financial results."""
+        with self._get_cursor() as cur:
+            # Query both the quarterly_financials table and stock_earnings table
+            # to get upcoming results and scheduled earnings dates
+            cur.execute("""
+                SELECT se.symbol, se.next_earnings_date
+                FROM stock_earnings se
+                WHERE se.next_earnings_date > NOW()
+                  AND se.next_earnings_date <= NOW() + INTERVAL '20 days'
+                ORDER BY se.next_earnings_date ASC
+            """)
+            earnings_results = [
+                {
+                    "symbol": row[0],
+                    "earnings_date": row[1].strftime('%Y-%m-%d') if row[1] else None
+                }
+                for row in cur.fetchall()
+            ]
+
+            # Also fetch upcoming quarterly financials
+            cur.execute("""
+                SELECT symbol, quarter_ending
+                FROM quarterly_financials
+                WHERE quarter_ending > NOW()
+                ORDER BY quarter_ending ASC
+            """)
+            quarterly_results = [
+                {"symbol": row[0], "quarter_ending": row[1].strftime('%Y-%m-%d')}
+                for row in cur.fetchall()
+            ]
+
+            # Combine and deduplicate results
+            combined_results = []
+            symbols_added = set()
+
+            # Add earnings results first (priority because they're more imminent)
+            for result in earnings_results:
+                combined_results.append(result)
+                symbols_added.add(result["symbol"])
+
+            # Add quarterly results that aren't already included
+            for result in quarterly_results:
+                if result["symbol"] not in symbols_added:
+                    combined_results.append(result)
+                    symbols_added.add(result["symbol"])
+
+            return combined_results
+
+    def get_declared_financial_results(self):
+        """Fetch declared financial results."""
+        with self._get_cursor() as cur:
+            cur.execute("""
+                SELECT symbol, quarter_ending, revenue, net_income, operating_income, ebitda
+                FROM quarterly_financials
+                ORDER BY quarter_ending DESC
+            """)  # Removed any date-based filtering
+            results = []
+            for row in cur.fetchall():
+                results.append({
+                    "symbol": row[0],
+                    "quarter_ending": row[1].strftime('%Y-%m-%d'),
+                    "revenue": float(row[2]) if row[2] is not None else None,  # Replace NaN with None
+                    "net_income": float(row[3]) if row[3] is not None else None,  # Replace NaN with None
+                    "operating_income": float(row[4]) if row[4] is not None else None,  # Add operating_income
+                    "ebitda": float(row[5]) if row[5] is not None else None  # Add ebitda
+                })
+            return results
 
 
