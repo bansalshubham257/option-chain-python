@@ -576,13 +576,20 @@ class ScannerService:
             print(f"Error in scan_options_oi_changes: {e}")
             return []
 
-    def run_hourly_scanner(self):
-        """Run the scanner every hour to calculate breakouts/breakdowns and behavior scans."""
+    def run_hourly_scanner(self, stocks=None):
+        """
+        Run the scanner to calculate breakouts/breakdowns and behavior scans.
+        
+        Args:
+            stocks: Optional list of stock symbols to scan. If not provided, will use F&O stocks.
+        """
         try:
-            # Get all F&O stocks
-            fno_stocks = self.option_chain_service.get_fno_stocks_with_symbols()
-            print(f"Processing {len(fno_stocks)} stocks for breakouts/breakdowns")
-    
+            # Get stocks to scan - use provided stocks if available, otherwise use F&O stocks
+            if not stocks:
+                stocks = self.option_chain_service.get_fno_stocks_with_symbols()
+                
+            print(f"Processing {len(stocks)} stocks for breakouts/breakdowns")
+            
             # Define timeframes for breakouts/breakdowns
             timeframes = {
                 "previous_day": {"days": 2},  # Include today + previous day
@@ -591,27 +598,27 @@ class ScannerService:
                 "fifty_two_week": {"days": 365},
                 "all_time": {"days": None},  # Use all available data
             }
-    
+            
             # Prepare results
             results = []
             total_processed = 0
-    
-            # Process all F&O stocks in a single loop
-            for stock in fno_stocks:
+            
+            # Process all stocks in a single loop
+            for stock in stocks:
                 try:
                     print(f"Fetching data for stock: {stock}")
                     # Fetch historical data
                     ticker = yf.Ticker(stock)
                     data = ticker.history(period="max", interval="1d")
                     weekly_data = ticker.history(period="max", interval="1wk")
-    
+                    
                     if data.empty:
                         print(f"No data available for {stock}")
                         continue
                     if weekly_data.empty:
                         print(f"No weekly_data available for {stock}")
                         continue    
-    
+                    
                     # Ensure numeric columns are properly converted
                     data["High"] = pd.to_numeric(data["High"], errors="coerce")
                     data["Low"] = pd.to_numeric(data["Low"], errors="coerce")
@@ -794,7 +801,7 @@ class ScannerService:
             if options_oi_results:
                 results.extend(options_oi_results)
 
-            print(f"Processed {total_processed}/{len(fno_stocks)} stocks, found {len(results)} breakouts/breakdowns")
+            print(f"Processed {total_processed}/{len(stocks)} stocks, found {len(results)} breakouts/breakdowns")
     
             # Save results to the database
             if results:
