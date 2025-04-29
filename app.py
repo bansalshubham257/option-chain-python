@@ -865,7 +865,7 @@ def run_background_workers():
     market_data_thread.start()
     option_chain_thread.start()
     oi_buildup_thread.start()
-    combined_data_thread.start()
+    #combined_data_thread.start()
     stock_data_thread.start()
     db_clearing_thread.start()  # Start the new clearing worker thread
     
