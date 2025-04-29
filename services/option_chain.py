@@ -458,23 +458,12 @@ class OptionChainService:
 
     def run_market_processing(self):
         """Background worker for market hours processing"""
-        last_clear_date = None
         IST = pytz.timezone("Asia/Kolkata")
 
         while True:
             now = datetime.now(IST)
 
-            # Clear old data at market open
-            if (now.weekday() < 5 and Config.MARKET_OPEN >= now.time() <= Config.MARKET_CLOSE and
-                    (last_clear_date is None or last_clear_date != now.date())):
-                try:
-                    self.database.clear_old_data()
-                    last_clear_date = now.date()
-                    print("Cleared all previous day's data")
-                except Exception as e:
-                    print(f"Failed to clear old data: {e}")
-
-            # Process during market hours
+            # Process during market hours - removed the clearing logic
             if now.weekday() < 5 and Config.MARKET_OPEN <= now.time() <= Config.MARKET_CLOSE:
                 try:
                     self._fetch_and_store_orders()
@@ -484,7 +473,6 @@ class OptionChainService:
                     time.sleep(60)
             else:
                 time.sleep(300)  # 5 min sleep outside market hours
-
 
     def detect_buildups(self, lookback_minutes=30):
         """Detect long/short buildups in F&O stocks"""
@@ -1128,4 +1116,3 @@ class OptionChainService:
                 expiries.append(date.strftime('%Y-%m-%d'))
 
         return expiries
-
