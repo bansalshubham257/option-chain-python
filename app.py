@@ -340,23 +340,11 @@ def run_combined_data_worker():
         try:
             ist = pytz.timezone('Asia/Kolkata')
             now = datetime.now(ist)
-            current_time = now.time()
             
             # Only run on trading days during market hours
             is_weekday = now.weekday() in Config.TRADING_DAYS
-            is_market_hours = Config.MARKET_OPEN <= current_time <= Config.MARKET_CLOSE
             
-            # Check if it's scheduled run time
-            is_scheduled_time = False
-            for scheduled_time in Config.COMBINED_DATA_COLLECTION_TIMES:
-                # Create a time window of 5 minutes centered on the scheduled time
-                # This allows the job to trigger if we're within 2.5 minutes before or after the scheduled time
-                time_diff_minutes = (current_time.hour - scheduled_time.hour) * 60 + (current_time.minute - scheduled_time.minute)
-                if abs(time_diff_minutes) <= 5:
-                    is_scheduled_time = True
-                    break
-            
-            if is_weekday and is_market_hours and is_scheduled_time:
+            if is_weekday:
                 # Set the flag to indicate that combined worker is running
                 combined_worker_running = True
                 combined_worker_last_run = time.time()
