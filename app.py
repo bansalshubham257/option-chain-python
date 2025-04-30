@@ -823,7 +823,7 @@ def run_background_workers():
     oi_buildup_thread.start()
     fiftytwo_week_thread.start()
     stock_data_thread.start()
-    scanner_thread.start()
+    #scanner_thread.start()
     #financials_thread.start()
     print("Background workers started successfully")
 
