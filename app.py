@@ -298,6 +298,77 @@ def get_oi_extremes():
         logging.error(f"Error fetching OI extremes: {str(e)}")
         return jsonify({"status": "error", "message": str(e)}), 500
 
+@app.route('/api/price-patterns', methods=['GET'])
+def get_price_patterns():
+    try:
+        with database_service._get_cursor() as cur:
+            sql = """
+                SELECT sr.stock_name,
+                    ARRAY_AGG(DISTINCT CASE WHEN pattern_double_top THEN 'Double Top' END) ||
+                    ARRAY_AGG(DISTINCT CASE WHEN pattern_double_bottom THEN 'Double Bottom' END) ||
+                    ARRAY_AGG(DISTINCT CASE WHEN pattern_head_and_shoulders THEN 'Head and Shoulders' END) ||
+                    ARRAY_AGG(DISTINCT CASE WHEN pattern_inverse_head_and_shoulders THEN 'Inverse Head and Shoulders' END) ||
+                    ARRAY_AGG(DISTINCT CASE WHEN pattern_rising_wedge THEN 'Rising Wedge' END) ||
+                    ARRAY_AGG(DISTINCT CASE WHEN pattern_falling_wedge THEN 'Falling Wedge' END) ||
+                    ARRAY_AGG(DISTINCT CASE WHEN pattern_triangle_bullish THEN 'Bullish Triangle' END) ||
+                    ARRAY_AGG(DISTINCT CASE WHEN pattern_triangle_bearish THEN 'Bearish Triangle' END) ||
+                    ARRAY_AGG(DISTINCT CASE WHEN pattern_pennant_bullish THEN 'Bullish Pennant' END) ||
+                    ARRAY_AGG(DISTINCT CASE WHEN pattern_pennant_bearish THEN 'Bearish Pennant' END) ||
+                    ARRAY_AGG(DISTINCT CASE WHEN pattern_rectangle_bullish THEN 'Bullish Rectangle' END) ||
+                    ARRAY_AGG(DISTINCT CASE WHEN pattern_rectangle_bearish THEN 'Bearish Rectangle' END) ||
+                    ARRAY_AGG(DISTINCT CASE WHEN pattern_flag_bullish THEN 'Bullish Flag' END) ||
+                    ARRAY_AGG(DISTINCT CASE WHEN pattern_flag_bearish THEN 'Bearish Flag' END) ||
+                    ARRAY_AGG(DISTINCT CASE WHEN pattern_channel_rising THEN 'Rising Channel' END) ||
+                    ARRAY_AGG(DISTINCT CASE WHEN pattern_channel_falling THEN 'Falling Channel' END) ||
+                    ARRAY_AGG(DISTINCT CASE WHEN pattern_channel_horizontal THEN 'Horizontal Channel' END) ||
+                    ARRAY_AGG(DISTINCT CASE WHEN pattern_triple_top THEN 'Triple Top' END) ||
+                    ARRAY_AGG(DISTINCT CASE WHEN pattern_triple_bottom THEN 'Triple Bottom' END) ||
+                    ARRAY_AGG(DISTINCT CASE WHEN pattern_cup_and_handle THEN 'Cup and Handle' END) ||
+                    ARRAY_AGG(DISTINCT CASE WHEN pattern_rounding_bottom THEN 'Rounding Bottom' END) ||
+                    ARRAY_AGG(DISTINCT CASE WHEN pattern_diamond_bullish THEN 'Bullish Diamond' END) ||
+                    ARRAY_AGG(DISTINCT CASE WHEN pattern_diamond_bearish THEN 'Bearish Diamond' END) as patterns,
+                    sr.scan_date
+                FROM scanner_results sr 
+                WHERE sr.scan_date = CURRENT_DATE
+                    AND (
+                        pattern_double_top OR pattern_double_bottom OR pattern_head_and_shoulders OR
+                        pattern_inverse_head_and_shoulders OR pattern_rising_wedge OR pattern_falling_wedge OR
+                        pattern_triangle_bullish OR pattern_triangle_bearish OR pattern_pennant_bullish OR
+                        pattern_pennant_bearish OR pattern_rectangle_bullish OR pattern_rectangle_bearish OR
+                        pattern_flag_bullish OR pattern_flag_bearish OR pattern_channel_rising OR
+                        pattern_channel_falling OR pattern_channel_horizontal OR pattern_triple_top OR
+                        pattern_triple_bottom OR pattern_cup_and_handle OR pattern_rounding_bottom OR
+                        pattern_diamond_bullish OR pattern_diamond_bearish
+                    )
+                GROUP BY sr.stock_name, sr.scan_date
+                ORDER BY sr.stock_name;
+            """
+            cur.execute(sql)
+            results = cur.fetchall()
+
+            patterns_data = []
+            for row in results:
+                stock_name = row[0]
+                # Filter out None values and flatten the array
+                patterns = [p for p in row[1] if p is not None]
+                scan_date = row[2].strftime('%Y-%m-%d')
+
+                patterns_data.append({
+                    'symbol': stock_name,
+                    'patterns': patterns,
+                    'scan_date': scan_date
+                })
+
+            return jsonify({
+                'status': 'success',
+                'data': patterns_data
+            })
+
+    except Exception as e:
+        print(f"Error fetching price patterns: {str(e)}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+
 def run_option_chain_worker():
     """Background worker for option chain processing"""
     option_chain_service.run_market_processing()
