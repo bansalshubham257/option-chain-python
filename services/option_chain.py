@@ -10,7 +10,7 @@ from datetime import datetime, timedelta, date
 from io import BytesIO
 from decimal import Decimal
 from typing import Dict, Optional
-from from services.database import DatabaseServicedatabase import DatabaseService
+from services.database import DatabaseService
 from config import Config
 from psycopg2.extras import execute_batch
 
