@@ -557,6 +557,36 @@ weekly_supertrend_signal_changed_to_buy BOOLEAN DEFAULT FALSE,
     UNIQUE (stock_name, scan_date)
 );
 
+-- Add the double top and double bottom pattern columns to the scanner_results table
+ALTER TABLE scanner_results
+ADD COLUMN pattern_double_top BOOLEAN DEFAULT FALSE,
+ADD COLUMN pattern_double_bottom BOOLEAN DEFAULT FALSE,
+ADD COLUMN pattern_head_and_shoulders BOOLEAN DEFAULT FALSE,
+ADD COLUMN pattern_inverse_head_and_shoulders BOOLEAN DEFAULT FALSE,
+ADD COLUMN pattern_bullish_engulfing BOOLEAN DEFAULT FALSE,
+ADD COLUMN pattern_bearish_engulfing BOOLEAN DEFAULT FALSE,
+ADD COLUMN pattern_hammer BOOLEAN DEFAULT FALSE,
+ADD COLUMN pattern_shooting_star BOOLEAN DEFAULT FALSE,
+ADD COLUMN pattern_rising_wedge BOOLEAN DEFAULT FALSE,
+ADD COLUMN pattern_falling_wedge BOOLEAN DEFAULT FALSE,
+ADD COLUMN pattern_triangle_bullish BOOLEAN DEFAULT FALSE,
+ADD COLUMN pattern_triangle_bearish BOOLEAN DEFAULT FALSE,
+ADD COLUMN pattern_pennant_bullish BOOLEAN DEFAULT FALSE,
+ADD COLUMN pattern_pennant_bearish BOOLEAN DEFAULT FALSE,
+ADD COLUMN pattern_rectangle_bullish BOOLEAN DEFAULT FALSE,
+ADD COLUMN pattern_rectangle_bearish BOOLEAN DEFAULT FALSE,
+ADD COLUMN pattern_flag_bullish BOOLEAN DEFAULT FALSE,
+ADD COLUMN pattern_flag_bearish BOOLEAN DEFAULT FALSE,
+ADD COLUMN pattern_channel_rising BOOLEAN DEFAULT FALSE,
+ADD COLUMN pattern_channel_falling BOOLEAN DEFAULT FALSE,
+ADD COLUMN pattern_channel_horizontal BOOLEAN DEFAULT FALSE,
+ADD COLUMN pattern_triple_top BOOLEAN DEFAULT FALSE,
+ADD COLUMN pattern_triple_bottom BOOLEAN DEFAULT FALSE,
+ADD COLUMN pattern_cup_and_handle BOOLEAN DEFAULT FALSE,
+ADD COLUMN pattern_rounding_bottom BOOLEAN DEFAULT FALSE,
+ADD COLUMN pattern_diamond_bullish BOOLEAN DEFAULT FALSE,
+ADD COLUMN pattern_diamond_bearish BOOLEAN DEFAULT FALSE;
+
 CREATE INDEX idx_scanner_results_stock_date ON scanner_results (stock_name, scan_date);
 CREATE INDEX idx_scanner_results_date ON scanner_results (scan_date);
 
