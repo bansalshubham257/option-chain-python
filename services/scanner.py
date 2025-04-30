@@ -576,7 +576,7 @@ class ScannerService:
             print(f"Error in scan_options_oi_changes: {e}")
             return []
 
-    def run_hourly_scanner(self, stocks=None):
+    def run_hourly_scanner(self):
         """
         Run the scanner to calculate breakouts/breakdowns and behavior scans.
         
@@ -585,10 +585,8 @@ class ScannerService:
         """
         try:
             # Get stocks to scan - use provided stocks if available, otherwise use F&O stocks
-            if not stocks:
-                stocks = self.option_chain_service.get_fno_stocks_with_symbols()
-                
-            print(f"Processing {len(stocks)} stocks for breakouts/breakdowns")
+            fno_stocks = self.option_chain_service.get_fno_stocks_with_symbols()
+            print(f"Processing {len(fno_stocks)} stocks for breakouts/breakdowns")
             
             # Define timeframes for breakouts/breakdowns
             timeframes = {
@@ -604,7 +602,7 @@ class ScannerService:
             total_processed = 0
             
             # Process all stocks in a single loop
-            for stock in stocks:
+            for stock in fno_stocks:
                 try:
                     print(f"Fetching data for stock: {stock}")
                     # Fetch historical data
@@ -801,7 +799,7 @@ class ScannerService:
             if options_oi_results:
                 results.extend(options_oi_results)
 
-            print(f"Processed {total_processed}/{len(stocks)} stocks, found {len(results)} breakouts/breakdowns")
+            print(f"Processed {total_processed}/{len(fno_stocks)} stocks, found {len(results)} breakouts/breakdowns")
     
             # Save results to the database
             if results:
