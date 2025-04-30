@@ -6,7 +6,7 @@ from flask import Flask, request, jsonify
 from flask_cors import CORS
 import os
 import pytz
-from datetime import datetime, timedelta, time
+from datetime import datetime
 import threading
 import time
 from services.option_chain import OptionChainService
@@ -18,10 +18,6 @@ from config import Config
 
 import yfinance as yf
 
-# Shared variable to coordinate between workers
-combined_worker_running = False
-combined_worker_last_run = 0
-COMBINED_RUN_COOLDOWN = 300  # 5 minutes in seconds
 
 app = Flask(__name__)
 CORS(app, resources={r"/*": {"origins": [
@@ -301,7 +297,7 @@ def get_oi_extremes():
     except Exception as e:
         logging.error(f"Error fetching OI extremes: {str(e)}")
         return jsonify({"status": "error", "message": str(e)}), 500
-        
+
 def run_option_chain_worker():
     """Background worker for option chain processing"""
     option_chain_service.run_market_processing()
@@ -332,92 +328,32 @@ def get_52_week_extremes():
         "timestamp": datetime.now().isoformat()
     })
 
-def run_combined_data_worker():
-    """Background worker for combined 52-week and financials data collection and scanner"""
-    global combined_worker_running, combined_worker_last_run
-    
+def run_52_week_worker():
+    """Background worker to update 52-week highs/lows"""
     while True:
         try:
             ist = pytz.timezone('Asia/Kolkata')
             now = datetime.now(ist)
-            
-            # Only run on trading days during market hours
-            is_weekday = now.weekday() in Config.TRADING_DAYS
-            
-            if is_weekday:
-                # Set the flag to indicate that combined worker is running
-                combined_worker_running = True
-                combined_worker_last_run = time.time()
-                
-                print(f"{now.strftime('%Y-%m-%d %H:%M:%S')}: Starting combined data collection and scanner...")
-                
-                # Get list of NSE stocks
-                nse_stocks = stock_analysis_service.fetch_all_nse_stocks()
-                if not nse_stocks:
-                    print("No stocks found for processing")
-                    time.sleep(300)  # Sleep for 5 minutes before retry
-                    continue
-                
-                # Process 52-week and financial data in a combined approach
-                start_time = time.time()
-                results = stock_analysis_service.process_stock_data_combined(nse_stocks, threshold=0.05)
-                
-                # Log completion statistics for data collection
-                elapsed_time = (time.time() - start_time) / 60  # in minutes
-                print(f"Combined data collection completed in {elapsed_time:.2f} minutes")
-                print(f"52-Week Extremes: Found {len(results['week52_data'])} stocks")
-                print(f"Financial Data: {results['financials_stats']['success_count']} successes, "
-                      f"{results['financials_stats']['skipped_count']} skipped, "
-                      f"{results['financials_stats']['failed_count']} failed")
-                
-                # Now run the scanner on all NSE stocks
-                print(f"{now.strftime('%Y-%m-%d %H:%M:%S')}: Running scanner on all NSE stocks...")
-                scanner_start_time = time.time()
-                # Run the scanner with the full list of NSE stocks instead of just FNO stocks
-                scanner_service.run_hourly_scanner(nse_stocks)
-                scanner_elapsed_time = (time.time() - scanner_start_time) / 60  # in minutes
-                print(f"Scanner completed in {scanner_elapsed_time:.2f} minutes")
-                
-                # Reset the flag after completion
-                combined_worker_running = False
-                
-                # Sleep until next scheduled time
-                time.sleep(1800)  # Sleep for 30 minutes
+            # Run once per hour during market hours
+            if now.weekday() < 5 and Config.MARKET_OPEN <= now.time() <= Config.MARKET_CLOSE:
+                print(f"{now}: Running 52-week high/low update...")
+                # Get fresh data
+                data = stock_analysis_service.get_52_week_extremes(threshold=0.05)
+                print("Saving 52-week data", data)
+                # Save to database
+                if data and not isinstance(data, dict) and 'error' not in data:
+                    database_service.save_52_week_data(data)
+                    print(f"Updated 52-week data with {len(data)} records")
+                else:
+                    print("No valid data received for 52-week update")
+                # Sleep for 1 hour
+                time.sleep(3600)
             else:
-                # Check again in 1 minute
-                time.sleep(60)
-                
+                # Sleep for 15 minutes when market is closed
+                time.sleep(900)
         except Exception as e:
-            print(f"Error in combined data worker: {e}")
-            # Reset the flag in case of error
-            combined_worker_running = False
+            print(f"Error in 52-week worker: {e}")
             time.sleep(300)  # Retry after 5 minutes on error
-
-def run_database_clearing_worker():
-    """
-    Database clearing worker that runs once when called.
-    Designed to be executed by a cron job, so no sleep logic is needed.
-    """
-    print("Starting database clearing operation...")
-    ist = pytz.timezone('Asia/Kolkata')
-    now = datetime.now(ist)
-    
-    try:
-        # Only run Monday to Friday (0-4) between configured times
-        is_clearing_window = Config.DB_CLEARING_START <= now.time() < Config.DB_CLEARING_END
-
-        if is_clearing_window:
-            print(f"{now.strftime('%Y-%m-%d %H:%M:%S')}: Running database clearing operation...")
-            database_service.clear_old_data()
-            print(f"{now.strftime('%Y-%m-%d %H:%M:%S')}: Successfully cleared old data")
-        else:
-            print("Not running clearing operation: Not a trading day (weekend)")
-            if not is_weekday:
-                print("Not running clearing operation: Not a trading day (weekend)")
-            else:
-                print(f"Not running clearing operation: Outside clearing window (current time: {now.time()})")
-    except Exception as e:
-        print(f"Error clearing old data: {e}")
 
 @app.route('/api/scanner/save', methods=['POST'])
 def save_scanner():
@@ -502,8 +438,6 @@ def get_most_active_strikes():
 
 def run_stock_data_updater():
     """Hyper-optimized stock data updater to complete all intervals in 4-5 minutes"""
-    global combined_worker_running, combined_worker_last_run
-    
     last_cache_clear_date = None
     intervals = ['1d', '1h', '15m', '5m']
 
@@ -517,13 +451,6 @@ def run_stock_data_updater():
             ist = pytz.timezone('Asia/Kolkata')
             now = datetime.now(ist)
             current_date = now.date()
-            current_time = time.time()
-
-            # Check if combined worker is running or ran recently
-            if combined_worker_running or (current_time - combined_worker_last_run < COMBINED_RUN_COOLDOWN):
-                print(f"{now}: Skipping stock data update as combined worker is active or ran recently")
-                time.sleep(60)  # Check again in 1 minute
-                continue
 
             # Clear cache on new day
             if last_cache_clear_date != current_date:
@@ -730,13 +657,13 @@ def get_market_breadth():
                     'sector': row[23],
                     'isFnO': row[0].replace('.NS', '') in option_chain_service.fno_stocks
                 }
-                
+
                 # Explicitly check for NaN values and replace with None
                 import math
                 for key, value in list(data_dict.items()):
                     if isinstance(value, float) and (math.isnan(value) or math.isinf(value)):
                         data_dict[key] = None
-                
+
                 results.append(data_dict)
 
             return jsonify({
@@ -762,6 +689,66 @@ def get_scanner_results():
         logging.error(f"Error fetching scanner results: {str(e)}")
         return jsonify({"error": str(e)}), 500
 
+@app.route('/api/financial-results', methods=['GET'])
+def get_financial_results():
+    """API endpoint to fetch upcoming and declared financial results."""
+    try:
+        # Fetch all upcoming and declared results from the database
+        upcoming_results = database_service.get_upcoming_financial_results()
+        declared_results = database_service.get_declared_financial_results()
+        # Replace NaN values with None in the results
+        import math
+        def sanitize_data(data):
+            for item in data:
+                for key, value in item.items():
+                    if isinstance(value, float) and (math.isnan(value) or math.isinf(value)):
+                        item[key] = None
+            return data
+        sanitized_upcoming = sanitize_data(upcoming_results)
+        sanitized_declared = sanitize_data(declared_results)
+        # Ensure no filtering is applied here; return all results
+        return jsonify({
+            "status": "success",
+            "upcoming": sanitized_upcoming,
+            "declared": sanitized_declared
+        })
+    except Exception as e:
+        logging.error(f"Error fetching financial results: {str(e)}")
+        return jsonify({"status": "error", "message": str(e)}), 500
+        
+def run_financials_worker():
+    """Background worker to fetch and store quarterly financial data with optimized performance."""
+    while True:
+        try:
+            print("Starting financial data collection worker")
+            start_time = time.time()
+            
+            # Execute the optimized batch collection process
+            stats = stock_analysis_service.fetch_and_store_financials()
+            
+            elapsed_time = time.time() - start_time
+            print(f"Financial data collection completed in {elapsed_time/60:.1f} minutes")
+            print(f"Successfully processed {stats['success_count']} stocks with financial data")
+            print(f"Processed {stats['skipped_count']} stocks with only earnings dates")
+            print(f"Failed to process {stats['failed_count']} stocks")
+            
+            # Calculate next run time - wait longer if we had good coverage
+            coverage_ratio = (stats['success_count'] + stats['skipped_count']) / stats['total_stocks']
+            if coverage_ratio > 0.8:
+                # If we got good coverage, wait longer
+                wait_time = 4 * 3600  # 4 hours
+            else:
+                # If coverage was poor, try again sooner
+                wait_time = 2 * 3600  # 2 hours
+            
+            print(f"Sleeping for {wait_time/3600:.1f} hours before next run")
+            time.sleep(wait_time)
+            
+        except Exception as e:
+            print(f"Error in financials worker: {e}")
+            import traceback
+            traceback.print_exc()
+            time.sleep(1800)  # Retry after 30 minutes on error
 @app.route('/api/stock-data', methods=['GET'])
 def get_stock_data():
     """API endpoint to fetch stock data for heatmap visualization"""
@@ -809,54 +796,35 @@ def get_stock_data():
     except Exception as e:
         logging.error(f"Error fetching stock data: {str(e)}")
         return jsonify({"error": str(e)}), 500
-
-@app.route('/api/financial-results', methods=['GET'])
-def get_financial_results():
-    """API endpoint to fetch upcoming and declared financial results."""
-    try:
-        # Fetch all upcoming and declared results from the database
-        upcoming_results = database_service.get_upcoming_financial_results()
-        declared_results = database_service.get_declared_financial_results()
-
-        # Replace NaN values with None in the results
-        import math
-        def sanitize_data(data):
-            for item in data:
-                for key, value in item.items():
-                    if isinstance(value, float) and (math.isnan(value) or math.isinf(value)):
-                        item[key] = None
-            return data
-
-        sanitized_upcoming = sanitize_data(upcoming_results)
-        sanitized_declared = sanitize_data(declared_results)
-
-        # Ensure no filtering is applied here; return all results
-        return jsonify({
-            "status": "success",
-            "upcoming": sanitized_upcoming,
-            "declared": sanitized_declared
-        })
-    except Exception as e:
-        logging.error(f"Error fetching financial results: {str(e)}")
-        return jsonify({"status": "error", "message": str(e)}), 500
+        
+def run_scanner_worker():
+    """Background worker to run the scanner every hour."""
+    while True:
+        try:
+            scanner_service.run_hourly_scanner()
+            time.sleep(5400)  # Run every hour
+        except Exception as e:
+            print(f"Error in scanner worker: {e}")
+            time.sleep(300)  # Retry after 5 minutes on error
 
 def run_background_workers():
     """Run all background workers in separate threads"""
-    # Use threading for parallel execution
+
     market_data_thread = threading.Thread(target=run_market_data_worker, daemon=True)
     option_chain_thread = threading.Thread(target=run_option_chain_worker, daemon=True)
     oi_buildup_thread = threading.Thread(target=option_chain_service.run_analytics_worker, daemon=True)
-    combined_data_thread = threading.Thread(target=run_combined_data_worker, daemon=True)
+    fiftytwo_week_thread = threading.Thread(target=run_52_week_worker, daemon=True)
     stock_data_thread = threading.Thread(target=run_stock_data_updater, daemon=True)
-    db_clearing_thread = threading.Thread(target=run_database_clearing_worker, daemon=True)
+    scanner_thread = threading.Thread(target=run_scanner_worker, daemon=True)
+    financials_thread = threading.Thread(target=run_financials_worker, daemon=True)
     
     market_data_thread.start()
     option_chain_thread.start()
     oi_buildup_thread.start()
-    #combined_data_thread.start()
+    fiftytwo_week_thread.start()
     stock_data_thread.start()
-    db_clearing_thread.start()  # Start the new clearing worker thread
-    
+    scanner_thread.start()
+    #financials_thread.start()
     print("Background workers started successfully")
 
     # Keep main thread alive
@@ -896,4 +864,3 @@ if __name__ == "__main__":
         else:
             print("❌ Database connection failed")
         app.run(host="0.0.0.0", port=port)
-
