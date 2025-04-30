@@ -9,6 +9,7 @@ import yfinance as yf
 from datetime import datetime, timedelta
 import pytz
 from psycopg2.extras import execute_batch
+from scipy.stats import linregress
 
 # Add correct imports
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -298,56 +299,55 @@ class ScannerService:
             return []
 
     def get_scanner_results(self, stock_name=None, scan_date=None):
-        """Fetch scanner results from the database and enrich with stock price data."""
+        """Fetch scanner results with enriched price data in optimal time."""
         try:
-            query = "SELECT * FROM scanner_results WHERE 1=1"
-            params = []
-    
-            if stock_name:
-                query += " AND stock_name = %s"
-                params.append(stock_name)
-    
-            if scan_date:
-                query += " AND scan_date = %s"
-                params.append(scan_date)
-    
+            # Use a single database connection for all operations
             with self.database_service._get_cursor() as cur:
+                # 1. Fetch scanner results with optional filtering
+                query = """
+                    SELECT sr.*, 
+                           sdc.close AS last_price,
+                           sdc.price_change,
+                           sdc.percent_change
+                    FROM scanner_results sr
+                    LEFT JOIN LATERAL (
+                        SELECT close, price_change, percent_change
+                        FROM stock_data_cache
+                        WHERE symbol = sr.stock_name 
+                        AND interval = '1d'
+                        ORDER BY timestamp DESC
+                        LIMIT 1
+                    ) sdc ON true
+                    WHERE 1=1
+                """
+
+                params = []
+                if stock_name:
+                    query += " AND sr.stock_name = %s"
+                    params.append(stock_name)
+                if scan_date:
+                    query += " AND sr.scan_date = %s"
+                    params.append(scan_date)
+
+                # Execute the combined query
                 cur.execute(query, params)
                 columns = [desc[0] for desc in cur.description]
                 results = [dict(zip(columns, row)) for row in cur.fetchall()]
-    
-            # Fetch stock prices, price change, and percent change from stock_data_cache
-            enriched_results = []
-            with self.database_service._get_cursor() as cur:
+
+                # Clean up stock names and handle NULL values
+                enriched_results = []
                 for result in results:
-                    stock_name_cleaned = result['stock_name'].replace('.NS', '')  # Remove .NS
-                    cur.execute("""
-                        SELECT close AS last_price, price_change, percent_change
-                        FROM stock_data_cache
-                        WHERE symbol = %s AND interval = '1d'
-                        ORDER BY timestamp DESC
-                        LIMIT 1
-                    """, (result['stock_name'],))
-                    stock_data = cur.fetchone()
-    
-                    if stock_data:
-                        result['last_price'] = stock_data[0]
-                        result['price_change'] = stock_data[1]
-                        result['percent_change'] = stock_data[2]
-                    else:
-                        result['last_price'] = None
+                    result['stock_name'] = result['stock_name'].replace('.NS', '')
+                    if result['last_price'] is None:
                         result['price_change'] = None
                         result['percent_change'] = None
-    
-                    # Update stock name without .NS
-                    result['stock_name'] = stock_name_cleaned
                     enriched_results.append(result)
-    
-            return enriched_results
+
+                return enriched_results
+
         except Exception as e:
             logging.error(f"Error fetching scanner results: {str(e)}")
             raise
-
 
     def calculate_narrow_range_scans(self, stock, data, results):
         """Calculate Narrow Range (NR4, NR7) and breakout/breakdown scans."""
@@ -576,6 +576,666 @@ class ScannerService:
             print(f"Error in scan_options_oi_changes: {e}")
             return []
 
+    def is_double_top(self, data, window=20, similarity_threshold=0.01, min_peak_distance=3):
+        if len(data) < window:
+            return False
+
+        recent_data = data.tail(window)
+        highs = recent_data['High'].values
+        lows = recent_data['Low'].values
+
+        # Find all peaks
+        peaks = []
+        for i in range(1, len(highs)-1):
+            if highs[i] > highs[i-1] and highs[i] > highs[i+1]:
+                peaks.append((i, highs[i]))
+
+        if len(peaks) < 2:
+            return False
+
+        # Find two distinct peaks with a trough between them
+        valid_pairs = []
+        for i in range(len(peaks)):
+            for j in range(i+1, len(peaks)):
+                idx1, val1 = peaks[i]
+                idx2, val2 = peaks[j]
+                if abs(idx2 - idx1) < min_peak_distance:
+                    continue
+
+                # Check price similarity
+                if abs(val1 - val2)/max(val1, val2) > similarity_threshold:
+                    continue
+
+                # Find the lowest point between them
+                trough = min(lows[idx1:idx2+1])
+                valid_pairs.append((idx1, idx2, val1, trough))
+
+        if not valid_pairs:
+            return False
+
+        # Sort by most recent pattern
+        valid_pairs.sort(key=lambda x: x[1], reverse=True)
+
+        # Check if price has broken the neckline (trough)
+        latest_close = data['Close'].iloc[-1]  # Get scalar value
+        return latest_close < valid_pairs[0][3]
+
+    def is_double_bottom(self, data, window=20, similarity_threshold=0.01, min_trough_distance=3):
+        if len(data) < window:
+            return False
+
+        recent_data = data.tail(window)
+        highs = recent_data['High'].values
+        lows = recent_data['Low'].values
+
+        # Find all troughs
+        troughs = []
+        for i in range(1, len(lows)-1):
+            if lows[i] < lows[i-1] and lows[i] < lows[i+1]:
+                troughs.append((i, lows[i]))
+
+        if len(troughs) < 2:
+            return False
+
+        # Find two distinct troughs with a peak between them
+        valid_pairs = []
+        for i in range(len(troughs)):
+            for j in range(i+1, len(troughs)):
+                idx1, val1 = troughs[i]
+                idx2, val2 = troughs[j]
+                if abs(idx2 - idx1) < min_trough_distance:
+                    continue
+
+                # Check price similarity
+                if abs(val1 - val2)/max(val1, val2) > similarity_threshold:
+                    continue
+
+                # Find the highest point between them
+                peak = max(highs[idx1:idx2+1])
+                valid_pairs.append((idx1, idx2, val1, peak))
+
+        if not valid_pairs:
+            return False
+
+        # Sort by most recent pattern
+        valid_pairs.sort(key=lambda x: x[1], reverse=True)
+
+        # Check if price has broken the neckline (peak)
+        latest_close = data['Close'].iloc[-1]  # Get scalar value
+        return latest_close > valid_pairs[0][3]
+
+
+    def is_head_and_shoulders(self, data, window=30, similarity_threshold=0.03):
+        """
+        Detect Head and Shoulders pattern.
+        Characteristics:
+        1. Three peaks - middle peak (head) is highest, two shoulders on either side
+        2. Neckline formed by connecting the troughs between peaks
+        3. Price breaks below the neckline
+        """
+        if len(data) < window:
+            return False
+
+        recent_data = data.tail(window)
+        highs = recent_data['High'].values
+        lows = recent_data['Low'].values
+
+        # Find all peaks
+        peaks = []
+        for i in range(1, len(highs)-1):
+            if highs[i] > highs[i-1] and highs[i] > highs[i+1]:
+                peaks.append((i, highs[i]))
+
+        if len(peaks) < 3:
+            return False
+
+        # Sort peaks by height and take top 3
+        peaks.sort(key=lambda x: x[1], reverse=True)
+        if len(peaks) > 3:
+            peaks = peaks[:3]
+        peaks.sort(key=lambda x: x[0])  # Sort by position
+
+        # Check if middle peak is significantly higher than others
+        head_val = peaks[1][1]
+        shoulder1_val = peaks[0][1]
+        shoulder2_val = peaks[2][1]
+
+        if not (head_val > shoulder1_val * (1 + similarity_threshold) and
+                head_val > shoulder2_val * (1 + similarity_threshold)):
+            return False
+
+        # Find troughs between peaks
+        trough1_idx = trough2_idx = 0
+        trough1_val = trough2_val = float('inf')
+
+        for i in range(peaks[0][0], peaks[1][0] + 1):
+            if lows[i] < trough1_val:
+                trough1_val = lows[i]
+                trough1_idx = i
+
+        for i in range(peaks[1][0], peaks[2][0] + 1):
+            if lows[i] < trough2_val:
+                trough2_val = lows[i]
+                trough2_idx = i
+
+        # Neckline is the line connecting the two troughs
+        # Check if price has broken below the neckline
+        latest_close = data.iloc[-1]['Close']
+        return latest_close < min(trough1_val, trough2_val)
+
+    def is_inverse_head_and_shoulders(self, data, window=30, similarity_threshold=0.03):
+        """
+        Detect Inverse Head and Shoulders pattern.
+        Characteristics:
+        1. Three troughs - middle trough (head) is lowest, two shoulders on either side
+        2. Neckline formed by connecting the peaks between troughs
+        3. Price breaks above the neckline
+        """
+        if len(data) < window:
+            return False
+
+        recent_data = data.tail(window)
+        highs = recent_data['High'].values
+        lows = recent_data['Low'].values
+
+        # Find all troughs
+        troughs = []
+        for i in range(1, len(lows)-1):
+            if lows[i] < lows[i-1] and lows[i] < lows[i+1]:
+                troughs.append((i, lows[i]))
+
+        if len(troughs) < 3:
+            return False
+
+        # Sort troughs by depth and take bottom 3
+        troughs.sort(key=lambda x: x[1])
+        if len(troughs) > 3:
+            troughs = troughs[:3]
+        troughs.sort(key=lambda x: x[0])  # Sort by position
+
+        # Check if middle trough is significantly lower than others
+        head_val = troughs[1][1]
+        shoulder1_val = troughs[0][1]
+        shoulder2_val = troughs[2][1]
+
+        if not (head_val < shoulder1_val * (1 - similarity_threshold) and
+                head_val < shoulder2_val * (1 - similarity_threshold)):
+            return False
+
+        # Find peaks between troughs
+        peak1_idx = peak2_idx = 0
+        peak1_val = peak2_val = float('-inf')
+
+        for i in range(troughs[0][0], troughs[1][0] + 1):
+            if highs[i] > peak1_val:
+                peak1_val = highs[i]
+                peak1_idx = i
+
+        for i in range(troughs[1][0], troughs[2][0] + 1):
+            if highs[i] > peak2_val:
+                peak2_val = highs[i]
+                peak2_idx = i
+
+        # Neckline is the line connecting the two peaks
+        # Check if price has broken above the neckline
+        latest_close = data.iloc[-1]['Close']
+        return latest_close > max(peak1_val, peak2_val)
+
+
+    def is_rising_wedge(self, data, window=20, trend_threshold=0.05):
+        """
+        Detect Rising Wedge (typically bearish pattern)
+        Characteristics:
+        1. Higher highs and higher lows (converging trendlines)
+        2. Slope of upper trendline is steeper than lower
+        3. Breakout typically downward
+        """
+        if len(data) < window:
+            return False
+    
+        recent_data = data.tail(window)
+        highs = recent_data['High'].values
+        lows = recent_data['Low'].values
+    
+        # Fit trendlines
+        x = np.arange(len(highs))
+        high_slope, _, _, _, _ = linregress(x, highs)
+        low_slope, _, _, _, _ = linregress(x, lows)
+    
+        # Check if both trendlines are rising but converging
+        if high_slope <= 0 or low_slope <= 0:
+            return False
+        if high_slope <= low_slope:
+            return False
+    
+        # Check if recent price broke below lower trendline
+        latest_close = data.iloc[-1]['Close']
+        predicted_low = low_slope * (len(highs)-1) + lows[0]
+        return latest_close < predicted_low
+    
+    def is_falling_wedge(self, data, window=20, trend_threshold=0.05):
+        """
+        Detect Falling Wedge (typically bullish pattern)
+        Characteristics:
+        1. Lower highs and lower lows (converging trendlines)
+        2. Slope of lower trendline is steeper than upper
+        3. Breakout typically upward
+        """
+        if len(data) < window:
+            return False
+    
+        recent_data = data.tail(window)
+        highs = recent_data['High'].values
+        lows = recent_data['Low'].values
+    
+        # Fit trendlines
+        x = np.arange(len(highs))
+        high_slope, _, _, _, _ = linregress(x, highs)
+        low_slope, _, _, _, _ = linregress(x, lows)
+    
+        # Check if both trendlines are falling but converging
+        if high_slope >= 0 or low_slope >= 0:
+            return False
+        if abs(low_slope) <= abs(high_slope):
+            return False
+    
+        # Check if recent price broke above upper trendline
+        latest_close = data.iloc[-1]['Close']
+        predicted_high = high_slope * (len(highs)-1) + highs[0]
+        return latest_close > predicted_high
+    
+    def is_triangle(self, data, window=20, breakout_threshold=0.01):
+        """
+        Detect Symmetrical Triangle (continuation pattern)
+        Characteristics:
+        1. Converging trendlines with similar slopes
+        2. Breakout can be in either direction
+        """
+        if len(data) < window:
+            return False
+    
+        recent_data = data.tail(window)
+        highs = recent_data['High'].values
+        lows = recent_data['Low'].values
+    
+        # Fit trendlines
+        x = np.arange(len(highs))
+        high_slope, _, _, _, _ = linregress(x, highs)
+        low_slope, _, _, _, _ = linregress(x, lows)
+    
+        # Check for convergence
+        if high_slope >= 0 or low_slope <= 0:
+            return False
+    
+        # Check if slopes are roughly symmetrical
+        if abs(abs(high_slope) - abs(low_slope)) > 0.5 * min(abs(high_slope), abs(low_slope)):
+            return False
+    
+        # Check for breakout
+        latest_close = data.iloc[-1]['Close']
+        predicted_high = high_slope * (len(highs)-1) + highs[0]
+        predicted_low = low_slope * (len(lows)-1) + lows[0]
+    
+        if latest_close > predicted_high * (1 + breakout_threshold):
+            return "bullish"
+        elif latest_close < predicted_low * (1 - breakout_threshold):
+            return "bearish"
+        return False
+    
+    def is_pennant(self, data, window=15, consolidation_window=5, breakout_threshold=0.02):
+        """
+        Detect Pennant (continuation pattern)
+        Characteristics:
+        1. Small symmetrical triangle after sharp move (flag pole)
+        2. Breakout in same direction as prior move
+        """
+        if len(data) < window:
+            return False
+    
+        # Check for preceding strong move (flag pole)
+        pole_data = data.iloc[-window:-consolidation_window]
+        pole_move = (pole_data['Close'].iloc[-1] - pole_data['Close'].iloc[0]) / pole_data['Close'].iloc[0]
+    
+        if abs(pole_move) < 0.05:  # At least 5% move
+            return False
+    
+        # Check for small triangle in consolidation period
+        triangle_result = self.is_triangle(data.tail(consolidation_window))
+        if not triangle_result:
+            return False
+    
+        # Check breakout direction matches pole direction
+        latest_close = data.iloc[-1]['Close']
+        if pole_move > 0 and triangle_result == "bullish":
+            return "bullish"
+        elif pole_move < 0 and triangle_result == "bearish":
+            return "bearish"
+        return False
+    
+    def is_rectangle(self, data, window=20, threshold=0.01):
+        """
+        Detect Rectangle pattern (consolidation)
+        Characteristics:
+        1. Parallel support and resistance levels
+        2. Breakout can be in either direction
+        """
+        if len(data) < window:
+            return False
+    
+        recent_data = data.tail(window)
+        highs = recent_data['High'].values
+        lows = recent_data['Low'].values
+    
+        avg_high = np.mean(highs)
+        avg_low = np.mean(lows)
+    
+        # Check if highs and lows are within tight range
+        high_std = np.std(highs) / avg_high
+        low_std = np.std(lows) / avg_low
+    
+        if high_std > threshold or low_std > threshold:
+            return False
+    
+        # Check for breakout
+        latest_close = data.iloc[-1]['Close']
+        if latest_close > avg_high * (1 + threshold):
+            return "bullish"
+        elif latest_close < avg_low * (1 - threshold):
+            return "bearish"
+        return False
+    
+    def is_flag(self, data, window=20, consolidation_window=5, angle_threshold=30):
+        """
+        Detect Flag pattern (continuation)
+        Characteristics:
+        1. Sharp move followed by small channel moving against trend
+        2. Breakout in same direction as initial move
+        """
+        if len(data) < window:
+            return False
+    
+        # Check for preceding strong move (pole)
+        pole_data = data.iloc[-window:-consolidation_window]
+        pole_move = (pole_data['Close'].iloc[-1] - pole_data['Close'].iloc[0]) / pole_data['Close'].iloc[0]
+    
+        if abs(pole_move) < 0.05:  # At least 5% move
+            return False
+    
+        # Check for small counter-trend channel
+        flag_data = data.tail(consolidation_window)
+        highs = flag_data['High'].values
+        lows = flag_data['Low'].values
+    
+        x = np.arange(len(highs))
+        high_slope, _, _, _, _ = linregress(x, highs)
+        low_slope, _, _, _, _ = linregress(x, lows)
+    
+        # Convert slope to angle (degrees)
+        high_angle = np.degrees(np.arctan(high_slope))
+        low_angle = np.degrees(np.arctan(low_slope))
+    
+        # Check if channel is roughly parallel and angled against pole
+        if abs(high_angle - low_angle) > angle_threshold:
+            return False
+    
+        if (pole_move > 0 and (high_angle > -angle_threshold or low_angle > -angle_threshold)) or \
+                (pole_move < 0 and (high_angle < angle_threshold or low_angle < angle_threshold)):
+            return False
+    
+        # Check breakout direction matches pole direction
+        latest_close = data.iloc[-1]['Close']
+        upper_bound = high_slope * (len(highs)-1) + highs[0]
+        lower_bound = low_slope * (len(lows)-1) + lows[0]
+    
+        if pole_move > 0 and latest_close > upper_bound:
+            return "bullish"
+        elif pole_move < 0 and latest_close < lower_bound:
+            return "bearish"
+        return False
+    
+    def is_channel(self, data, window=20, parallel_threshold=5):
+        """
+        Detect Price Channel (parallel trendlines)
+        Characteristics:
+        1. Parallel support and resistance trendlines
+        2. Can be rising, falling or horizontal
+        """
+        if len(data) < window:
+            return False
+    
+        recent_data = data.tail(window)
+        highs = recent_data['High'].values
+        lows = recent_data['Low'].values
+    
+        x = np.arange(len(highs))
+        high_slope, _, _, _, _ = linregress(x, highs)
+        low_slope, _, _, _, _ = linregress(x, lows)
+    
+        # Convert slopes to angles
+        high_angle = np.degrees(np.arctan(high_slope))
+        low_angle = np.degrees(np.arctan(low_slope))
+    
+        # Check if trendlines are roughly parallel
+        if abs(high_angle - low_angle) > parallel_threshold:
+            return False
+    
+        # Determine channel direction
+        avg_slope = (high_slope + low_slope) / 2
+        if avg_slope > 0.005:
+            return "rising"
+        elif avg_slope < -0.005:
+            return "falling"
+        else:
+            return "horizontal"
+    
+    def is_triple_top(self, data, window=30, similarity_threshold=0.01):
+        """
+        Detect Triple Top pattern (bearish reversal)
+        Characteristics:
+        1. Three peaks at similar price levels
+        2. Two troughs between them
+        3. Break below support level
+        """
+        if len(data) < window:
+            return False
+    
+        recent_data = data.tail(window)
+        highs = recent_data['High'].values
+        lows = recent_data['Low'].values
+    
+        # Find all peaks
+        peaks = []
+        for i in range(1, len(highs)-1):
+            if highs[i] > highs[i-1] and highs[i] > highs[i+1]:
+                peaks.append((i, highs[i]))
+    
+        if len(peaks) < 3:
+            return False
+    
+        # Get three highest peaks
+        peaks.sort(key=lambda x: x[1], reverse=True)
+        top_peaks = peaks[:3]
+        top_peaks.sort(key=lambda x: x[0])  # Sort by position
+    
+        # Check price similarity
+        max_peak = max(p[1] for p in top_peaks)
+        min_peak = min(p[1] for p in top_peaks)
+        if (max_peak - min_peak) / max_peak > similarity_threshold:
+            return False
+    
+        # Find troughs between peaks
+        trough1 = min(lows[top_peaks[0][0]:top_peaks[1][0]+1])
+        trough2 = min(lows[top_peaks[1][0]:top_peaks[2][0]+1])
+        support_level = min(trough1, trough2)
+    
+        # Check breakout
+        latest_close = data.iloc[-1]['Close']
+        return latest_close < support_level
+    
+    def is_triple_bottom(self, data, window=30, similarity_threshold=0.01):
+        """
+        Detect Triple Bottom pattern (bullish reversal)
+        Characteristics:
+        1. Three troughs at similar price levels
+        2. Two peaks between them
+        3. Break above resistance level
+        """
+        if len(data) < window:
+            return False
+    
+        recent_data = data.tail(window)
+        highs = recent_data['High'].values
+        lows = recent_data['Low'].values
+    
+        # Find all troughs
+        troughs = []
+        for i in range(1, len(lows)-1):
+            if lows[i] < lows[i-1] and lows[i] < lows[i+1]:
+                troughs.append((i, lows[i]))
+    
+        if len(troughs) < 3:
+            return False
+    
+        # Get three lowest troughs
+        troughs.sort(key=lambda x: x[1])
+        bottom_troughs = troughs[:3]
+        bottom_troughs.sort(key=lambda x: x[0])  # Sort by position
+    
+        # Check price similarity
+        max_trough = max(p[1] for p in bottom_troughs)
+        min_trough = min(p[1] for p in bottom_troughs)
+        if (max_trough - min_trough) / max_trough > similarity_threshold:
+            return False
+    
+        # Find peaks between troughs
+        peak1 = max(highs[bottom_troughs[0][0]:bottom_troughs[1][0]+1])
+        peak2 = max(highs[bottom_troughs[1][0]:bottom_troughs[2][0]+1])
+        resistance_level = max(peak1, peak2)
+    
+        # Check breakout
+        latest_close = data.iloc[-1]['Close']
+        return latest_close > resistance_level
+
+    def is_cup_and_handle(self, data, window=40, handle_window=10, depth_threshold=0.3):
+        """
+        Detect Cup and Handle pattern (bullish)
+        Characteristics:
+        1. U-shaped cup formation
+        2. Smaller downward handle
+        3. Breakout above handle resistance
+        """
+        if len(data) < window:
+            return False
+
+        recent_data = data.tail(window)
+        highs = recent_data['High'].values
+        lows = recent_data['Low'].values
+        closes = recent_data['Close'].values
+
+        # Split data into cup and handle portions
+        cup_data = recent_data.iloc[:-handle_window]
+        handle_data = recent_data.iloc[-handle_window:]
+
+        # Find left and right highs (rim of cup)
+        left_high = cup_data['High'].iloc[0]
+        right_high = cup_data['High'].iloc[-1]
+
+        # Cup should return to similar price level
+        if abs(left_high - right_high) / left_high > 0.05:
+            return False
+
+        # Find lowest point in cup (depth)
+        cup_low = cup_data['Low'].min()
+        cup_depth = (left_high - cup_low) / left_high
+
+        # Cup should have significant depth
+        if cup_depth < depth_threshold:
+            return False
+
+        # Handle should be downward sloping and smaller than cup
+        handle_highs = handle_data['High'].values
+        handle_lows = handle_data['Low'].values
+
+        x = np.arange(len(handle_highs))
+        handle_slope, _, _, _, _ = linregress(x, handle_highs)
+
+        if handle_slope >= 0:
+            return False
+
+        # Check breakout above handle resistance
+        handle_resistance = handle_highs.max()
+        latest_close = data.iloc[-1]['Close']
+        return latest_close > handle_resistance
+
+    def is_rounding_bottom(self, data, window=30, smoothness=0.9):
+        """
+        Detect Rounding Bottom pattern (bullish reversal)
+        Characteristics:
+        1. Gradual U-shaped bottom formation
+        2. Breakout above resistance
+        """
+        if len(data) < window:
+            return False
+
+        recent_data = data.tail(window)
+        closes = recent_data['Close'].values
+
+        # Fit quadratic curve (U-shape)
+        x = np.arange(len(closes))
+        coeffs = np.polyfit(x, closes, 2)
+
+        # Check if curve is U-shaped (positive quadratic coefficient)
+        if coeffs[0] <= 0:
+            return False
+
+        # Check how well data fits the curve
+        predicted = np.polyval(coeffs, x)
+        r_squared = 1 - (np.sum((closes - predicted)**2) / np.sum((closes - np.mean(closes))**2))
+
+        if r_squared < smoothness:
+            return False
+
+        # Resistance is the starting level
+        resistance = closes[0]
+        latest_close = data.iloc[-1]['Close']
+        return latest_close > resistance
+    
+    def is_diamond(self, data, window=30, expansion_threshold=0.5):
+        """
+        Detect Diamond pattern (reversal)
+        Characteristics:
+        1. Initial expansion then contraction of price range
+        2. Breakout can be in either direction
+        """
+        if len(data) < window:
+            return False
+    
+        recent_data = data.tail(window)
+        highs = recent_data['High'].values
+        lows = recent_data['Low'].values
+        ranges = highs - lows
+    
+        # Split data into first and second halves
+        half = len(ranges) // 2
+        first_half = ranges[:half]
+        second_half = ranges[half:]
+    
+        # Check if first half shows expansion and second half shows contraction
+        if np.mean(first_half[-3:]) < np.mean(first_half[:3]) or \
+                np.mean(second_half[-3:]) > np.mean(second_half[:3]):
+            return False
+    
+        # Check breakout direction
+        latest_close = data.iloc[-1]['Close']
+        support = min(lows[half:])
+        resistance = max(highs[half:])
+    
+        if latest_close > resistance:
+            return "bullish"
+        elif latest_close < support:
+            return "bearish"
+        return False
+
     def run_hourly_scanner(self):
         """
         Run the scanner to calculate breakouts/breakdowns and behavior scans.
@@ -785,6 +1445,82 @@ class ScannerService:
                     # Add Supertrend scans
                     self.calculate_supertrend_scans(stock, data, results)
                     self.calculate_weekly_supertrend_scans(stock, weekly_data, results, period=7, multiplier=3)
+
+
+                    self.calculate_supertrend_scans(stock, data, results)
+                    self.calculate_weekly_supertrend_scans(stock, weekly_data, results, period=7, multiplier=3)
+
+
+                    if self.is_double_top(data):
+                        results.append((stock, "pattern_double_top", True))
+
+
+
+                    if self.is_double_bottom(data):
+                        results.append((stock, "pattern_double_bottom", True))
+
+
+
+                    if self.is_head_and_shoulders(data):
+                        results.append((stock, "pattern_head_and_shoulders", True))
+
+                    if self.is_inverse_head_and_shoulders(data):
+                        results.append((stock, "pattern_inverse_head_and_shoulders", True))
+
+                    wedge_result = self.is_rising_wedge(data)
+                    if wedge_result:
+                        results.append((stock, "pattern_rising_wedge", True))
+
+                    wedge_result = self.is_falling_wedge(data)
+                    if wedge_result:
+                        results.append((stock, "pattern_falling_wedge", True))
+
+
+                    triangle_result = self.is_triangle(data)
+                    if triangle_result == "bullish":
+                        results.append((stock, "pattern_triangle_bullish", True))
+                    elif triangle_result == "bearish":
+                        results.append((stock, "pattern_triangle_bearish", True))
+
+                    pennant_result = self.is_pennant(data)
+                    if pennant_result == "bullish":
+                        results.append((stock, "pattern_pennant_bullish", True))
+                    elif pennant_result == "bearish":
+                        results.append((stock, "pattern_pennant_bearish", True))
+
+                    rectangle_result = self.is_rectangle(data)
+                    if rectangle_result == "bullish":
+                        results.append((stock, "pattern_rectangle_bullish", True))
+                    elif rectangle_result == "bearish":
+                        results.append((stock, "pattern_rectangle_bearish", True))
+
+                    flag_result = self.is_flag(data)
+                    if flag_result == "bullish":
+                        results.append((stock, "pattern_flag_bullish", True))
+                    elif flag_result == "bearish":
+                        results.append((stock, "pattern_flag_bearish", True))
+
+                    channel_result = self.is_channel(data)
+                    if channel_result:
+                        results.append((stock, f"pattern_channel_{channel_result}", True))
+
+
+                    if self.is_triple_top(data):
+                        results.append((stock, "pattern_triple_top", True))
+                    if self.is_triple_bottom(data):
+                        results.append((stock, "pattern_triple_bottom", True))
+
+                    if self.is_cup_and_handle(data):
+                        results.append((stock, "pattern_cup_and_handle", True))
+
+                    if self.is_rounding_bottom(data):
+                        results.append((stock, "pattern_rounding_bottom", True))
+
+                    diamond_result = self.is_diamond(data)
+                    if diamond_result == "bullish":
+                        results.append((stock, "pattern_diamond_bullish", True))
+                    elif diamond_result == "bearish":
+                        results.append((stock, "pattern_diamond_bearish", True))
 
                 except Exception as e:
                     print(f"Error processing stock {stock}: {e}")
@@ -2646,7 +3382,37 @@ class ScannerService:
                     "call_options_high_oi_increase": False,
                     "call_options_high_oi_decrease": False,
                     "put_options_high_oi_increase": False,
-                    "put_options_high_oi_decrease": False
+                    "put_options_high_oi_decrease": False,
+
+                    # Add to the data[stock] dictionary initialization in save_scanner_results
+                    "pattern_double_top": False,
+                    "pattern_double_bottom": False,
+
+                    "pattern_head_and_shoulders": False,
+                    "pattern_inverse_head_and_shoulders": False,
+
+                    "pattern_rising_wedge": False,
+                    "pattern_falling_wedge": False,
+                    "pattern_triangle_bullish": False,
+                    "pattern_triangle_bearish": False,
+                    "pattern_pennant_bullish": False,
+                    "pattern_pennant_bearish": False,
+                    "pattern_rectangle_bullish": False,
+
+                    "pattern_rectangle_bearish": False,
+                    "pattern_flag_bullish": False,
+                    "pattern_flag_bearish": False,
+                    "pattern_channel_rising": False,
+
+                    "pattern_channel_falling": False,
+                    "pattern_channel_horizontal": False,
+                    "pattern_triple_top": False,
+                    "pattern_triple_bottom": False,
+
+                    "pattern_cup_and_handle": False,
+                    "pattern_rounding_bottom": False,
+                    "pattern_diamond_bullish": False,
+                    "pattern_diamond_bearish": False
                 }
 
             # Update the specific column for the scanner_name
@@ -2924,7 +3690,33 @@ class ScannerService:
                     call_options_high_oi_increase,
                     call_options_high_oi_decrease,
                     put_options_high_oi_increase,
-                    put_options_high_oi_decrease
+                    put_options_high_oi_decrease,
+                    pattern_double_top,
+                    pattern_double_bottom,
+                    pattern_head_and_shoulders,
+                    pattern_inverse_head_and_shoulders,
+                    
+                    pattern_rising_wedge,
+                    pattern_falling_wedge,
+                    pattern_triangle_bullish,
+                    pattern_triangle_bearish,
+                    pattern_pennant_bullish,
+                    pattern_pennant_bearish,
+                    pattern_rectangle_bullish,
+                    pattern_rectangle_bearish,
+                    pattern_flag_bullish,
+                    pattern_flag_bearish,
+                    pattern_channel_rising,
+                    pattern_channel_falling,
+                    pattern_channel_horizontal,
+                    pattern_triple_top,
+                    pattern_triple_bottom,
+                    
+                    pattern_cup_and_handle,
+                    pattern_rounding_bottom, 
+                    pattern_diamond_bullish, 
+                    pattern_diamond_bearish
+                    
 
    
                 ) VALUES ({})
