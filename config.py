@@ -26,7 +26,7 @@ class Config:
     ]
 
     NIFTY_EXPIRIES = [
-        "2025-04-30"
+        "2025-05-08"
     ]
 
     # Data collection times with buffer windows (1-3 minutes before and after target times)
