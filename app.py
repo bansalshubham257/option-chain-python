@@ -74,6 +74,53 @@ def get_fno_data():
     option_type = request.args.get('option_type')
     return jsonify(database_service.get_fno_data(stock, expiry, strike, option_type))
 
+@app.route('/get_fno_data_bulk', methods=['GET'])
+def get_fno_data_bulk():
+    """Fetch multiple strike prices and option types in a single request"""
+    stock = request.args.get('stock')
+    expiry = request.args.get('expiry')
+    strikes = request.args.get('strikes')
+    option_types = request.args.get('option_types')
+    
+    if not all([stock, expiry, strikes, option_types]):
+        return jsonify({"error": "Missing required parameters", "data": []})
+    
+    try:
+        strikes_list = strikes.split(',')
+        option_types_list = option_types.split(',')
+        
+        with database_service._get_cursor() as cur:
+            query = """
+                SELECT display_time, oi, volume, price, strike_price, option_type
+                FROM oi_volume_history
+                WHERE symbol = %s 
+                  AND expiry_date = %s
+                  AND strike_price IN ({})
+                  AND option_type IN ({})
+                ORDER BY display_time
+            """.format(','.join(['%s'] * len(strikes_list)), 
+                       ','.join(['%s'] * len(option_types_list)))
+            
+            params = [stock, expiry] + strikes_list + option_types_list
+            cur.execute(query, params)
+            
+            results = cur.fetchall()
+            data = [{
+                'time': r[0], 
+                'oi': float(r[1]) if r[1] else 0,
+                'volume': float(r[2]) if r[2] else 0, 
+                'price': float(r[3]) if r[3] else 0,
+                'strike': str(r[4]), 
+                'optionType': r[5]
+            } for r in results]
+            
+            return jsonify({"status": "success", "data": data})
+    
+    except Exception as e:
+        print(f"Error in bulk fetch: {str(e)}")
+        return jsonify({"status": "error", "message": str(e), "data": []})
+
+
 @app.route('/get_option_data', methods=['GET'])
 def get_option_data():
     stock = request.args.get('stock')
