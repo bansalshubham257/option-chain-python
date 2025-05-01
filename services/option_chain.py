@@ -288,7 +288,10 @@ class OptionChainService:
             index_map = {
                 'NIFTY': 'NSE_INDEX|Nifty 50',
                 'BANKNIFTY': 'NSE_INDEX|Nifty Bank',
-                'FINNIFTY': 'NSE_INDEX|Nifty Financial Services'
+                'FINNIFTY': 'NSE_INDEX|Nifty Fin Service',
+                'MIDCPNIFTY': 'NSE_INDEX|NIFTY MID SELECT',
+                'SENSEX': 'BSE_INDEX|SENSEX',
+                'BANKEX': 'BSE_INDEX|BANKEX'
             }
 
             return index_map.get(symbol.upper())
@@ -317,9 +320,14 @@ class OptionChainService:
 
             fut_symbol = f"{symbol}{expiry_year}{month_abbr}FUT"
 
+            if symbol in ["SENSEX", "BANKEX"]:
+                exchange = "BSE_FO"
+            else:
+                exchange = "NSE_FO"
+
             # Find matching futures contract
             fut_match = self.instruments_data[
-                (self.instruments_data['exchange'] == 'NSE_FO') &
+                (self.instruments_data['exchange'] == exchange) &
                 (self.instruments_data['tradingsymbol'] == fut_symbol)
                 ]
 
@@ -340,10 +348,10 @@ class OptionChainService:
         indices = {
             "NIFTY": 75,  # Example lot size
             "BANKNIFTY": 30,
-            "SENSEX": 20 #,
-            #"BANKEX": 30,
-            #"MIDCPNIFTY": 120,
-            #"FINNIFTY": 65
+            "SENSEX": 20,
+            "BANKEX": 30,
+            "MIDCPNIFTY": 120,
+            "FINNIFTY": 65
         }
         return {**self.fno_stocks, **indices}
 
@@ -856,12 +864,13 @@ class OptionChainService:
         indices = {
             "NIFTY": 75,  # Example lot size
             "BANKNIFTY": 30,
-            "SENSEX": 20 #,
-            #"BANKEX": 30,
-            #"MIDCPNIFTY": 120,
-            #"FINNIFTY": 65
+            "SENSEX": 20,
+            "BANKEX": 30,
+            "MIDCPNIFTY": 120,
+            "FINNIFTY": 65
         }
-        fno_stocks_with_indices = {**self.fno_stocks, **indices}
+        #fno_stocks_with_indices = {**self.fno_stocks, **indices}
+        fno_stocks_with_indices = {**indices}
 
         for stock, lot_size in fno_stocks_with_indices.items():
             try:
@@ -898,10 +907,10 @@ class OptionChainService:
             index_keys = {
                 "NIFTY": "NSE_INDEX|Nifty 50",
                 "SENSEX": "BSE_INDEX|SENSEX",
-                "BANKNIFTY": "NSE_INDEX|Nifty Bank" #,
-                #"FINNIFTY": "NSE_INDEX|Nifty Financial Services",
-                #"BANKEX": "BSE_INDEX|BANKEX",
-                #"MIDCPNIFTY": "NSE_INDEX|Nifty Midcap 50"
+                "BANKNIFTY": "NSE_INDEX|Nifty Bank",
+                "FINNIFTY": "NSE_INDEX|Nifty Fin Service",
+                "BANKEX": "BSE_INDEX|BANKEX",
+                "MIDCPNIFTY": "NSE_INDEX|NIFTY MID SELECT"
             }
             instrument_key = index_keys.get(stock_symbol)
             if not instrument_key:
@@ -917,6 +926,8 @@ class OptionChainService:
                 expiries = Config.NIFTY_EXPIRIES
             elif stock_symbol == "SENSEX":
                 expiries = Config.SENSEX_EXPIRIES  # Use predefined expiries from config
+            elif stock_symbol == "BANKEX":
+                expiries = Config.BANKEX_EXPIRIES  # Use predefined expiries from config
             else:
                 expiries = [Config.EXPIRY_DATE]  # Default expiry for other stocks
 
@@ -925,6 +936,8 @@ class OptionChainService:
                 'futures_orders': [],
                 'oi_records': []
             }
+            print("Fetching option chain for", stock_symbol)
+            print("instrument_key:", instrument_key)
 
             for expiry_date in expiries:
                 # Fetch option chain for each expiry
@@ -1003,11 +1016,20 @@ class OptionChainService:
                 else:
                     continue
 
-                strike_match = re.search(r'(\d+)(CE|PE)$', symbol)
-                if not strike_match:
-                    continue
 
-                strike_price = int(strike_match.group(1))
+                # Check if it's NIFTY or SENSEX (weekly expiry format: NIFTY{DDMMM}{STRIKE}{CE/PE})
+                if "NIFTY" in symbol or "SENSEX" in symbol:
+                    strike_match = re.search(r'(?:NIFTY|SENSEX)\d{5}(\d+)(CE|PE)$', symbol)
+                else:
+                    strike_match = re.search(r'(\d+)(CE|PE)$', symbol)
+
+                if "BANKNIFTY" in symbol or "FINNIFTY" in symbol or "MIDCPNIFTY" in symbol:
+                    strike_match = re.search(r'(\d+)(CE|PE)$', symbol)
+
+                if not strike_match:
+                    continue  # Skip if no match
+
+                strike_price = int(strike_match.group(1))  # Extract strike price
                 depth = quote_data.get('depth', {})
                 top_bids = depth.get('buy', [])[:5]
                 top_asks = depth.get('sell', [])[:5]
@@ -1044,13 +1066,17 @@ class OptionChainService:
                     'pct_change': Decimal(str(pct_change)),
                     'timestamp': datetime.now(pytz.timezone('Asia/Kolkata')).strftime("%H:%M")
                 })
+
         except Exception as e:
             print(f"Error processing option chain data for {stock_symbol} ({expiry_date}): {str(e)}")
 
     def _process_futures_orders(self, market_quotes, stock_symbol, lot_size):
         """Detect large futures orders"""
         large_orders = []
-        prefix = f"NSE_FO:{stock_symbol}"
+        if stock_symbol in ["SENSEX", "BANKEX"]:
+            prefix = f"BSE_FO:{stock_symbol}"
+        else:
+            prefix = f"NSE_FO:{stock_symbol}"
         suffix = "MAYFUT"
 
         pattern = re.compile(rf"{prefix}\d+{suffix}")
