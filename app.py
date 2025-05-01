@@ -925,6 +925,42 @@ def run_scanner_worker():
             print(f"Error in scanner worker: {e}")
             time.sleep(300)  # Retry after 5 minutes on error
 
+def run_db_clearing_worker():
+    """Background worker that runs during the configured window to clear old database entries."""
+    last_clear_date = None
+    ist = pytz.timezone('Asia/Kolkata')
+
+    while True:
+        try:
+            now = datetime.now(ist)
+            current_time = now.time()
+            current_date = now.date()
+
+            # Check if current time is within the DB clearing window and we haven't cleared today
+            if (now.weekday() in Config.TRADING_DAYS and
+                Config.DB_CLEARING_START <= current_time <= Config.DB_CLEARING_END and
+                last_clear_date != current_date):
+
+                print(f"{now}: Running database clearing operations...")
+                database_service.clear_old_data()
+                last_clear_date = current_date
+                print(f"{now}: Database cleared successfully")
+
+                # Sleep until next day after successful clearing
+                sleep_seconds = (
+                    (24 - now.hour - 1) * 3600 +
+                    (60 - now.minute - 1) * 60 +
+                    (60 - now.second)
+                )
+                time.sleep(sleep_seconds)
+            else:
+                # Outside clearing window, check every minute
+                time.sleep(60)
+        except Exception as e:
+            print(f"Error in DB clearing worker: {e}")
+            time.sleep(300)  # Sleep for 5 minutes on error before retrying
+
+
 def run_background_workers():
     """Run all background workers in separate threads"""
 
@@ -935,6 +971,7 @@ def run_background_workers():
     stock_data_thread = threading.Thread(target=run_stock_data_updater, daemon=True)
     scanner_thread = threading.Thread(target=run_scanner_worker, daemon=True)
     financials_thread = threading.Thread(target=run_financials_worker, daemon=True)
+    db_clearing_thread = threading.Thread(target=run_db_clearing_worker, daemon=True)
     
     market_data_thread.start()
     option_chain_thread.start()
@@ -943,6 +980,7 @@ def run_background_workers():
     stock_data_thread.start()
     #scanner_thread.start()
     #financials_thread.start()
+    db_clearing_thread.start()
     print("Background workers started successfully")
 
     # Keep main thread alive
