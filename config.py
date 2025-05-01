@@ -22,11 +22,21 @@ class Config:
     TRADING_DAYS = {0, 1, 2, 3, 4}  # Monday to Friday
 
     SENSEX_EXPIRIES = [
-        "2025-05-06"  # Example weekly expiry dates
+        "2025-05-06",
+        "2025-05-13",
+        "2025-05-20",
+        "2025-05-27"
+    ]
+
+    BANKEX_EXPIRIES = [
+        "2025-05-27"
     ]
 
     NIFTY_EXPIRIES = [
-        "2025-05-08"
+        "2025-05-08",
+        "2025-05-15",
+        "2025-05-22",
+        "2025-05-29"
     ]
 
     # Data collection times with buffer windows (1-3 minutes before and after target times)
