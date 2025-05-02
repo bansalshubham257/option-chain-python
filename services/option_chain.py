@@ -869,8 +869,8 @@ class OptionChainService:
             "MIDCPNIFTY": 120,
             "FINNIFTY": 65
         }
-        #fno_stocks_with_indices = {**self.fno_stocks, **indices}
-        fno_stocks_with_indices = {**indices}
+        fno_stocks_with_indices = {**self.fno_stocks, **indices}
+        #fno_stocks_with_indices = {**indices}
 
         for stock, lot_size in fno_stocks_with_indices.items():
             try:
