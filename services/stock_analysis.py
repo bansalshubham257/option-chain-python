@@ -12,12 +12,58 @@ from datetime import datetime, timedelta
 from services.database import DatabaseService  # Import DatabaseService
 import concurrent.futures
 import time
+import requests
+import random
 
 class StockAnalysisService:
     def __init__(self):
         self.LOCAL_CSV_FILE = "nse_stocks.csv"
         self.database_service = DatabaseService()  # Initialize database_service
+        # Initialize proxy rotation list and user agents
+        self.proxy_list = [
+            None,  # Direct connection as fallback
+            # Add your proxies here if you have them
+            # 'http://username:password@proxyserver:port',
+        ]
+        self.current_proxy_index = 0
+        self.user_agents = [
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
+            'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.0 Safari/605.1.15',
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:90.0) Gecko/20100101 Firefox/90.0',
+            'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/92.0.4515.107 Safari/537.36',
+            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/96.0.4664.45 Safari/537.36',
+            'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/94.0.4606.81 Safari/537.36'
+        ]
         print("stock analysis init done")
+
+    def _get_session(self):
+        """Create a custom session with rotating headers and optional proxy"""
+        session = requests.Session()
+        
+        # Set a random user agent
+        user_agent = random.choice(self.user_agents)
+            
+        # Set session headers
+        session.headers.update({
+            'User-Agent': user_agent,
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8',
+            'Accept-Language': 'en-US,en;q=0.9',
+            'Accept-Encoding': 'gzip, deflate, br',
+            'Connection': 'keep-alive',
+            'Upgrade-Insecure-Requests': '1',
+            'Cache-Control': 'max-age=0',
+        })
+        
+        # Use a proxy if available in the list
+        if len(self.proxy_list) > 1:  # If we have proxies other than None
+            proxy = self.proxy_list[self.current_proxy_index]
+            if proxy:
+                session.proxies = {'http': proxy, 'https': proxy}
+            
+            # Rotate to next proxy for next call
+            self.current_proxy_index = (self.current_proxy_index + 1) % len(self.proxy_list)
+        
+        return session
 
     def fetch_all_nse_stocks(self):
         """Read NSE-listed stocks from local CSV"""
@@ -161,55 +207,71 @@ class StockAnalysisService:
 
     def _get_stock_data(self, symbol):
         """Fetch stock data from Yahoo Finance"""
-        try:
-            stock = yf.Ticker(symbol)
-            df = stock.history(period="300d")
+        max_retries = 3
+        retry_count = 0
+        
+        while retry_count < max_retries:
+            try:
+                # Create a custom session
+                session = self._get_session()
+                
+                # Configure yfinance to use our custom session
+                stock = yf.Ticker(symbol, session=session)
+                df = stock.history(period="300d")
 
-            if df.empty:
-                return None
+                if df.empty:
+                    retry_count += 1
+                    print(f"Empty data received for {symbol}, retrying {retry_count}/{max_retries}...")
+                    time.sleep(1 * retry_count)  # Exponential backoff
+                    continue
 
-            # Rename columns
-            df = df.reset_index()
-            df = df.rename(columns={
-                "Date": "timestamp",
-                "Close": "last_price",
-                "High": "day_high",
-                "Low": "day_low",
-                "Volume": "volume"
-            })
+                # Rename columns
+                df = df.reset_index()
+                df = df.rename(columns={
+                    "Date": "timestamp",
+                    "Close": "last_price",
+                    "High": "day_high",
+                    "Low": "day_low",
+                    "Volume": "volume"
+                })
 
-            # Calculate indicators
-            df["SMA_50"] = df["last_price"].rolling(window=50).mean()
-            df["SMA_200"] = df["last_price"].rolling(window=200).mean()
-            df["EMA_50"] = df["last_price"].ewm(span=50, adjust=False).mean()
-            df["EMA_200"] = df["last_price"].ewm(span=200, adjust=False).mean()
-            df["RSI"] = ta.momentum.RSIIndicator(df["last_price"], window=14).rsi()
-            df["MACD"] = ta.trend.MACD(df["last_price"]).macd()
+                # Calculate indicators
+                df["SMA_50"] = df["last_price"].rolling(window=50).mean()
+                df["SMA_200"] = df["last_price"].rolling(window=200).mean()
+                df["EMA_50"] = df["last_price"].ewm(span=50, adjust=False).mean()
+                df["EMA_200"] = df["last_price"].ewm(span=200, adjust=False).mean()
+                df["RSI"] = ta.momentum.RSIIndicator(df["last_price"], window=14).rsi()
+                df["MACD"] = ta.trend.MACD(df["last_price"]).macd()
 
-            # Bollinger Bands
-            bb = ta.volatility.BollingerBands(df["last_price"], window=20, window_dev=2)
-            df["upper_band"] = bb.bollinger_hband()
-            df["lower_band"] = bb.bollinger_lband()
-            df["bollinger_signal"] = df.apply(
-                lambda row: "Bullish Breakout" if row["last_price"] > row["upper_band"]
-                else ("Bearish Breakdown" if row["last_price"] < row["lower_band"]
-                      else "No breakout"), axis=1)
+                # Bollinger Bands
+                bb = ta.volatility.BollingerBands(df["last_price"], window=20, window_dev=2)
+                df["upper_band"] = bb.bollinger_hband()
+                df["lower_band"] = bb.bollinger_lband()
+                df["bollinger_signal"] = df.apply(
+                    lambda row: "Bullish Breakout" if row["last_price"] > row["upper_band"]
+                    else ("Bearish Breakdown" if row["last_price"] < row["lower_band"]
+                          else "No breakout"), axis=1)
 
-            # Pivot Point
-            df["pivot"] = (df["day_high"] + df["day_low"] + df["last_price"]) / 3
-            df["above_pivot"] = df["last_price"] > df["pivot"]
+                # Pivot Point
+                df["pivot"] = (df["day_high"] + df["day_low"] + df["last_price"]) / 3
+                df["above_pivot"] = df["last_price"] > df["pivot"]
 
-            # VWAP
-            df["cumulative_vp"] = (df["last_price"] * df["volume"]).cumsum()
-            df["cumulative_volume"] = df["volume"].cumsum()
-            df["VWAP"] = df["cumulative_vp"] / df["cumulative_volume"]
-            df.drop(columns=["cumulative_vp", "cumulative_volume"], inplace=True)
+                # VWAP
+                df["cumulative_vp"] = (df["last_price"] * df["volume"]).cumsum()
+                df["cumulative_volume"] = df["volume"].cumsum()
+                df["VWAP"] = df["cumulative_vp"] / df["cumulative_volume"]
+                df.drop(columns=["cumulative_vp", "cumulative_volume"], inplace=True)
 
-            return df
+                return df
 
-        except Exception as e:
-            print(f"Error fetching data for {symbol}: {e}")
-            return None
+            except Exception as e:
+                retry_count += 1
+                print(f"Error fetching data for {symbol} (attempt {retry_count}/{max_retries}): {e}")
+                # Try with a different proxy/user-agent combination on next retry
+                time.sleep(1 * retry_count)  # Exponential backoff
+        
+        print(f"Failed to fetch data for {symbol} after {max_retries} attempts")
+        return None
 
     def _calculate_fibonacci_levels(self, df, lookback=75):
         """Calculate Fibonacci retracement levels"""
@@ -428,71 +490,78 @@ class StockAnalysisService:
             ist = pytz.timezone('Asia/Kolkata')
             now = datetime.now(ist)
 
-            for symbol in nse_stocks:
-                try:
-                    if not symbol or len(symbol) < 2:
+            # Process stocks in smaller batches to avoid rate limiting
+            batch_size = 10
+            stock_batches = [nse_stocks[i:i+batch_size] for i in range(0, len(nse_stocks), batch_size)]
+            
+            for batch in stock_batches:
+                # Process each batch
+                for symbol in batch:
+                    try:
+                        if not symbol or len(symbol) < 2:
+                            continue
+
+                        full_symbol = f"{symbol}.NS"
+                        
+                        # Use a custom session
+                        session = self._get_session()
+                        
+                        stock = yf.Ticker(full_symbol, session=session)
+                        hist = stock.history(period="1y")
+
+                        if hist.empty or len(hist) < 5:  # Minimum data points
+                            continue
+
+                        # Robust timezone handling
+                        if hist.index.tz is None:
+                            hist.index = hist.index.tz_localize('UTC')
+                        hist.index = hist.index.tz_convert(ist)
+
+                        high_52 = hist["High"].max()
+                        low_52 = hist["Low"].min()
+                        current = hist["Close"].iloc[-1]
+
+                        pct_from_high = (high_52 - current) / high_52
+                        pct_from_low = (current - low_52) / low_52
+
+                        high_date = hist["High"].idxmax()
+                        low_date = hist["Low"].idxmin()
+
+                        days_since_high = (now - high_date).days
+                        days_since_low = (now - low_date).days
+
+                        if pct_from_high <= threshold:
+                            results.append({
+                                "symbol": symbol,
+                                "current_price": round(current, 2),
+                                "week52_high": round(high_52, 2),
+                                "week52_low": round(low_52, 2),
+                                "pct_from_high": round(pct_from_high * 100, 2),
+                                "pct_from_low": round(pct_from_low * 100, 2),
+                                "days_since_high": days_since_high,
+                                "days_since_low": days_since_low,
+                                "status": "near_high"
+                            })
+
+                        if pct_from_low <= threshold:
+                            results.append({
+                                "symbol": symbol,
+                                "current_price": round(current, 2),
+                                "week52_high": round(high_52, 2),
+                                "week52_low": round(low_52, 2),
+                                "pct_from_high": round(pct_from_high * 100, 2),
+                                "pct_from_low": round(pct_from_low * 100, 2),
+                                "days_since_high": days_since_high,
+                                "days_since_low": days_since_low,
+                                "status": "near_low"
+                            })
+
+                    except Exception as e:
+                        print(f"Error processing {symbol}: {str(e)}")
                         continue
-
-                    full_symbol = f"{symbol}.NS"
-                    stock = yf.Ticker(full_symbol)
-                    hist = stock.history(period="1y")
-
-                    if hist.empty or len(hist) < 5:  # Minimum data points
-                        continue
-
-                    # Robust timezone handling
-                    if hist.index.tz is None:
-                        # If naive, localize to UTC (Yahoo Finance default)
-                        hist.index = hist.index.tz_localize('UTC')
-                    # Convert to IST regardless of original timezone
-                    hist.index = hist.index.tz_convert(ist)
-
-                    high_52 = hist["High"].max()
-                    low_52 = hist["Low"].min()
-                    current = hist["Close"].iloc[-1]
-
-                    pct_from_high = (high_52 - current) / high_52
-                    pct_from_low = (current - low_52) / low_52
-
-                    # Get timezone-aware timestamps for highs and lows
-                    high_date = hist["High"].idxmax()
-                    low_date = hist["Low"].idxmin()
-
-                    # Calculate days since high/low
-                    days_since_high = (now - high_date).days
-                    days_since_low = (now - low_date).days
-
-                    # Near 52-week high
-                    if pct_from_high <= threshold:
-                        results.append({
-                            "symbol": symbol,
-                            "current_price": round(current, 2),
-                            "week52_high": round(high_52, 2),
-                            "week52_low": round(low_52, 2),
-                            "pct_from_high": round(pct_from_high * 100, 2),
-                            "pct_from_low": round(pct_from_low * 100, 2),
-                            "days_since_high": days_since_high,
-                            "days_since_low": days_since_low,
-                            "status": "near_high"
-                        })
-
-                    # Near 52-week low
-                    if pct_from_low <= threshold:
-                        results.append({
-                            "symbol": symbol,
-                            "current_price": round(current, 2),
-                            "week52_high": round(high_52, 2),
-                            "week52_low": round(low_52, 2),
-                            "pct_from_high": round(pct_from_high * 100, 2),
-                            "pct_from_low": round(pct_from_low * 100, 2),
-                            "days_since_high": days_since_high,
-                            "days_since_low": days_since_low,
-                            "status": "near_low"
-                        })
-
-                except Exception as e:
-                    print(f"Error processing {symbol}: {str(e)}")
-                    continue
+                
+                # Add delay between batches to avoid rate limiting
+                time.sleep(1)
 
             return results
 
@@ -549,7 +618,10 @@ class StockAnalysisService:
                     time.sleep(rate_limit_delay)
                     
                     full_symbol = f"{symbol}.NS"
-                    stock = yf.Ticker(full_symbol)
+                    
+                    # Use a custom session
+                    session = self._get_session()
+                    stock = yf.Ticker(full_symbol, session=session)
                     
                     # Get next earnings date from calendar if available
                     next_earnings_date = None
