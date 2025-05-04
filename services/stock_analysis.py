@@ -3,9 +3,10 @@ import pandas as pd
 import numpy as np
 import ta
 from bokeh.plotting import figure
-from bokeh.models import ColumnDataSource
+from bokeh.models import ColumnDataSource, HoverTool, Legend, LabelSet
 from bokeh.embed import components
-from bokeh.layouts import column
+from bokeh.layouts import column, row
+from bokeh.palettes import Category10
 from decimal import Decimal
 import pytz
 from datetime import datetime, timedelta
@@ -75,41 +76,41 @@ class StockAnalysisService:
             return []
 
     def analyze_stock(self, symbol):
-        """Analyze a stock and return technical indicators"""
-        df = self._get_stock_data(symbol)
+        """Analyze a stock and return technical indicators using DB data"""
+        df = self._get_stock_data_from_db(symbol)
         if df is None or df.empty:
-            return {"error": "Stock data not found"}
+            return {"error": "Stock data not found in database"}
 
-        df.rename(columns={"last_price": "Close"}, inplace=True)
+        # Get latest price and pivot points from data
+        latest_data = df.iloc[-1]
+        latest_price = latest_data["close"]
 
-        # Calculate indicators
-        df["SMA_50"] = df["Close"].rolling(window=50).mean()
-        df["SMA_200"] = df["Close"].rolling(window=200).mean()
-        df["BB_middle"] = df["Close"].rolling(window=20).mean()
-        df["BB_std"] = df["Close"].rolling(window=20).std()
-        df["BB_upper"] = df["BB_middle"] + (df["BB_std"] * 2)
-        df["BB_lower"] = df["BB_middle"] - (df["BB_std"] * 2)
-        df["EMA_12"] = df["Close"].ewm(span=12, adjust=False).mean()
-        df["EMA_26"] = df["Close"].ewm(span=26, adjust=False).mean()
-        df["MACD"] = df["EMA_12"] - df["EMA_26"]
-        df["Signal_Line"] = df["MACD"].ewm(span=9, adjust=False).mean()
-        df["MACD_Histogram"] = df["MACD"] - df["Signal_Line"]
+        # Use pivot levels from data
+        pivot = latest_data["pivot"]
+        r1 = latest_data["r1"]
+        r2 = latest_data["r2"]
+        r3 = latest_data["r3"]
+        s1 = latest_data["s1"]
+        s2 = latest_data["s2"]
+        s3 = latest_data["s3"]
 
-        # Fibonacci levels
-        fib_levels, fib_high, fib_low = self._calculate_fibonacci_levels(df)
-        latest_price = df.iloc[-1]["day_low"]
+        # Get fundamental data if available
+        fundamental_data = self._get_fundamental_data_from_db(symbol)
+
+        # Get scanner data if available
+        scanner_data = self._get_scanner_results(symbol)
 
         # Other indicators
-        supertrend_data = self._calculate_supertrend(df)
-        pivots = self._find_support_resistance(df)
-        trendline_status = self._detect_trendline_breakout(df)
-        donchian_data = self._calculate_donchian_channels(df)
-
+        supertrend_data = self._get_supertrend_from_db(df)
+        pivots = self._get_pivots_from_db(df)
+        trendline_status = self._detect_trendline_breakout_from_db(df)
+        donchian_data = self._get_donchian_from_db(df)
+        
         # 52-week analysis
         position_52w, recommendation_52w = self._analyze_52_week_levels(df, latest_price)
 
-        # Fibonacci analysis
-        fibonacci_details = self._get_fibonacci_analysis(latest_price, fib_levels)
+        # Analyze price in relation to pivot levels
+        pivot_analysis = self._get_pivot_analysis(latest_price, pivot, r1, r2, r3, s1, s2, s3)
 
         # Generate signals
         latest = df.iloc[-1]
@@ -117,24 +118,32 @@ class StockAnalysisService:
         bearish_signals = []
         active_indicators = {}
 
-        # Price vs Fibonacci levels
-        if latest_price > fib_levels["0.5"]:
-            bullish_signals.append("Above 50% Fibonacci Level (Bullish)")
-            active_indicators["Fibonacci"] = True
+        # Price vs Pivot levels
+        if latest_price > pivot:
+            bullish_signals.append("Above Pivot Level (Bullish)")
+            active_indicators["Pivot"] = True
+            if latest_price > r1:
+                bullish_signals.append("Above R1 Resistance (Strong Bullish)")
+                if latest_price > r2:
+                    bullish_signals.append("Above R2 Resistance (Very Bullish)")
         else:
-            bearish_signals.append("Below 50% Fibonacci Level (Bearish)")
-            active_indicators["Fibonacci"] = True
+            bearish_signals.append("Below Pivot Level (Bearish)")
+            active_indicators["Pivot"] = True
+            if latest_price < s1:
+                bearish_signals.append("Below S1 Support (Strong Bearish)")
+                if latest_price < s2:
+                    bearish_signals.append("Below S2 Support (Very Bearish)")
 
         # RSI signals
-        if latest["RSI"] > 70:
+        if latest["rsi"] > 70:
             bearish_signals.append("Overbought (RSI > 70)")
             active_indicators["RSI"] = True
-        elif latest["RSI"] < 30:
+        elif latest["rsi"] < 30:
             bullish_signals.append("Oversold (RSI < 30)")
             active_indicators["RSI"] = True
 
         # MACD signals
-        if latest["MACD"] > 0:
+        if latest["macd_line"] > latest["macd_signal"]:
             bullish_signals.append("MACD Bullish Crossover")
             active_indicators["MACD"] = True
         else:
@@ -142,7 +151,7 @@ class StockAnalysisService:
             active_indicators["MACD"] = True
 
         # SMA signals
-        if latest["SMA_50"] > latest["SMA_200"]:
+        if latest["sma50"] > latest["sma200"]:
             bullish_signals.append("Golden Cross (SMA50 > SMA200)")
             active_indicators["SMA_50"] = True
             active_indicators["SMA_200"] = True
@@ -151,8 +160,8 @@ class StockAnalysisService:
             active_indicators["SMA_50"] = True
             active_indicators["SMA_200"] = True
 
-        # Pivot signals
-        if latest["above_pivot"]:
+        # Pivot signals - using pivot columns from DB
+        if latest["close"] > latest["pivot"]:
             bullish_signals.append("Above Pivot")
             active_indicators["Pivot"] = True
         else:
@@ -160,34 +169,43 @@ class StockAnalysisService:
             active_indicators["Pivot"] = True
 
         # Bollinger Bands signals
-        if latest["bollinger_signal"] == "Bullish Breakout":
+        if latest["close"] > latest["upper_bollinger"]:
             bullish_signals.append("Bollinger Band Breakout")
             active_indicators["BB_upper"] = True
             active_indicators["BB_lower"] = True
-        elif latest["bollinger_signal"] == "Bearish Breakdown":
+        elif latest["close"] < latest["lower_bollinger"]:
             bearish_signals.append("Bollinger Band Breakdown")
             active_indicators["BB_upper"] = True
             active_indicators["BB_lower"] = True
 
         # VWAP signals
-        if latest["Close"] > latest["VWAP"]:
-            bullish_signals.append("Above VWAP")
-            active_indicators["VWAP"] = True
-        else:
-            bearish_signals.append("Below VWAP")
-            active_indicators["VWAP"] = True
+        if "vwap" in latest and latest["vwap"] is not None:
+            if latest["close"] > latest["vwap"]:
+                bullish_signals.append("Above VWAP")
+                active_indicators["VWAP"] = True
+            else:
+                bearish_signals.append("Below VWAP")
+                active_indicators["VWAP"] = True
 
         # Generate chart
-        script, div = self._generate_chart(df, active_indicators)
+        script, div = self._generate_chart_from_db(df, active_indicators)
 
-        # Prepare response
+        # Prepare response with additional details
         additional_details = {
             "Supertrend": supertrend_data,
             "Trendline_Breakout": trendline_status,
             "Support_Resistance": pivots,
             "Donchian_Channels": donchian_data,
-            "Fibonacci Analysis": fibonacci_details
+            "Pivot_Analysis": pivot_analysis
         }
+
+        # Add scanner results if available
+        if scanner_data:
+            additional_details["Scanner_Signals"] = scanner_data
+
+        # Add fundamental data
+        if fundamental_data:
+            additional_details["Fundamentals"] = fundamental_data
 
         if position_52w:
             additional_details["52-Week High/Low"] = [
@@ -197,6 +215,9 @@ class StockAnalysisService:
 
         return {
             "symbol": symbol,
+            "current_price": latest_price,
+            "price_change": latest["price_change"],
+            "percentage_change": latest["percentage_change"],
             "bullish_signals": bullish_signals,
             "bearish_signals": bearish_signals,
             "verdict": "Bullish" if len(bullish_signals) > len(bearish_signals) else "Bearish",
@@ -205,182 +226,642 @@ class StockAnalysisService:
             "additional_details": additional_details
         }
 
-    def _get_stock_data(self, symbol):
-        """Fetch stock data from Yahoo Finance"""
-        max_retries = 3
-        retry_count = 0
-        
-        while retry_count < max_retries:
-            try:
-                # Create a custom session
-                session = self._get_session()
+    def _get_stock_data_from_db(self, symbol):
+        """Fetch stock data from database instead of yfinance"""
+        try:
+            with self.database_service._get_cursor() as cur:
+                # Query database for stock data with all necessary indicators
+                cur.execute("""
+                    SELECT 
+                        timestamp, open, high, low, close, volume, vwap,
+                        pivot, r1, r2, r3, s1, s2, s3,
+                        sma20, sma50, sma100, sma200, 
+                        ema50, ema200,
+                        rsi, macd_line, macd_signal, macd_histogram,
+                        upper_bollinger, lower_bollinger, middle_bollinger,
+                        Supertrend,
+                        Donchian_High, Donchian_Low,
+                        adx, adx_di_positive, adx_di_negative,
+                        cci, mfi, williams_r, force_index,
+                        atr, trix, roc, price_change, percent_change
+                    FROM stock_data_cache
+                    WHERE symbol = %s AND interval = '1d'
+                    ORDER BY timestamp DESC
+                    LIMIT 300
+                """, (symbol,))
                 
-                # Configure yfinance to use our custom session
-                stock = yf.Ticker(symbol, session=session)
-                df = stock.history(period="300d")
+                rows = cur.fetchall()
+                if not rows:
+                    return None
 
-                if df.empty:
-                    retry_count += 1
-                    print(f"Empty data received for {symbol}, retrying {retry_count}/{max_retries}...")
-                    time.sleep(1 * retry_count)  # Exponential backoff
-                    continue
+                # Convert to DataFrame
+                columns = [
+                    "timestamp", "open", "high", "low", "close", "volume", "vwap",
+                    "pivot", "r1", "r2", "r3", "s1", "s2", "s3",
+                    "sma20", "sma50", "sma100", "sma200",
+                    "ema50", "ema200",
+                    "rsi", "macd_line", "macd_signal", "macd_histogram",
+                    "upper_bollinger", "lower_bollinger", "middle_bollinger",
+                    "Supertrend",
+                    "Donchian_High", "Donchian_Low",
+                    "adx", "adx_di_positive", "adx_di_negative",
+                    "cci", "mfi", "williams_r", "force_index",
+                    "atr", "trix", "roc", "price_change", "percentage_change"
+                ]
 
-                # Rename columns
-                df = df.reset_index()
-                df = df.rename(columns={
-                    "Date": "timestamp",
-                    "Close": "last_price",
-                    "High": "day_high",
-                    "Low": "day_low",
-                    "Volume": "volume"
-                })
+                df = pd.DataFrame(rows, columns=columns)
+                df.set_index("timestamp", inplace=True)
+                df = df.sort_index()
 
-                # Calculate indicators
-                df["SMA_50"] = df["last_price"].rolling(window=50).mean()
-                df["SMA_200"] = df["last_price"].rolling(window=200).mean()
-                df["EMA_50"] = df["last_price"].ewm(span=50, adjust=False).mean()
-                df["EMA_200"] = df["last_price"].ewm(span=200, adjust=False).mean()
-                df["RSI"] = ta.momentum.RSIIndicator(df["last_price"], window=14).rsi()
-                df["MACD"] = ta.trend.MACD(df["last_price"]).macd()
-
-                # Bollinger Bands
-                bb = ta.volatility.BollingerBands(df["last_price"], window=20, window_dev=2)
-                df["upper_band"] = bb.bollinger_hband()
-                df["lower_band"] = bb.bollinger_lband()
-                df["bollinger_signal"] = df.apply(
-                    lambda row: "Bullish Breakout" if row["last_price"] > row["upper_band"]
-                    else ("Bearish Breakdown" if row["last_price"] < row["lower_band"]
-                          else "No breakout"), axis=1)
-
-                # Pivot Point
-                df["pivot"] = (df["day_high"] + df["day_low"] + df["last_price"]) / 3
-                df["above_pivot"] = df["last_price"] > df["pivot"]
-
-                # VWAP
-                df["cumulative_vp"] = (df["last_price"] * df["volume"]).cumsum()
-                df["cumulative_volume"] = df["volume"].cumsum()
-                df["VWAP"] = df["cumulative_vp"] / df["cumulative_volume"]
-                df.drop(columns=["cumulative_vp", "cumulative_volume"], inplace=True)
+                # Convert all values to appropriate types
+                numeric_cols = df.columns.difference(["timestamp"])
+                for col in numeric_cols:
+                    df[col] = pd.to_numeric(df[col], errors='coerce')
 
                 return df
 
-            except Exception as e:
-                retry_count += 1
-                print(f"Error fetching data for {symbol} (attempt {retry_count}/{max_retries}): {e}")
-                # Try with a different proxy/user-agent combination on next retry
-                time.sleep(1 * retry_count)  # Exponential backoff
-        
-        print(f"Failed to fetch data for {symbol} after {max_retries} attempts")
-        return None
+        except Exception as e:
+            print(f"Error fetching stock data from database for {symbol}: {str(e)}")
+            return None
 
-    def _calculate_fibonacci_levels(self, df, lookback=75):
-        """Calculate Fibonacci retracement levels"""
-        recent_high = df["day_high"].tail(lookback).max()
-        recent_low = df["day_low"].tail(lookback).min()
+    def _get_fundamental_data_from_db(self, symbol_with_ns):
+        """Fetch fundamental data from database for a given stock"""
+        try:
+            symbol = symbol_with_ns.replace(".NS", "")
+            with self.database_service._get_cursor() as cur:
+                # First, try to get next earnings date if available
+                earnings_date = None
+                cur.execute("""
+                    SELECT next_earnings_date
+                    FROM stock_earnings
+                    WHERE symbol = %s
+                """, (symbol,))
+                
+                earnings_result = cur.fetchone()
+                if earnings_result and earnings_result[0]:
+                    earnings_date = earnings_result[0]
+                
+                # Check if stock_industry_info table exists before querying it
 
-        levels = {
-            "0.236": recent_high - (0.236 * (recent_high - recent_low)),
-            "0.382": recent_high - (0.382 * (recent_high - recent_low)),
-            "0.5": recent_high - (0.5 * (recent_high - recent_low)),
-            "0.618": recent_high - (0.618 * (recent_high - recent_low)),
-            "0.786": recent_high - (0.786 * (recent_high - recent_low)),
+                industry_info = {}
+                cur.execute("""
+                        SELECT industry, sector
+                        FROM stock_data_cache
+                        WHERE symbol = %s
+                    """, (symbol_with_ns,))
+
+                industry_result = cur.fetchone()
+                
+                if industry_result:
+                    industry_info = {
+                        "Industry": industry_result[0],
+                        "Sector": industry_result[1]
+                    }
+
+                fundamental_metrics = {}
+                if cur.fetchone()[0]:  # Columns exist
+                    # Get key fundamental metrics
+                    cur.execute("""
+                        SELECT pe_ratio, market_cap, dividend_yield, dividend_rate, total_debt
+                        FROM stock_data_cache
+                        WHERE symbol = %s AND interval = '1d'
+                        ORDER BY timestamp DESC
+                        LIMIT 1
+                    """, (symbol_with_ns,))
+                    
+                    metrics_result = cur.fetchone()
+                    if metrics_result:
+                        # Format market cap and total debt in more readable format (B for billions, M for millions)
+                        market_cap = metrics_result[1]
+                        if market_cap:
+                            if market_cap >= 1_000_000_000:
+                                market_cap_formatted = f"{market_cap/1_000_000_000:.2f}B"
+                            else:
+                                market_cap_formatted = f"{market_cap/1_000_000:.2f}M"
+                        else:
+                            market_cap_formatted = "N/A"
+                            
+                        total_debt = metrics_result[4]
+                        if total_debt:
+                            if total_debt >= 1_000_000_000:
+                                total_debt_formatted = f"{total_debt/1_000_000_000:.2f}B"
+                            else:
+                                total_debt_formatted = f"{total_debt/1_000_000:.2f}M"
+                        else:
+                            total_debt_formatted = "N/A"
+
+                        fundamental_metrics = {
+                            "P/E Ratio": round(metrics_result[0], 2) if metrics_result[0] else "N/A",
+                            "Market Cap": market_cap_formatted,
+                            "Dividend Yield": f"{metrics_result[2]:.2f}%" if metrics_result[2] else "N/A",
+                            "Dividend Rate": metrics_result[3] if metrics_result[3] else "N/A",
+                            "Total Debt": total_debt_formatted
+                        }
+
+                # Get quarterly financials data
+                cur.execute("""
+                    SELECT quarter_ending, revenue, net_income, operating_income, ebitda, type
+                    FROM quarterly_financials
+                    WHERE symbol = %s
+                    ORDER BY quarter_ending DESC
+                    LIMIT 4
+                """, (symbol,))
+
+                rows = cur.fetchall()
+                if not rows:
+                    return None
+
+                # Format the quarterly financial data
+                financials = []
+                for row in rows:
+                    qtr_data = {
+                        "quarter_ending": row[0].strftime('%Y-%m-%d') if row[0] else None,
+                        "revenue": float(row[1]) if row[1] is not None else None,
+                        "net_income": float(row[2]) if row[2] is not None else None,
+                        "operating_income": float(row[3]) if row[3] is not None else None,
+                        "ebitda": float(row[4]) if row[4] is not None else None,
+                        "type": row[5]
+                    }
+                    financials.append(qtr_data)
+
+                # Calculate growth metrics if we have at least 2 quarters
+                growth_metrics = {}
+                if len(financials) >= 2:
+                    current = financials[0]
+                    previous = financials[1]
+
+                    if current["revenue"] and previous["revenue"] and previous["revenue"] != 0:
+                        revenue_growth = ((current["revenue"] - previous["revenue"]) / previous["revenue"]) * 100
+                        growth_metrics["Revenue_Growth(QoQ)"] = f"{revenue_growth:.2f}%"
+
+                    if current["net_income"] and previous["net_income"] and previous["net_income"] != 0 and previous["net_income"] > 0:
+                        income_growth = ((current["net_income"] - previous["net_income"]) / abs(previous["net_income"])) * 100
+                        growth_metrics["Net_Income_Growth(QoQ)"] = f"{income_growth:.2f}%"
+
+                # Generate financial charts if we have data
+                financials_chart_script, financials_chart_div = self._generate_quarterly_financials_chart(financials)
+
+                result = {
+                    "Next_Earnings": earnings_date.strftime("%Y-%m-%d") if hasattr(earnings_date, "strftime") else str(earnings_date) if earnings_date else "Not available",
+                    "Quarterly_Financials": financials,
+                    "Growth_Metrics": growth_metrics,
+                    "Financials_Chart": {
+                        "script": financials_chart_script,
+                        "div": financials_chart_div
+                    }
+                }
+                
+                # Add industry info if available
+                if industry_info:
+                    result["Company_Info"] = industry_info
+                    
+                # Add fundamental metrics if available
+                if fundamental_metrics:
+                    result["Key_Metrics"] = fundamental_metrics
+                
+                return result
+                
+        except Exception as e:
+            print(f"Error fetching fundamental data for {symbol}: {str(e)}")
+            return None
+
+    def _get_scanner_results(self, symbol):
+        """Fetch scanner results for a stock from the scanner_results table"""
+        try:
+            # Remove .NS suffix if present for query
+            
+            with self.database_service._get_cursor() as cur:
+                # First, check if we have any recent scanner results
+                cur.execute("""
+                    SELECT scan_date 
+                    FROM scanner_results 
+                    WHERE stock_name = %s 
+                    ORDER BY scan_date DESC 
+                    LIMIT 1
+                """, (symbol,))
+                
+                date_result = cur.fetchone()
+                if not date_result:
+                    return None  # No scanner results found
+                
+                latest_date = date_result[0]
+                
+                # Get all column names for construction of dynamic query
+                cur.execute("""
+                    SELECT column_name 
+                    FROM information_schema.columns 
+                    WHERE table_name = 'scanner_results' 
+                    AND column_name != 'id' 
+                    AND column_name != 'stock_name' 
+                    AND column_name != 'scan_date'
+                    AND data_type = 'boolean'
+                """)
+                
+                columns = [col[0] for col in cur.fetchall()]
+                
+                # Construct a dynamic query to fetch all TRUE boolean columns
+                condition_parts = []
+                for col in columns:
+                    condition_parts.append(f"{col} = TRUE")
+                
+                conditions = " OR ".join(condition_parts)
+                
+                # Fetch the latest scanner results where any condition is TRUE
+                query = f"""
+                    SELECT * 
+                    FROM scanner_results 
+                    WHERE stock_name = %s 
+                    AND scan_date = %s
+                    AND ({conditions})
+                """
+                
+                cur.execute(query, (symbol, latest_date))
+                result = cur.fetchone()
+                
+                if not result:
+                    return None  # No TRUE signals found
+                
+                # Get the column names
+                col_names = [desc[0] for desc in cur.description]
+                
+                # Create a dictionary from column names and values
+                row_dict = dict(zip(col_names, result))
+                
+                # Extract only the TRUE conditions (excluding id, stock_name, scan_date)
+                active_signals = []
+                for col, value in row_dict.items():
+                    if col not in ['id', 'stock_name', 'scan_date'] and value is True:
+                        # Format the column name for better readability
+                        readable_name = col.replace('_', ' ').title()
+                        active_signals.append(readable_name)
+                
+                # Group signals into categories
+                signal_categories = self._categorize_scanner_signals(active_signals)
+                
+                return signal_categories
+                
+        except Exception as e:
+            print(f"Error fetching scanner results for {symbol}: {str(e)}")
+            return None
+
+    def _categorize_scanner_signals(self, signals):
+        """Categorize scanner signals for better presentation"""
+        categories = {
+            "Price Action": [],
+            "Moving Averages": [],
+            "RSI Signals": [],
+            "MACD Signals": [],
+            "Bollinger Bands": [],
+            "Chart Patterns": [],
+            "Candlestick Patterns": [],
+            "Momentum": [],
+            "Oscillators": [],
+            "Breakouts": [],
+            "Other": []
         }
-
-        return levels, recent_high, recent_low
-
-    def _get_fibonacci_analysis(self, latest_price, fib_levels):
-        """Analyze Fibonacci support/resistance"""
-        details = []
-        sorted_levels = sorted(fib_levels.items(), key=lambda x: x[1], reverse=True)
-
-        current_position = None
-        next_resistance = None
-        next_support = None
-
-        for i, (level, price) in enumerate(sorted_levels):
-            if latest_price > price:
-                current_position = f"Above {level} ({price:.2f})"
-                next_support = f"{sorted_levels[i][0]} ({sorted_levels[i][1]:.2f})" if i < len(sorted_levels) - 1 else "Recent Low"
-                break
+        
+        for signal in signals:
+            signal_lower = signal.lower()
+            
+            # Categorize the signal based on keywords
+            if any(x in signal_lower for x in ['sma', 'ema', 'cross']):
+                categories["Moving Averages"].append(signal)
+            elif 'rsi' in signal_lower:
+                categories["RSI Signals"].append(signal)
+            elif 'macd' in signal_lower:
+                categories["MACD Signals"].append(signal)
+            elif 'bollinger' in signal_lower:
+                categories["Bollinger Bands"].append(signal)
+            elif any(x in signal_lower for x in ['pattern', 'head', 'shoulder', 'triangle', 'wedge', 'rectangle']):
+                categories["Chart Patterns"].append(signal)
+            elif any(x in signal_lower for x in ['candlestick', 'doji', 'hammer', 'engulf', 'marubozu', 'star']):
+                categories["Candlestick Patterns"].append(signal)
+            elif any(x in signal_lower for x in ['momentum', 'increasing', 'decreasing']):
+                categories["Momentum"].append(signal)
+            elif any(x in signal_lower for x in ['cci', 'mfi', 'williams', 'roc', 'stochastic']):
+                categories["Oscillators"].append(signal)
+            elif any(x in signal_lower for x in ['breakout', 'breakdown']):
+                categories["Breakouts"].append(signal)
+            elif any(x in signal_lower for x in ['behavior', 'opening', 'high', 'low', 'week']):
+                categories["Price Action"].append(signal)
             else:
-                next_resistance = f"{level} ({price:.2f})"
+                categories["Other"].append(signal)
+        
+        # Remove empty categories
+        return {k: v for k, v in categories.items() if v}
 
-        if not next_resistance:
-            next_resistance = f"Recent High ({max(fib_levels.values()):.2f})"
+    def _generate_quarterly_financials_chart(self, financials):
+        """Generate a bar chart for quarterly financial data"""
+        if not financials or len(financials) < 2:
+            return "", ""
+        
+        try:
+            # Convert financials to DataFrame
+            df = pd.DataFrame(financials)
+            
+            # Reverse to show oldest to newest quarters
+            df = df.iloc[::-1]
+            
+            # Extract quarter names (e.g., Q1 2023) from dates
+            df['quarter_name'] = df['quarter_ending'].apply(lambda x: 
+                f"Q{(pd.to_datetime(x).month - 1) // 3 + 1} {pd.to_datetime(x).year}" if x else "")
+            
+            # Add pre-formatted text columns for labels
+            df['revenue_formatted'] = df['revenue'].apply(lambda x: f"{x/1000000:.1f}M" if x and not np.isnan(x) else "")
+            df['net_income_formatted'] = df['net_income'].apply(lambda x: f"{x/1000000:.1f}M" if x and not np.isnan(x) else "")
+            
+            # Create source for the chart
+            source = ColumnDataSource(df)
+            
+            # Create figure for revenue
+            p_revenue = figure(
+                x_range=df['quarter_name'].tolist(),
+                height=300,
+                width=600,
+                title="Quarterly Revenue",
+                toolbar_location="right",
+                tools="pan,box_zoom,reset,save",
+            )
+            
+            # Add revenue bars
+            revenue_renderer = p_revenue.vbar(
+                x='quarter_name',
+                top='revenue',
+                width=0.6,
+                source=source,
+                fill_color=Category10[10][0],
+                line_color=Category10[10][0],
+                fill_alpha=0.7,
+                hover_alpha=1.0,
+            )
+            
+            # Add tooltips for revenue
+            hover_revenue = HoverTool(
+                tooltips=[
+                    ("Quarter", "@quarter_name"),
+                    ("Revenue", "@revenue{$0.00 a}"),
+                ],
+                renderers=[revenue_renderer],
+                mode='mouse'
+            )
+            p_revenue.add_tools(hover_revenue)
+            
+            # Set axis labels
+            p_revenue.xaxis.axis_label = "Quarter"
+            p_revenue.yaxis.axis_label = "Revenue ($)"
+            
+            # Add value labels above bars - use pre-formatted text
+            revenue_labels = LabelSet(
+                x='quarter_name',
+                y='revenue',
+                text='revenue_formatted',
+                level='glyph',
+                x_offset=-20,
+                y_offset=8,
+                source=source,
+                text_font_size="8pt",
+                text_color="black",
+                text_font_style="bold",
+                text_baseline="middle",
+                text_align="center"
+            )
+            p_revenue.add_layout(revenue_labels)
+            
+            # Create figure for net income
+            p_income = figure(
+                x_range=df['quarter_name'].tolist(),
+                height=300,
+                width=600,
+                title="Quarterly Net Income",
+                toolbar_location="right",
+                tools="pan,box_zoom,reset,save",
+            )
+            
+            # Add net income bars
+            income_renderer = p_income.vbar(
+                x='quarter_name',
+                top='net_income',
+                width=0.6,
+                source=source,
+                fill_color=Category10[10][1],
+                line_color=Category10[10][1],
+                fill_alpha=0.7,
+                hover_alpha=1.0,
+            )
+            
+            # Add tooltips for net income
+            hover_income = HoverTool(
+                tooltips=[
+                    ("Quarter", "@quarter_name"),
+                    ("Net Income", "@net_income{$0.00 a}"),
+                ],
+                renderers=[income_renderer],
+                mode='mouse'
+            )
+            p_income.add_tools(hover_income)
+            
+            # Set axis labels
+            p_income.xaxis.axis_label = "Quarter"
+            p_income.yaxis.axis_label = "Net Income ($)"
+            
+            # Add value labels above bars - use pre-formatted text
+            income_labels = LabelSet(
+                x='quarter_name',
+                y='net_income',
+                text='net_income_formatted',
+                level='glyph',
+                x_offset=-20,
+                y_offset=8,
+                source=source,
+                text_font_size="8pt",
+                text_color="black",
+                text_font_style="bold",
+                text_baseline="middle",
+                text_align="center"
+            )
+            p_income.add_layout(income_labels)
+            
+            # Style the charts
+            for p in [p_revenue, p_income]:
+                p.xgrid.grid_line_color = None
+                p.y_range.start = 0
+                p.title.text_font_size = '12pt'
+                p.title.text_font_style = 'bold'
+                p.xaxis.major_label_orientation = 0.7
+            
+            # Combine plots into a column layout
+            layout = column(p_revenue, p_income)
+            
+            # Generate the components
+            script, div = components(layout)
+            
+            return script, div
+            
+        except Exception as e:
+            print(f"Error generating quarterly financials chart: {e}")
+            return "", ""
 
-        details.append(f"Current Position: {current_position}")
-        details.append(f"Next Support Level: {next_support}")
-        details.append(f"Next Resistance Level: {next_resistance}")
-
-        return details
-
-    def _analyze_52_week_levels(self, df, latest_price):
-        """Check if stock is near 52-week high/low"""
-        high_52 = df["day_high"].max()
-        low_52 = df["day_low"].min()
-        threshold = 0.02  # 2% threshold
-
-        position = None
-        recommendation = None
-
-        if latest_price >= high_52 * (1 - threshold):
-            position = f"Near 52-Week High ({high_52:.2f})"
-            recommendation = "Caution: The stock is near its yearly high. Consider booking profits."
-        elif latest_price <= low_52 * (1 + threshold):
-            position = f"Near 52-Week Low ({low_52:.2f})"
-            recommendation = "Opportunity: The stock is near its yearly low. Watch for potential reversal."
-
-        return position, recommendation
-
-    def _calculate_supertrend(self, df, atr_period=10, factor=3):
-        """Calculate Supertrend indicator"""
-        if not {'day_high', 'day_low', 'Close'}.issubset(df.columns):
-            raise ValueError("Missing required columns")
-
-        df['ATR'] = ta.volatility.average_true_range(df['day_high'], df['day_low'], df['Close'], window=atr_period)
-        df['UpperBand'] = ((df['day_high'] + df['day_low']) / 2) + (factor * df['ATR'])
-        df['LowerBand'] = ((df['day_high'] + df['day_low']) / 2) - (factor * df['ATR'])
-
-        df['Supertrend'] = np.nan
-        df['Trend'] = np.nan
-
-        for i in range(1, len(df)):
-            prev_supertrend = df.iloc[i - 1]['Supertrend']
-
-            if df.iloc[i - 1]['Close'] > prev_supertrend:
-                df.iloc[i, df.columns.get_loc('Supertrend')] = df.iloc[i]['LowerBand'] \
-                    if df.iloc[i]['Close'] > df.iloc[i]['LowerBand'] else prev_supertrend
+    def _analyze_adx(self, df):
+        """Analyze ADX (Average Directional Index) data"""
+        if "adx" not in df.columns or "adx_di_positive" not in df.columns or "adx_di_negative" not in df.columns:
+            return None
+        
+        latest = df.iloc[-1]
+        adx_value = latest["adx"]
+        plus_di = latest["adx_di_positive"]
+        minus_di = latest["adx_di_negative"]
+        
+        # Skip analysis if any of the current values are None
+        if adx_value is None or plus_di is None or minus_di is None:
+            return None
+        
+        # Get previous values for comparison
+        prev = df.iloc[-2] if len(df) > 1 else None
+        prev_adx = prev["adx"] if prev is not None else None
+        prev_plus_di = prev["adx_di_positive"] if prev is not None else None
+        prev_minus_di = prev["adx_di_negative"] if prev is not None else None
+        
+        # Initialize analysis result
+        result = {}
+        
+        # Current ADX values
+        result["Current ADX"] = round(adx_value, 2)
+        result["+DI"] = round(plus_di, 2) 
+        result["-DI"] = round(minus_di, 2)
+        
+        # Trend strength interpretation
+        if adx_value < 20:
+            result["Trend Strength"] = "Weak or absent trend"
+        elif adx_value < 30:
+            result["Trend Strength"] = "Moderate trend"
+        elif adx_value < 50:
+            result["Trend Strength"] = "Strong trend"
+        else:
+            result["Trend Strength"] = "Very strong trend"
+        
+        # Trend direction
+        if plus_di > minus_di:
+            result["Trend Direction"] = "Bullish"
+        else:
+            result["Trend Direction"] = "Bearish"
+        
+        # Trend momentum (based on ADX changes)
+        if prev_adx is not None:
+            result["ADX Change"] = round(adx_value - prev_adx, 2)
+            
+            if adx_value > prev_adx:
+                result["Trend Momentum"] = "Strengthening"
+            elif adx_value < prev_adx:
+                result["Trend Momentum"] = "Weakening"
             else:
-                df.iloc[i, df.columns.get_loc('Supertrend')] = df.iloc[i]['UpperBand'] \
-                    if df.iloc[i]['Close'] < df.iloc[i]['UpperBand'] else prev_supertrend
+                result["Trend Momentum"] = "Stable"
+        
+        # DI crossover check - safely handle None values
+        if prev_plus_di is not None and prev_minus_di is not None:
+            if plus_di > minus_di and prev_plus_di <= prev_minus_di:
+                result["Recent Signal"] = "Bullish crossover (+DI crossed above -DI)"
+            elif plus_di < minus_di and prev_plus_di >= prev_minus_di:
+                result["Recent Signal"] = "Bearish crossover (-DI crossed above +DI)"
+        
+        # Trading recommendation based on ADX analysis - add safe checks
+        if adx_value >= 25:  # Strong trend environment
+            if plus_di > minus_di:
+                if prev_plus_di is not None and prev_adx is not None and plus_di > prev_plus_di and adx_value > prev_adx:
+                    result["Recommendation"] = "Consider long positions (strong bullish trend)"
+                else:
+                    result["Recommendation"] = "Hold long positions, monitor for weakening"
+            else:
+                if prev_minus_di is not None and prev_adx is not None and minus_di > prev_minus_di and adx_value > prev_adx:
+                    result["Recommendation"] = "Consider short positions (strong bearish trend)"
+                else:
+                    result["Recommendation"] = "Hold short positions, monitor for weakening"
+        else:  # Weak trend environment
+            result["Recommendation"] = "Ranging market - consider range-based strategies instead of trend following"
+        
+        return result
 
-            df.iloc[i, df.columns.get_loc('Trend')] = "Bullish" if df.iloc[i]['Close'] > df.iloc[i]['Supertrend'] else "Bearish"
+    def _generate_chart_from_db(self, df, active_indicators):
+        """Generate Bokeh chart from database data"""
+        """
+        source = ColumnDataSource(df.reset_index())
 
-        return df['Trend'].iloc[-1]
+        p = figure(x_axis_type="datetime", title="Stock Chart", width=1000, height=500)
+        p_rsi = figure(x_axis_type="datetime", title="RSI", width=1000, height=200, x_range=p.x_range)
+        p_macd = figure(x_axis_type="datetime", title="MACD", width=1000, height=200, x_range=p.x_range)
 
-    def _find_support_resistance(self, df):
-        """Detect support/resistance levels"""
-        high = df['day_high'].iloc[-2]
-        low = df['day_low'].iloc[-2]
-        close = df['Close'].iloc[-2]
+        # Plot candlesticks - Fix column names to match the DataFrame
+        inc = df["close"] > df["open"]
+        dec = df["open"] > df["close"]
 
-        pivot = (high + low + close) / 3
-        r1 = (2 * pivot) - low
-        r2 = pivot + (high - low)
-        s1 = (2 * pivot) - high
-        s2 = pivot - (high - low)
+        # Fixed segment method to use correct x0 and x1 parameters instead of x
+        p.segment(source=source, x0='timestamp', y0='low', x1='timestamp', y1='high', color="black")
+        
+        p.vbar(x=df.index[inc], width=12*60*60*1000, top=df["close"][inc], bottom=df["open"][inc],
+               fill_color="green", line_color="black")
+        p.vbar(x=df.index[dec], width=12*60*60*1000, top=df["open"][dec], bottom=df["close"][dec],
+               fill_color="red", line_color="black")
 
-        current_price = df['Close'].iloc[-1]
+        # Add indicators
+        if active_indicators.get("SMA_50"):
+            p.line(source=source, x='timestamp', y='sma50', legend_label="SMA 50", line_width=2, color="blue")
+        if active_indicators.get("SMA_200"):
+            p.line(source=source, x='timestamp', y='sma200', legend_label="SMA 200", line_width=2, color="red")
+        if active_indicators.get("BB_upper"):
+            p.line(source=source, x='timestamp', y='upper_bollinger', legend_label="Bollinger Upper", line_width=1.5,
+                   color="purple", line_dash="dashed")
+        if active_indicators.get("BB_lower"):
+            p.line(source=source, x='timestamp', y='lower_bollinger', legend_label="Bollinger Lower", line_width=1.5,
+                   color="purple", line_dash="dashed")
+        if active_indicators.get("VWAP"):
+            p.line(source=source, x='timestamp', y='vwap', legend_label="VWAP", line_width=2,
+                   color="orange", line_dash="dotted")
+        if active_indicators.get("Pivot"):
+            pivot_value = df["pivot"].iloc[-1]
+            p.line([df.index.min(), df.index.max()], [pivot_value, pivot_value],
+                   legend_label="Pivot", line_width=2, color="brown", line_dash="solid")
+
+        # Add RSI and MACD
+        if "rsi" in df.columns:
+            p_rsi.line(source=source, x='timestamp', y='rsi', legend_label="RSI", line_width=2, color="green")
+
+        if all(col in df.columns for col in ["macd_line", "macd_signal"]):
+            p_macd.line(source=source, x='timestamp', y='macd_line', legend_label="MACD", line_width=2, color="cyan")
+            p_macd.line(source=source, x='timestamp', y='macd_signal', legend_label="Signal Line", line_width=2, color="red")
+
+        p.legend.location = "top_left"
+        script, div = components(column(p, p_rsi, p_macd))
+        return script, div
+        """
+        return "",""
+
+    def _get_supertrend_from_db(self, df):
+        """Get supertrend data from database"""
+        # Extract supertrend data from DataFrame
+        latest_supertrend = df["Supertrend"].iloc[-1]
+        if latest_supertrend > df["close"].iloc[-1]:
+            return "Bearish"
+        else:
+            return "Bullish"
+
+    def _get_pivots_from_db(self, df):
+        """Get pivot data from database"""
+        latest = df.iloc[-1]
+        pivot = latest["pivot"]
+        r1 = latest["r1"]
+        r2 = latest["r2"]
+        s1 = latest["s1"]
+        s2 = latest["s2"]
+        current_price = latest["close"]
 
         if current_price > pivot:
-            summary = f"Price ({current_price}) is above Pivot ({pivot:.2f}). If it breaks {r1:.2f}, it may touch {r2:.2f}."
+            summary = f"Price ({current_price:.2f}) is above Pivot ({pivot:.2f}). If it breaks {r1:.2f}, it may touch {r2:.2f}."
         elif current_price < pivot:
-            summary = f"Price ({current_price}) is below Pivot ({pivot:.2f}). If it breaks {s1:.2f}, it may drop to {s2:.2f}."
+            summary = f"Price ({current_price:.2f}) is below Pivot ({pivot:.2f}). If it breaks {s1:.2f}, it may drop to {s2:.2f}."
         else:
-            summary = f"Price ({current_price}) is at the Pivot ({pivot:.2f}), indicating a neutral zone."
+            summary = f"Price ({current_price:.2f}) is at the Pivot ({pivot:.2f}), indicating a neutral zone."
 
         pivots = [
-            ("Current Price", df['Close'].iloc[-1]),
+            ("Current Price", current_price),
             ("(1D time Frame) Pivot Point", round(pivot, 2)),
             ("Pivot Resistance 1 (R1)", round(r1, 2)),
             ("Pivot Resistance 2 (R2)", round(r2, 2)),
@@ -391,11 +872,11 @@ class StockAnalysisService:
 
         return pivots
 
-    def _detect_trendline_breakout(self, df):
-        """Detect trendline breakout"""
-        latest_price = df['Close'].iloc[-1]
-        support_trendline = df['day_low'].rolling(window=50).min().iloc[-1]
-        resistance_trendline = df['day_high'].rolling(window=50).max().iloc[-1]
+    def _detect_trendline_breakout_from_db(self, df):
+        """Detect trendline breakout using database data"""
+        latest_price = df['close'].iloc[-1]
+        support_trendline = df['Donchian_Low'].rolling(window=20).min().iloc[-1]
+        resistance_trendline = df['Donchian_High'].rolling(window=20).max().iloc[-1]
 
         if latest_price > resistance_trendline:
             return "Bullish Breakout"
@@ -404,16 +885,118 @@ class StockAnalysisService:
         else:
             return "No Breakout detected"
 
-    def _calculate_donchian_channels(self, df, period=20):
-        """Calculate Donchian Channels"""
-        df['Upper'] = df['day_high'].rolling(window=period).max()
-        df['Lower'] = df['day_low'].rolling(window=period).min()
-        df['Middle'] = (df['Upper'] + df['Lower']) / 2
+    def _get_pivot_analysis(self, current_price, pivot, r1, r2, r3, s1, s2, s3):
+        """Analyze price in relation to pivot levels"""
+        analysis = []
 
-        upper = round(df['Upper'].iloc[-1], 2)
-        lower = round(df['Lower'].iloc[-1], 2)
-        middle = round(df['Middle'].iloc[-1], 2)
-        current_price = round(df['Close'].iloc[-1], 2)
+        # Format values for display
+        current_price = float(current_price)
+        pivot = float(pivot) if pivot is not None else None
+        r1 = float(r1) if r1 is not None else None
+        r2 = float(r2) if r2 is not None else None
+        r3 = float(r3) if r3 is not None else None
+        s1 = float(s1) if s1 is not None else None
+        s2 = float(s2) if s2 is not None else None
+        s3 = float(s3) if s3 is not None else None
+
+        # Check if pivot values are available
+        if pivot is None:
+            return ["Pivot data not available."]
+
+        # Determine current position relative to pivot levels
+        if current_price > r3:
+            analysis.append(f"Price is above R3 ({r3:.2f}) - Extremely bullish, potential reversal zone.")
+        elif current_price > r2:
+            analysis.append(f"Price is above R2 ({r2:.2f}) - Strongly bullish.")
+            analysis.append(f"Next resistance at R3: {r3:.2f} (+{((r3/current_price)-1)*100:.2f}%)")
+        elif current_price > r1:
+            analysis.append(f"Price is above R1 ({r1:.2f}) - Bullish.")
+            analysis.append(f"Next resistance at R2: {r2:.2f} (+{((r2/current_price)-1)*100:.2f}%)")
+        elif current_price > pivot:
+            analysis.append(f"Price is above pivot ({pivot:.2f}) - Mildly bullish.")
+            analysis.append(f"Next resistance at R1: {r1:.2f} (+{((r1/current_price)-1)*100:.2f}%)")
+        elif current_price < s3:
+            analysis.append(f"Price is below S3 ({s3:.2f}) - Extremely bearish, potential reversal zone.")
+        elif current_price < s2:
+            analysis.append(f"Price is below S2 ({s2:.2f}) - Strongly bearish.")
+            analysis.append(f"Next support at S3: {s3:.2f} ({((s3/current_price)-1)*100:.2f}%)")
+        elif current_price < s1:
+            analysis.append(f"Price is below S1 ({s1:.2f}) - Bearish.")
+            analysis.append(f"Next support at S2: {s2:.2f} ({((s2/current_price)-1)*100:.2f}%)")
+        else:  # Between pivot and S1
+            analysis.append(f"Price is between pivot ({pivot:.2f}) and S1 ({s1:.2f}) - Mildly bearish.")
+            analysis.append(f"Resistance at pivot: {pivot:.2f} (+{((pivot/current_price)-1)*100:.2f}%)")
+            analysis.append(f"Support at S1: {s1:.2f} ({((s1/current_price)-1)*100:.2f}%)")
+
+        # Add trading recommendation based on pivot analysis
+        if current_price > pivot:
+            if current_price < r1:
+                analysis.append("Strategy: Look for buying opportunities with tight stop below pivot.")
+            elif current_price < r2:
+                analysis.append("Strategy: Consider trailing stops to protect profits.")
+            else:
+                analysis.append("Strategy: Watch for signs of resistance or reversal patterns.")
+        else:
+            if current_price > s1:
+                analysis.append("Strategy: Watch for potential bounce at S1 or breakdown below it.")
+            elif current_price > s2:
+                analysis.append("Strategy: Look for selling opportunities with stop above pivot.")
+            else:
+                analysis.append("Strategy: Watch for signs of support or reversal patterns.")
+
+        return analysis
+
+    def _analyze_52_week_levels(self, df, latest_price):
+        """Analyze price in relation to 52-week high and low"""
+        try:
+            # Calculate 52-week high and low
+            year_data = df.tail(252)  # Approximately 252 trading days in a year
+            if year_data.empty:
+                return None, None
+
+            high_52w = year_data['high'].max()
+            low_52w = year_data['low'].min()
+
+            # Calculate distances in percentage
+            pct_from_high = ((high_52w - latest_price) / high_52w) * 100
+            pct_from_low = ((latest_price - low_52w) / low_52w) * 100
+
+            # Determine position and recommendation
+            if pct_from_high <= 3:
+                position = f"Close to 52-week high (within {pct_from_high:.2f}%)"
+                recommendation = "Consider profit taking, strong momentum but potential resistance"
+            elif pct_from_low <= 3:
+                position = f"Close to 52-week low (within {pct_from_low:.2f}%)"
+                recommendation = "Potential value zone, but verify support before buying"
+            elif pct_from_high <= 10:
+                position = f"Near 52-week high ({pct_from_high:.2f}% below)"
+                recommendation = "Uptrend likely intact, watch for consolidation"
+            elif pct_from_low <= 10:
+                position = f"Near 52-week low ({pct_from_low:.2f}% above)"
+                recommendation = "Monitor for trend reversal signs before entering"
+            else:
+                middle_point = (high_52w + low_52w) / 2
+                if latest_price > middle_point:
+                    position = f"In upper half of 52-week range ({pct_from_high:.2f}% below high, {pct_from_low:.2f}% above low)"
+                    recommendation = "Moderately bullish zone"
+                else:
+                    position = f"In lower half of 52-week range ({pct_from_high:.2f}% below high, {pct_from_low:.2f}% above low)"
+                    recommendation = "Moderately bearish zone"
+
+            return position, recommendation
+        except Exception as e:
+            print(f"Error analyzing 52-week levels: {str(e)}")
+            return None, None
+
+
+
+    def _get_donchian_from_db(self, df):
+        """Get Donchian channels from database"""
+        latest = df.iloc[-1]
+        upper = round(latest['Donchian_High'], 2)
+        lower = round(latest['Donchian_Low'], 2)
+        middle = round((upper + lower) / 2, 2)
+        current_price = round(latest['close'], 2)
 
         if current_price > upper:
             trend = "Breakout above the Donchian Upper Band! Possible strong bullish momentum."
@@ -445,10 +1028,12 @@ class StockAnalysisService:
         inc = df["Close"] > df["Open"]
         dec = df["Open"] > df["Close"]
 
-        p.segment(df["timestamp"], df["day_high"], df["timestamp"], df["day_low"], color="black")
-        p.vbar(df["timestamp"][inc], width=12*60*60*1000, top=df["Close"][inc], bottom=df["Open"][inc],
+        # Fixed segment method to use correct x0 and x1 parameters instead of x
+        p.segment(x0=df["timestamp"], y0=df["day_low"], x1=df["timestamp"], y1=df["day_high"], color="black")
+        
+        p.vbar(x=df["timestamp"][inc], width=12*60*60*1000, top=df["Close"][inc], bottom=df["Open"][inc],
                fill_color="green", line_color="black")
-        p.vbar(df["timestamp"][dec], width=12*60*60*1000, top=df["Open"][dec], bottom=df["Close"][dec],
+        p.vbar(x=df["timestamp"][dec], width=12*60*60*1000, top=df["Open"][dec], bottom=df["Close"][dec],
                fill_color="red", line_color="black")
 
         if active_indicators.get("SMA_50"):
@@ -666,6 +1251,32 @@ class StockAnalysisService:
                         next_earnings_date = None
                         # Continue processing despite earnings date extraction failure
                     
+                    # Get company info and fundamental metrics
+                    company_info = {}
+                    fundamental_metrics = {}
+                    try:
+                        # Get company info
+                        info = stock.info
+                        if info and isinstance(info, dict):
+                            # Extract industry and sector info
+                            company_info = {
+                                "industry": info.get("industry"),
+                                "sector": info.get("sector"),
+                                "long_name": info.get("longName")
+                            }
+                            
+                            # Extract fundamental metrics
+                            fundamental_metrics = {
+                                "pe_ratio": info.get("trailingPE"),
+                                "market_cap": info.get("marketCap"),
+                                "dividend_yield": info.get("dividendYield") * 100 if info.get("dividendYield") else None,
+                                "dividend_rate": info.get("dividendRate"),
+                                "total_debt": info.get("totalDebt")
+                            }
+                    except Exception as e:
+                        print(f"Error extracting company info for {symbol}: {e}")
+                        # Continue despite info extraction failure
+                    
                     # Attempt to fetch quarterly financials - try multiple report types
                     financials_data = None
                     for data_type in ['quarterly_financials', 'quarterly_income_stmt', 'quarterly_balance_sheet']:
@@ -734,12 +1345,24 @@ class StockAnalysisService:
                         consecutive_failures = 0
                         rate_limit_delay = max(BASE_DELAY, rate_limit_delay * 0.9)  # Gradually reduce delay on success
                         
-                        return {"symbol": symbol, "financials": financials, "next_earnings_date": next_earnings_date}
+                        return {
+                            "symbol": symbol, 
+                            "financials": financials, 
+                            "next_earnings_date": next_earnings_date,
+                            "company_info": company_info,
+                            "fundamental_metrics": fundamental_metrics
+                        }
                     else:
-                        # Still return earnings date if we found it, even without financials
-                        if next_earnings_date:
+                        # Still return earnings date and company info if we found it, even without financials
+                        if next_earnings_date or company_info or fundamental_metrics:
                             consecutive_failures = 0  # Not a complete failure
-                            return {"symbol": symbol, "financials": [], "next_earnings_date": next_earnings_date}
+                            return {
+                                "symbol": symbol, 
+                                "financials": [], 
+                                "next_earnings_date": next_earnings_date,
+                                "company_info": company_info,
+                                "fundamental_metrics": fundamental_metrics
+                            }
                         
                         # No usable data found
                         if retry_count < MAX_RETRIES:
@@ -826,3 +1449,4 @@ class StockAnalysisService:
             "failed_count": failed_count,
             "completion_time": (datetime.now(ist) - now).total_seconds()
         }
+
