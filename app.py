@@ -43,6 +43,10 @@ scanner_service = ScannerService(database_service, option_chain_service)
 def get_all_stocks():
     return jsonify(stock_analysis_service.fetch_all_nse_stocks())
 
+@app.route("/fno-stocks", methods=["GET"])
+def get_all_stocks():
+    return jsonify(option_chain_service.get_fno_stocks_with_symbols())
+
 @app.route("/analyze", methods=["GET"])
 def analyze():
     symbol = request.args.get("symbol")
@@ -973,11 +977,11 @@ def run_background_workers():
     financials_thread = threading.Thread(target=run_financials_worker, daemon=True)
     db_clearing_thread = threading.Thread(target=run_db_clearing_worker, daemon=True)
     
-    market_data_thread.start()
+    #market_data_thread.start()
     option_chain_thread.start()
     oi_buildup_thread.start()
-    fiftytwo_week_thread.start()
-    stock_data_thread.start()
+    #fiftytwo_week_thread.start()
+    #stock_data_thread.start()
     #scanner_thread.start()
     #financials_thread.start()
     db_clearing_thread.start()
