@@ -10,8 +10,8 @@ from bokeh.palettes import Category10
 from decimal import Decimal
 import pytz
 from datetime import datetime, timedelta
-from services.option_chain import OptionChainService
 from services.database import DatabaseService  # Import DatabaseService
+from services.option_chain import OptionChainService
 import concurrent.futures
 import time
 import requests
@@ -990,8 +990,6 @@ class StockAnalysisService:
             print(f"Error analyzing 52-week levels: {str(e)}")
             return None, None
 
-
-
     def _get_donchian_from_db(self, df):
         """Get Donchian channels from database"""
         latest = df.iloc[-1]
@@ -1069,9 +1067,11 @@ class StockAnalysisService:
     def get_52_week_extremes(self, threshold=0.05):
         """Get stocks near 52-week highs or lows within threshold percentage"""
         try:
+            # Use F&O stocks list instead of all NSE stocks
+
             fno_stocks = self.option_chain_service.get_fno_stocks_with_symbols()
-            if not nse_stocks:
-                return {"error": "No stocks found"}
+            if not fno_stocks:
+                return {"error": "No F&O stocks found"}
 
             results = []
             ist = pytz.timezone('Asia/Kolkata')
@@ -1088,6 +1088,7 @@ class StockAnalysisService:
                         if not symbol or len(symbol) < 2:
                             continue
 
+                        # For F&O stocks, we already have the .NS suffix
                         full_symbol = symbol
                         
                         # Use a custom session
@@ -1157,29 +1158,32 @@ class StockAnalysisService:
             return []
 
     def fetch_and_store_financials(self):
-        """Fetch and store quarterly financial data for all NSE stocks with optimized batch processing."""
-        nse_stocks = self.fetch_all_nse_stocks()
-        if not nse_stocks:
-            print("No stocks found to fetch financials.")
+        """Fetch and store quarterly financial data for F&O stocks with optimized batch processing."""
+        # Use F&O stocks instead of all NSE stocks
+        fno_stocks = self.option_chain_service.get_fno_stocks_with_symbols()
+        # Remove the .NS suffix for consistency in processing
+        fno_symbols = [stock.replace('.NS', '') for stock in fno_stocks]
+        
+        if not fno_symbols:
+            print("No F&O stocks found to fetch financials.")
             return
 
         ist = pytz.timezone('Asia/Kolkata')
         now = datetime.now(ist)
-        print(f"Starting financial data collection for {len(nse_stocks)} stocks at {now.strftime('%Y-%m-%d %H:%M:%S')}")
+        print(f"Starting financial data collection for {len(fno_symbols)} F&O stocks at {now.strftime('%Y-%m-%d %H:%M:%S')}")
 
         # Configuration for batch processing
-        BATCH_SIZE = 50  # Number of stocks in each batch
-        MAX_WORKERS = 8  # Maximum number of parallel workers
-        MAX_RETRIES = 3  # Maximum number of retries for a failed request
+        BATCH_SIZE = 30  # Number of stocks in each batch for yfinance download
+        MAX_WORKERS = 8   # Maximum number of parallel workers for ticker-specific methods
+        MAX_RETRIES = 2   # Maximum number of retries for a failed request
         BASE_DELAY = 1.0  # Base delay between API calls in seconds
         
         # Split stocks into batches
-        batches = [nse_stocks[i:i + BATCH_SIZE] for i in range(0, len(nse_stocks), BATCH_SIZE)]
+        batches = [fno_symbols[i:i + BATCH_SIZE] for i in range(0, len(fno_symbols), BATCH_SIZE)]
         total_batches = len(batches)
         
-        print(f"Processing {total_batches} batches with {BATCH_SIZE} stocks per batch, using {MAX_WORKERS} workers")
+        print(f"Processing {total_batches} batches with {BATCH_SIZE} stocks per batch")
         
-        results_by_batch = []
         success_count = 0
         failed_count = 0
         skipped_count = 0
@@ -1189,266 +1193,356 @@ class StockAnalysisService:
         consecutive_failures = 0
         
         # Process each batch with adaptive rate limiting
-        for batch_idx, batch in enumerate(batches):
+        for batch_idx, batch_symbols in enumerate(batches):
             batch_start_time = time.time()
-            print(f"Processing batch {batch_idx+1}/{total_batches} with {len(batch)} stocks...")
+            print(f"Processing batch {batch_idx+1}/{total_batches} with {len(batch_symbols)} stocks...")
             
-            batch_results = []
-            batch_failures = 0
+            # Add .NS suffix back for API call
+            batch_tickers = [f"{symbol}.NS" for symbol in batch_symbols]
+            ticker_str = " ".join(batch_tickers)
             
-            # Function to fetch financials with retries and adaptive delay
-            def fetch_financials_with_retry(symbol, retry_count=0):
-                nonlocal consecutive_failures, rate_limit_delay
+            try:
+                # First, get basic data for all stocks in the batch at once
+                session = self._get_session()
+                print(f"Downloading batch data for {len(batch_tickers)} stocks")
                 
+                # Fetch price data for all stocks in batch in one API call
+                batch_data = yf.download(
+                    tickers=ticker_str,
+                    period="2d",       # Just need recent data for current metrics
+                    interval="1d",     # Daily data
+                    group_by='ticker', # Group by ticker
+                    progress=False,    # Disable progress bar
+                    session=session    # Use our custom session
+                )
+                
+                # Pre-fetch financials data for the entire batch in one call if possible
                 try:
-                    # Apply adaptive delay to avoid rate limiting
-                    time.sleep(rate_limit_delay)
+                    # Try to get financials data for multiple tickers at once by creating a batch of Ticker objects
+                    # This reduces individual network calls for financials
+                    print(f"Pre-fetching financial data for batch {batch_idx+1}")
+                    multi_ticker = yf.Tickers(ticker_str, session=session)
                     
-                    full_symbol = f"{symbol}.NS"
+                    # Store these pre-fetched tickers for later use
+                    ticker_objects = {symbol: multi_ticker.tickers[f"{symbol}.NS"] for symbol in batch_symbols}
+                except Exception as e:
+                    print(f"Error pre-fetching tickers batch: {e}")
+                    # Fallback - we'll create individual tickers as needed
+                    ticker_objects = {}
+                
+                # Process results for this batch
+                batch_results = []
+                batch_failures = 0
+                
+                # Function to process each stock in the batch (for data that must be fetched individually)
+                def process_stock_financials(symbol, retry_count=0):
+                    nonlocal consecutive_failures, rate_limit_delay
                     
-                    # Use a custom session
-                    session = self._get_session()
-                    stock = yf.Ticker(full_symbol, session=session)
-                    
-                    # Get next earnings date from calendar if available
-                    next_earnings_date = None
                     try:
-                        # Properly handle different types of calendar data
-                        if hasattr(stock, 'calendar'):
-                            # Check if calendar is a DataFrame
-                            if hasattr(stock.calendar, 'empty') and not stock.calendar.empty:
-                                if 'Earnings Date' in stock.calendar.columns:
-                                    # Handle case where 'Earnings Date' contains a list of dates
-                                    earnings_date_value = stock.calendar['Earnings Date'].iloc[0]
-                                    if isinstance(earnings_date_value, list) or isinstance(earnings_date_value, tuple):
-                                        next_earnings_date = earnings_date_value[0]
-                                    else:
-                                        next_earnings_date = earnings_date_value
-                            # Handle case where calendar is a dict (newer versions of yfinance)
-                            elif isinstance(stock.calendar, dict) and stock.calendar:
-                                # In dictionary format, the key might be 'Earnings Date' or similar
-                                earnings_key = next((k for k in stock.calendar.keys() 
-                                                   if k.lower().startswith('earnings')), None)
-                                if earnings_key and stock.calendar[earnings_key]:
-                                    earnings_date_value = stock.calendar[earnings_key]
-                                    if isinstance(earnings_date_value, list) or isinstance(earnings_date_value, tuple):
-                                        next_earnings_date = earnings_date_value[0]
-                                    else:
-                                        next_earnings_date = earnings_date_value
+                        # Apply minimal delay to avoid rate limiting
+                        time.sleep(max(0.1, rate_limit_delay / MAX_WORKERS))
                         
-                        # Convert date to datetime object if needed
-                        if isinstance(next_earnings_date, pd.Timestamp):
-                            next_earnings_date = next_earnings_date.to_pydatetime()
-                        elif hasattr(next_earnings_date, 'date') and callable(getattr(next_earnings_date, 'date')):
-                            # Handle date objects that have a date() method
-                            next_earnings_date = datetime.combine(next_earnings_date.date(), datetime.min.time())
-                        elif isinstance(next_earnings_date, (str, int, float)):
-                            # Try to parse strings or convert numbers
-                            try:
-                                next_earnings_date = pd.to_datetime(next_earnings_date).to_pydatetime()
-                            except:
-                                next_earnings_date = None
-                    except Exception as e:
-                        print(f"Error extracting earnings date for {symbol}: {e}")
-                        next_earnings_date = None
-                        # Continue processing despite earnings date extraction failure
-                    
-                    # Get company info and fundamental metrics
-                    company_info = {}
-                    fundamental_metrics = {}
-                    try:
-                        # Get company info
-                        info = stock.info
-                        if info and isinstance(info, dict):
-                            # Extract industry and sector info
-                            company_info = {
-                                "industry": info.get("industry"),
-                                "sector": info.get("sector"),
-                                "long_name": info.get("longName")
-                            }
-                            
-                            # Extract fundamental metrics
-                            fundamental_metrics = {
-                                "pe_ratio": info.get("trailingPE"),
-                                "market_cap": info.get("marketCap"),
-                                "dividend_yield": info.get("dividendYield") * 100 if info.get("dividendYield") else None,
-                                "dividend_rate": info.get("dividendRate"),
-                                "total_debt": info.get("totalDebt")
-                            }
-                    except Exception as e:
-                        print(f"Error extracting company info for {symbol}: {e}")
-                        # Continue despite info extraction failure
-                    
-                    # Attempt to fetch quarterly financials - try multiple report types
-                    financials_data = None
-                    for data_type in ['quarterly_financials', 'quarterly_income_stmt', 'quarterly_balance_sheet']:
+                        full_symbol = f"{symbol}.NS"
+                        
+                        # Extract useful metrics from batch data when possible
+                        stock_data = None
+                        extracted_metrics = {
+                            "current_price": None,
+                            "price_change": None,
+                            "volume": None,
+                            "pct_change": None
+                        }
+                        
                         try:
-                            data = getattr(stock, data_type, None)
-                            if data is not None and not data.empty:
-                                financials_data = data
-                                break
-                        except Exception:
-                            continue
-                    
-                    # Process fetched data if available
-                    if financials_data is not None and not financials_data.empty:
-                        # Process financial data
+                            if full_symbol in batch_data.columns.levels[0]:
+                                stock_data = batch_data[full_symbol]
+                                
+                                # Actually use the batch data we've retrieved!
+                                if not stock_data.empty:
+                                    latest_data = stock_data.iloc[-1]
+                                    
+                                    # Extract price information
+                                    if 'Close' in latest_data:
+                                        extracted_metrics["current_price"] = float(latest_data['Close'])
+                                    
+                                    # Extract volume information
+                                    if 'Volume' in latest_data:
+                                        extracted_metrics["volume"] = int(latest_data['Volume']) 
+                                    
+                                    # Calculate price change if we have enough data
+                                    if len(stock_data) > 1 and 'Close' in stock_data:
+                                        prev_close = float(stock_data['Close'].iloc[-2])
+                                        current_close = float(stock_data['Close'].iloc[-1])
+                                        price_change = current_close - prev_close
+                                        pct_change = (price_change / prev_close) * 100 if prev_close != 0 else 0
+                                        
+                                        extracted_metrics["price_change"] = round(price_change, 2)
+                                        extracted_metrics["pct_change"] = round(pct_change, 2)
+                                    
+                                    print(f"Successfully extracted batch data for {symbol}: price={extracted_metrics['current_price']}")
+                        except Exception as e:
+                            print(f"Warning: Error processing batch data for {symbol}: {e}")
+                        
+                        # Use pre-fetched ticker object if available, otherwise create a new one
+                        if symbol in ticker_objects and ticker_objects[symbol] is not None:
+                            stock = ticker_objects[symbol]
+                        else:
+                            print(f"API called individually for {symbol} ****************")
+                            # Only create individual Ticker object if we don't have it from the batch
+                            session = self._get_session()
+                            stock = yf.Ticker(full_symbol, session=session)
+                        
+                        # Get next earnings date from calendar if available
+                        next_earnings_date = None
+                        company_info = {}
+                        fundamental_metrics = {}
+                        
+                        try:
+                            # Get company info and metrics first - these are typically accessible from batch data
+                            info = stock.info if hasattr(stock, 'info') else {}
+                            if info and isinstance(info, dict):
+                                # Extract industry and sector info
+                                company_info = {
+                                    "industry": info.get("industry"),
+                                    "sector": info.get("sector"),
+                                    "long_name": info.get("longName")
+                                }
+                                
+                                # Extract fundamental metrics - use extracted_metrics values when available
+                                fundamental_metrics = {
+                                    "pe_ratio": info.get("trailingPE"),
+                                    "market_cap": info.get("marketCap"),
+                                    "dividend_yield": info.get("dividendYield") * 100 if info.get("dividendYield") else None,
+                                    "dividend_rate": info.get("dividendRate"),
+                                    "total_debt": info.get("totalDebt"),
+                                    
+                                    # Add data from batch download
+                                    "current_price": extracted_metrics["current_price"] or info.get("currentPrice"),
+                                    "price_change": extracted_metrics["price_change"],
+                                    "pct_change": extracted_metrics["pct_change"],
+                                    "volume": extracted_metrics["volume"] or info.get("volume")
+                                }
+                                
+                                # Clean up None values for better DB storage
+                                fundamental_metrics = {k: v for k, v in fundamental_metrics.items() if v is not None}
+                                
+                                # Try to get earnings date from info if available
+                                if "earningsTimestamp" in info and info["earningsTimestamp"]:
+                                    try:
+                                        next_earnings_date = pd.to_datetime(info["earningsTimestamp"]).to_pydatetime()
+                                    except:
+                                        pass
+                        except Exception as e:
+                            print(f"Warning: Error extracting basic info for {symbol}: {e}")
+                        
+                        # Only try calendar data if we don't have earnings date yet
+                        if not next_earnings_date:
+                            try:
+                                # Properly handle different types of calendar data
+                                if hasattr(stock, 'calendar'):
+                                    # Check if calendar is a DataFrame
+                                    if hasattr(stock.calendar, 'empty') and not stock.calendar.empty:
+                                        if 'Earnings Date' in stock.calendar.columns:
+                                            # Handle case where 'Earnings Date' contains a list of dates
+                                            earnings_date_value = stock.calendar['Earnings Date'].iloc[0]
+                                            if isinstance(earnings_date_value, list) or isinstance(earnings_date_value, tuple):
+                                                next_earnings_date = earnings_date_value[0]
+                                            else:
+                                                next_earnings_date = earnings_date_value
+                                    # Handle case where calendar is a dict (newer versions of yfinance)
+                                    elif isinstance(stock.calendar, dict) and stock.calendar:
+                                        # In dictionary format, the key might be 'Earnings Date' or similar
+                                        earnings_key = next((k for k in stock.calendar.keys() 
+                                                           if k.lower().startswith('earnings')), None)
+                                        if earnings_key and stock.calendar[earnings_key]:
+                                            earnings_date_value = stock.calendar[earnings_key]
+                                            if isinstance(earnings_date_value, list) or isinstance(earnings_date_value, tuple):
+                                                next_earnings_date = earnings_date_value[0]
+                                            else:
+                                                next_earnings_date = earnings_date_value
+                                
+                                # Convert date to datetime object if needed
+                                if isinstance(next_earnings_date, pd.Timestamp):
+                                    next_earnings_date = next_earnings_date.to_pydatetime()
+                                elif hasattr(next_earnings_date, 'date') and callable(getattr(next_earnings_date, 'date')):
+                                    # Handle date objects that have a date() method
+                                    next_earnings_date = datetime.combine(next_earnings_date.date(), datetime.min.time())
+                                elif isinstance(next_earnings_date, (str, int, float)):
+                                    # Try to parse strings or convert numbers
+                                    try:
+                                        next_earnings_date = pd.to_datetime(next_earnings_date).to_pydatetime()
+                                    except:
+                                        next_earnings_date = None
+                            except Exception as e:
+                                print(f"Warning: Error extracting earnings date for {symbol}: {e}")
+                        
+                        # Attempt to fetch quarterly financials - try multiple report types
+                        financials_data = None
+                        for data_type in ['quarterly_financials', 'quarterly_income_stmt', 'quarterly_balance_sheet']:
+                            try:
+                                data = getattr(stock, data_type, None)
+                                if data is not None and not data.empty:
+                                    financials_data = data
+                                    break
+                            except Exception:
+                                continue
+                        
+                        # Process fetched data if available
                         financials = []
-                        for quarter in financials_data.columns:
-                            quarter_date = None
-                            if isinstance(quarter, pd.Timestamp):
-                                quarter_date = quarter.to_pydatetime()
-                            else:
-                                try:
-                                    quarter_date = pd.to_datetime(quarter).to_pydatetime()
-                                except:
-                                    continue  # Skip this quarter if date can't be parsed
+                        if financials_data is not None and not financials_data.empty:
+                            # Process financial data
+                            for quarter in financials_data.columns:
+                                quarter_date = None
+                                if isinstance(quarter, pd.Timestamp):
+                                    quarter_date = quarter.to_pydatetime()
+                                else:
+                                    try:
+                                        quarter_date = pd.to_datetime(quarter).to_pydatetime()
+                                    except:
+                                        continue  # Skip this quarter if date can't be parsed
+                                
+                                if quarter_date.tzinfo is None:
+                                    quarter_date = pytz.utc.localize(quarter_date)
+                                
+                                # Calculate type based on the current time
+                                type = "current" if (now - quarter_date).days <= 90 else "previous"
+                                
+                                # Safely access rows using `.get` method
+                                revenue = None
+                                for rev_field in ['Total Revenue', 'Revenue', 'Net Revenue', 'Gross Revenue']:
+                                    if rev_field in financials_data.index:
+                                        revenue = financials_data.loc[rev_field, quarter]
+                                        break
+                                
+                                # Handle other financial metrics similarly with failover fields
+                                net_income = None
+                                for ni_field in ['Net Income', 'Net Income Common Stockholders', 'Net Income From Continuing Operations']:
+                                    if ni_field in financials_data.index:
+                                        net_income = financials_data.loc[ni_field, quarter]
+                                        break
+                                        
+                                operating_income = None
+                                for oi_field in ['Operating Income', 'EBIT', 'Operating Profit']:
+                                    if oi_field in financials_data.index:
+                                        operating_income = financials_data.loc[oi_field, quarter]
+                                        break
+                                        
+                                ebitda = None
+                                if 'EBITDA' in financials_data.index:
+                                    ebitda = financials_data.loc['EBITDA', quarter]
+                                
+                                financials.append({
+                                    "quarter_ending": quarter_date,
+                                    "revenue": revenue,
+                                    "net_income": net_income,
+                                    "operating_income": operating_income,
+                                    "ebitda": ebitda,
+                                    "type": type
+                                })
                             
-                            if quarter_date.tzinfo is None:
-                                quarter_date = pytz.utc.localize(quarter_date)
-                            
-                            # Calculate type based on the current time
-                            type = "current" if (now - quarter_date).days <= 90 else "previous"
-                            
-                            # Safely access rows using `.get` method
-                            revenue = None
-                            for rev_field in ['Total Revenue', 'Revenue', 'Net Revenue', 'Gross Revenue']:
-                                if rev_field in financials_data.index:
-                                    revenue = financials_data.loc[rev_field, quarter]
-                                    break
-                            
-                            # Handle other financial metrics similarly with failover fields
-                            net_income = None
-                            for ni_field in ['Net Income', 'Net Income Common Stockholders', 'Net Income From Continuing Operations']:
-                                if ni_field in financials_data.index:
-                                    net_income = financials_data.loc[ni_field, quarter]
-                                    break
-                                    
-                            operating_income = None
-                            for oi_field in ['Operating Income', 'EBIT', 'Operating Profit']:
-                                if oi_field in financials_data.index:
-                                    operating_income = financials_data.loc[oi_field, quarter]
-                                    break
-                                    
-                            ebitda = None
-                            if 'EBITDA' in financials_data.index:
-                                ebitda = financials_data.loc['EBITDA', quarter]
-                            
-                            financials.append({
-                                "quarter_ending": quarter_date,
-                                "revenue": revenue,
-                                "net_income": net_income,
-                                "operating_income": operating_income,
-                                "ebitda": ebitda,
-                                "type": type
-                            })
+                            # Reset rate limit delay on success and consecutive failures
+                            consecutive_failures = 0
+                            rate_limit_delay = max(BASE_DELAY, rate_limit_delay * 0.9)  # Gradually reduce delay on success
                         
-                        # Reset rate limit delay on success and consecutive failures
-                        consecutive_failures = 0
-                        rate_limit_delay = max(BASE_DELAY, rate_limit_delay * 0.9)  # Gradually reduce delay on success
-                        
-                        return {
+                        # Return available data regardless of whether financials were found
+                        result = {
                             "symbol": symbol, 
                             "financials": financials, 
                             "next_earnings_date": next_earnings_date,
                             "company_info": company_info,
                             "fundamental_metrics": fundamental_metrics
                         }
-                    else:
-                        # Still return earnings date and company info if we found it, even without financials
-                        if next_earnings_date or company_info or fundamental_metrics:
-                            consecutive_failures = 0  # Not a complete failure
-                            return {
-                                "symbol": symbol, 
-                                "financials": [], 
-                                "next_earnings_date": next_earnings_date,
-                                "company_info": company_info,
-                                "fundamental_metrics": fundamental_metrics
-                            }
                         
-                        # No usable data found
+                        # Consider this successful if we have any useful data
+                        if financials or next_earnings_date or company_info or fundamental_metrics:
+                            return result
+                        
+                        # If we have no data at all and haven't exhausted retries, try again
                         if retry_count < MAX_RETRIES:
-                            # Increment consecutive failures and retry with backoff
                             consecutive_failures += 1
                             retry_delay = BASE_DELAY * (2 ** retry_count)
                             time.sleep(retry_delay)
-                            return fetch_financials_with_retry(symbol, retry_count + 1)
+                            return process_stock_financials(symbol, retry_count + 1)
                         else:
                             return None
                             
-                except Exception as e:
-                    # On exception, increase consecutive failures and retry with backoff
-                    consecutive_failures += 1
-                    
-                    # Adjust rate limit delay based on consecutive failures
-                    if consecutive_failures > 3:
-                        rate_limit_delay = min(5.0, rate_limit_delay * 1.5)  # Increase delay if facing many failures
-                    
-                    if retry_count < MAX_RETRIES:
-                        retry_delay = BASE_DELAY * (2 ** retry_count) 
-                        time.sleep(retry_delay)
-                        return fetch_financials_with_retry(symbol, retry_count + 1)
-                    else:
-                        print(f"Error processing {symbol} after {MAX_RETRIES} retries: {e}")
-                        return None
-            
-            # Process current batch with parallel workers
-            with concurrent.futures.ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
-                # Submit all stocks in the batch
-                future_to_symbol = {executor.submit(fetch_financials_with_retry, symbol): symbol for symbol in batch}
+                    except Exception as e:
+                        # On exception, increase consecutive failures and retry with backoff
+                        consecutive_failures += 1
+                        
+                        # Adjust rate limit delay based on consecutive failures
+                        if consecutive_failures > 3:
+                            rate_limit_delay = min(5.0, rate_limit_delay * 1.5)  # Increase delay if facing many failures
+                        
+                        if retry_count < MAX_RETRIES:
+                            retry_delay = BASE_DELAY * (2 ** retry_count) 
+                            time.sleep(retry_delay)
+                            return process_stock_financials(symbol, retry_count + 1)
+                        else:
+                            print(f"Error processing {symbol} after {MAX_RETRIES} retries: {e}")
+                            return None
                 
-                # Process results as they complete
-                for future in concurrent.futures.as_completed(future_to_symbol):
-                    symbol = future_to_symbol[future]
-                    try:
-                        result = future.result()
-                        if result:
-                            if result["financials"]:
-                                success_count += 1
+                # Process batch symbols with parallel workers for ticker-specific data
+                with concurrent.futures.ThreadPoolExecutor(max_workers=MAX_WORKERS) as executor:
+                    # Submit all stocks in the batch
+                    future_to_symbol = {executor.submit(process_stock_financials, symbol): symbol for symbol in batch_symbols}
+                    
+                    # Process results as they complete
+                    for future in concurrent.futures.as_completed(future_to_symbol):
+                        symbol = future_to_symbol[future]
+                        try:
+                            result = future.result()
+                            if result:
+                                has_financials = bool(result["financials"])
+                                if has_financials:
+                                    success_count += 1
+                                else:
+                                    skipped_count += 1
                                 batch_results.append(result)
                             else:
-                                skipped_count += 1
-                                # Still add to results if we have an earnings date
-                                if result.get("next_earnings_date"):
-                                    batch_results.append(result)
-                        else:
+                                failed_count += 1
+                                batch_failures += 1
+                        except Exception as e:
+                            print(f"Exception processing {symbol}: {e}")
                             failed_count += 1
                             batch_failures += 1
-                    except Exception as e:
-                        print(f"Exception processing {symbol}: {e}")
-                        failed_count += 1
-                        batch_failures += 1
-            
-            # Save batch results to database in a single batch operation
-            if batch_results:
-                self.database_service.save_quarterly_financials_batch(batch_results)
-                results_by_batch.append(batch_results)
-            
-            # Calculate batch stats
-            batch_time = time.time() - batch_start_time
-            batch_success_rate = (len(batch) - batch_failures) / len(batch) * 100
-            
-            print(f"Batch {batch_idx+1}/{total_batches} completed in {batch_time:.2f}s with {batch_success_rate:.1f}% success rate")
-            print(f"Progress: {success_count} successful, {skipped_count} skipped, {failed_count} failed")
-            
-            # Adaptive batch delay based on success rate
-            if batch_success_rate < 70:
-                # If success rate is low, add a cooldown period
-                cooldown = min(30, 5 * (1 + (70 - batch_success_rate) / 10))
-                print(f"Low success rate detected. Cooling down for {cooldown:.1f}s before next batch")
-                time.sleep(cooldown)
+                
+                # Save batch results to database in a single batch operation
+                if batch_results:
+                    self.database_service.save_quarterly_financials_batch(batch_results)
+                
+                # Calculate batch stats
+                batch_time = time.time() - batch_start_time
+                batch_success_rate = (len(batch_symbols) - batch_failures) / len(batch_symbols) * 100
+                
+                print(f"Batch {batch_idx+1}/{total_batches} completed in {batch_time:.2f}s with {batch_success_rate:.1f}% success rate")
+                print(f"Progress: {success_count} successful, {skipped_count} skipped, {failed_count} failed")
+                
+                # Adaptive batch delay based on success rate
+                if batch_success_rate < 70:
+                    # If success rate is low, add a cooldown period
+                    cooldown = min(30, 5 * (1 + (70 - batch_success_rate) / 10))
+                    print(f"Low success rate detected. Cooling down for {cooldown:.1f}s before next batch")
+                    time.sleep(cooldown)
+                else:
+                    # Small delay between batches to avoid overwhelming API
+                    time.sleep(2)
+                    
+            except Exception as e:
+                print(f"Error processing batch {batch_idx+1}: {e}")
+                # Add longer cooldown on batch-level exception
+                time.sleep(10)
         
         total_processed = success_count + skipped_count
         print(f"Financial data collection completed: {success_count} stocks with financials, "
               f"{skipped_count} stocks with only earnings date, {failed_count} failed stocks.")
-        print(f"Success rate: {(total_processed / len(nse_stocks)) * 100:.1f}%")
+        print(f"Success rate: {(total_processed / len(fno_symbols)) * 100:.1f}%")
         
         # Return overall statistics
         return {
-            "total_stocks": len(nse_stocks),
+            "total_stocks": len(fno_symbols),
             "success_count": success_count,
             "skipped_count": skipped_count,
             "failed_count": failed_count,
             "completion_time": (datetime.now(ist) - now).total_seconds()
         }
-
