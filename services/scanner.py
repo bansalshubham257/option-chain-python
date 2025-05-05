@@ -2,6 +2,7 @@ import json
 import logging
 import sys
 import os
+import time
 
 import numpy as np
 import pandas as pd
@@ -1238,13 +1239,11 @@ class ScannerService:
 
     def run_hourly_scanner(self):
         """
-        Run the scanner to calculate breakouts/breakdowns and behavior scans.
-        
-        Args:
-            stocks: Optional list of stock symbols to scan. If not provided, will use F&O stocks.
+        Run the scanner to calculate breakouts/breakdowns and behavior scans with optimized batch processing.
+        Uses batched API calls to reduce the number of requests to Yahoo Finance.
         """
         try:
-            # Get stocks to scan - use provided stocks if available, otherwise use F&O stocks
+            # Get F&O stocks to scan
             fno_stocks = self.option_chain_service.get_fno_stocks_with_symbols()
             print(f"Processing {len(fno_stocks)} stocks for breakouts/breakdowns")
             
@@ -1257,274 +1256,330 @@ class ScannerService:
                 "all_time": {"days": None},  # Use all available data
             }
             
+            # Configuration for batch processing
+            BATCH_SIZE = 30  # Number of stocks in each batch
+            total_stocks = len(fno_stocks)
+            batches = [fno_stocks[i:i + BATCH_SIZE] for i in range(0, total_stocks, BATCH_SIZE)]
+            total_batches = len(batches)
+            
             # Prepare results
             results = []
             total_processed = 0
             
-            # Process all stocks in a single loop
-            for stock in fno_stocks:
+            print(f"Processing {total_batches} batches with {BATCH_SIZE} stocks per batch")
+            
+            # Process each batch of stocks
+            for batch_idx, batch_stocks in enumerate(batches):
+                batch_start_time = time.time()
+                print(f"Processing batch {batch_idx+1}/{total_batches} with {len(batch_stocks)} stocks...")
+                
                 try:
-                    print(f"Fetching data for stock: {stock}")
-                    # Fetch historical data
-                    ticker = yf.Ticker(stock)
-                    data = ticker.history(period="max", interval="1d")
-                    weekly_data = ticker.history(period="max", interval="1wk")
+                    # Fetch data for all stocks in the batch at once
+                    ticker_str = " ".join(batch_stocks)
+                    print(f"Downloading batch daily data for {len(batch_stocks)} stocks")
                     
-                    if data.empty:
-                        print(f"No data available for {stock}")
-                        continue
-                    if weekly_data.empty:
-                        print(f"No weekly_data available for {stock}")
-                        continue    
+                    # Fetch daily data for the batch
+                    batch_daily_data = yf.download(
+                        tickers=ticker_str,
+                        period="max",       # Get maximum available history
+                        interval="1d",      # Daily data
+                        group_by='ticker',  # Group by ticker
+                        progress=False,     # Disable progress bar
+                        auto_adjust=True    # Adjust for splits and dividends
+                    )
                     
-                    # Ensure numeric columns are properly converted
-                    data["High"] = pd.to_numeric(data["High"], errors="coerce")
-                    data["Low"] = pd.to_numeric(data["Low"], errors="coerce")
-                    data["Close"] = pd.to_numeric(data["Close"], errors="coerce")
-
-                    # Ensure numeric columns are properly converted
-                    weekly_data["High"] = pd.to_numeric(weekly_data["High"], errors="coerce")
-                    weekly_data["Low"] = pd.to_numeric(weekly_data["Low"], errors="coerce")
-                    weekly_data["Close"] = pd.to_numeric(weekly_data["Close"], errors="coerce")
-    
-                    # Drop rows with invalid numeric values
-                    data = data.dropna(subset=["High", "Low", "Close"])
-                    weekly_data = weekly_data.dropna(subset=["High", "Low", "Close"])
-    
-                    if len(data) == 0:
-                        print(f"No valid data after cleaning for {stock}")
-                        continue
-
-                    if len(weekly_data) == 0:
-                        print(f"No valid weekly_data after cleaning for {stock}")
-                        continue    
-    
-                    # Get the latest close price for comparison
-                    last_close = data["Close"].iloc[-1]
-                    total_processed += 1
-    
-                    # Calculate breakouts/breakdowns for each timeframe
-                    for name, params in timeframes.items():
+                    # Fetch weekly data for the batch
+                    print(f"Downloading batch weekly data for {len(batch_stocks)} stocks")
+                    batch_weekly_data = yf.download(
+                        tickers=ticker_str,
+                        period="max",       # Get maximum available history
+                        interval="1wk",     # Weekly data
+                        group_by='ticker',  # Group by ticker
+                        progress=False,     # Disable progress bar
+                        auto_adjust=True    # Adjust for splits and dividends
+                    )
+                    
+                    # Process each stock in the batch
+                    for stock in batch_stocks:
                         try:
-                            days = params["days"]
-    
-                            if name == "previous_day":
-                                # For previous day, we want specifically the previous trading day
-                                if len(data) >= 2:
-                                    # Get only the previous day's data
-                                    subset = data.iloc[-2:-1]
-                                    high = subset["High"].max()
-                                    low = subset["Low"].min()
-                                else:
-                                    print(f"Not enough data for previous day {stock}")
-                                    continue
-                            elif days is None:
-                                # Use all available data for "all_time"
-                                subset = data
-                                high = subset["High"].max()
-                                low = subset["Low"].min()
+                            print(f"Processing data for stock: {stock}")
+                            
+                            # Extract this stock's data from the batch download
+                            if stock in batch_daily_data.columns.levels[0]:
+                                data = batch_daily_data[stock].copy()
                             else:
-                                # For other periods, calculate proper date range
-                                end_date = data.index[-1]
-                                start_date = end_date - pd.Timedelta(days=days)
-                                subset = data[data.index >= start_date]
-    
-                                if subset.empty:
-                                    print(f"No data in timeframe for {stock} {name}")
-                                    continue
-    
-                                high = subset["High"].max()
-                                low = subset["Low"].min()
-    
-                            # Debug info - always show the SAME last close (current price)
-                            print(f"{stock} {name}: Close={last_close:.2f}, High={high:.2f}, Low={low:.2f}")
-    
-                            # Check for breakout/breakdown
-                            if last_close > high and not pd.isna(high):
-                                print(f"✅ BREAKOUT: {stock} on {name} timeframe")
-                                results.append((stock, f"{name}_breakout", True))
-                            elif last_close < low and not pd.isna(low):
-                                print(f"⬇️ BREAKDOWN: {stock} on {name} timeframe")
-                                results.append((stock, f"{name}_breakdown", False))
-    
+                                print(f"No daily data available for {stock}")
+                                continue
+                                
+                            if stock in batch_weekly_data.columns.levels[0]:
+                                weekly_data = batch_weekly_data[stock].copy()
+                            else:
+                                print(f"No weekly data available for {stock}")
+                                continue
+                            
+                            # Ensure the data has all required columns
+                            required_columns = ["Open", "High", "Low", "Close", "Volume"]
+                            if not all(col in data.columns for col in required_columns):
+                                missing = [col for col in required_columns if col not in data.columns]
+                                print(f"Missing columns for {stock}: {missing}")
+                                continue
+                                
+                            if not all(col in weekly_data.columns for col in required_columns):
+                                missing = [col for col in required_columns if col not in weekly_data.columns]
+                                print(f"Missing weekly columns for {stock}: {missing}")
+                                continue
+                            
+                            # Ensure numeric columns are properly converted
+                            for col in required_columns:
+                                data[col] = pd.to_numeric(data[col], errors="coerce")
+                                weekly_data[col] = pd.to_numeric(weekly_data[col], errors="coerce")
+                            
+                            # Drop rows with invalid numeric values
+                            data = data.dropna(subset=["High", "Low", "Close"])
+                            weekly_data = weekly_data.dropna(subset=["High", "Low", "Close"])
+                            
+                            if len(data) == 0:
+                                print(f"No valid data after cleaning for {stock}")
+                                continue
+                            
+                            if len(weekly_data) == 0:
+                                print(f"No valid weekly data after cleaning for {stock}")
+                                continue
+                            
+                            # Get the latest close price for comparison
+                            last_close = data["Close"].iloc[-1]
+                            total_processed += 1
+                            
+                            # Calculate breakouts/breakdowns for each timeframe
+                            for name, params in timeframes.items():
+                                try:
+                                    days = params["days"]
+                                    
+                                    if name == "previous_day":
+                                        # For previous day, we want specifically the previous trading day
+                                        if len(data) >= 2:
+                                            # Get only the previous day's data
+                                            subset = data.iloc[-2:-1]
+                                            high = subset["High"].max()
+                                            low = subset["Low"].min()
+                                        else:
+                                            print(f"Not enough data for previous day {stock}")
+                                            continue
+                                    elif days is None:
+                                        # Use all available data for "all_time"
+                                        subset = data
+                                        high = subset["High"].max()
+                                        low = subset["Low"].min()
+                                    else:
+                                        # For other periods, calculate proper date range
+                                        end_date = data.index[-1]
+                                        start_date = end_date - pd.Timedelta(days=days)
+                                        subset = data[data.index >= start_date]
+                                        
+                                        if subset.empty:
+                                            print(f"No data in timeframe for {stock} {name}")
+                                            continue
+                                        
+                                        high = subset["High"].max()
+                                        low = subset["Low"].min()
+                                    
+                                    # Debug info - always show the SAME last close (current price)
+                                    print(f"{stock} {name}: Close={last_close:.2f}, High={high:.2f}, Low={low:.2f}")
+                                    
+                                    # Check for breakout/breakdown
+                                    if last_close > high and not pd.isna(high):
+                                        print(f"✅ BREAKOUT: {stock} on {name} timeframe")
+                                        results.append((stock, f"{name}_breakout", True))
+                                    elif last_close < low and not pd.isna(low):
+                                        print(f"⬇️ BREAKDOWN: {stock} on {name} timeframe")
+                                        results.append((stock, f"{name}_breakdown", False))
+                                        
+                                except Exception as e:
+                                    print(f"Error processing {name} timeframe for {stock}: {e}")
+                            
+                            # Add SRS and ARS scanner logic
+                            try:
+                                srs = self.calculate_srs(stock, data)
+                                ars = self.calculate_ars(stock, data)
+
+                                # Ensure SRS and ARS are pandas Series
+                                if not srs.empty and not ars.empty:
+                                    # New scan logic
+                                    if srs.iloc[-1] > 0 and ars.iloc[-1] > 0:
+                                        results.append((stock, "srs_ars_above_zero", True))
+                                    elif srs.iloc[-1] < 0 and ars.iloc[-1] < 0:
+                                        results.append((stock, "srs_ars_below_zero", False))
+                                    if srs.iloc[-2] < 0 and srs.iloc[-1] > 0:
+                                        results.append((stock, "srs_crossing_above_zero", True))
+                                    if srs.iloc[-2] > 0 and srs.iloc[-1] < 0:
+                                        results.append((stock, "srs_crossing_below_zero", False))
+                                    if ars.iloc[-2] > 0 and ars.iloc[-1] < 0:
+                                        results.append((stock, "ars_crossing_below_zero", False))
+                                    if ars.iloc[-2] < 0 and ars.iloc[-1] > 0:
+                                        results.append((stock, "ars_crossing_above_zero", True))
+                                    if srs.iloc[-1] > 0 and ars.iloc[-1] > ars.iloc[-2]:
+                                        results.append((stock, "both_above_zero_and_ars_rising", True))
+                                    if ars.iloc[-1] > 0 and srs.iloc[-1] > srs.iloc[-2]:
+                                        results.append((stock, "both_above_zero_and_srs_rising", True))
+                            except Exception as e:
+                                print(f"Error calculating SRS/ARS for {stock}: {e}")
+
+                            # Add 1-day behavior scans
+                            results.extend(self.calculate_1_day_behaviors(stock, data))
+
+                            # Add 2-day behavior scans
+                            results.extend(self.calculate_2_day_behaviors(stock, data))
+
+                            # Add 3-day behavior scans
+                            results.extend(self.calculate_3_day_behaviors(stock, data))
+
+                            # Add absolute return scans
+                            results.extend(self.calculate_absolute_returns(stock, data))
+
+                            # Add candlestick pattern scans
+                            results.extend(self.calculate_candlestick_scans(stock, data))
+
+                            # Add momentum score scans
+                            results.extend(self.calculate_momentum_scans(stock, data))
+
+                            # Add SMA scans
+                            self.calculate_sma_scans(stock, data, results)
+                            self.calculate_weekly_sma_scans(stock, weekly_data, results)
+
+                            # Add EMA scans
+                            self.calculate_ema_scans(stock, data, results)
+                            self.calculate_weekly_ema_scans(stock, weekly_data, results)
+
+                            # Add Stochastic scans
+                            self.calculate_stochastic_scans(stock, data, results)
+
+                            # Add Parabolic SAR scans
+                            self.calculate_parabolic_sar_scans(stock, data, results)
+                            self.calculate_weekly_parabolic_sar_scans(stock, weekly_data, results)
+
+                            # Add CCI scans
+                            self.calculate_cci_scans(stock, data, results)
+
+                            # Add RSI scans
+                            self.calculate_rsi_scans(stock, data, results)
+                            self.calculate_weekly_rsi_scans(stock, weekly_data, results)
+
+                            # Add MFI scans
+                            self.calculate_mfi_scans(stock, data, results)
+
+                            # Add Williams %R scans
+                            self.calculate_williams_r_scans(stock, data, results)
+
+                            # Add ROC scans
+                            self.calculate_roc_scans(stock, data, results)
+
+                            # Add MACD scans
+                            self.calculate_macd_scans(stock, data, results)
+
+                            # Add ADX scans
+                            self.calculate_adx_scans(stock, data, results)
+
+                            # Add ATR scans
+                            self.calculate_atr_scans(stock, data, results)
+
+                            # Add Bollinger Band scans
+                            self.calculate_bollinger_band_scans(stock, data, results)
+
+                            # Add Narrow Range scans
+                            self.calculate_narrow_range_scans(stock, data, results)
+
+                            # Add Supertrend scans
+                            self.calculate_supertrend_scans(stock, data, results)
+                            self.calculate_weekly_supertrend_scans(stock, weekly_data, results, period=7, multiplier=3)
+                            
+                            # Add chart pattern detection
+                            if self.is_double_top(data):
+                                results.append((stock, "pattern_double_top", True))
+
+                            if self.is_double_bottom(data):
+                                results.append((stock, "pattern_double_bottom", True))
+
+                            if self.is_head_and_shoulders(data):
+                                results.append((stock, "pattern_head_and_shoulders", True))
+
+                            if self.is_inverse_head_and_shoulders(data):
+                                results.append((stock, "pattern_inverse_head_and_shoulders", True))
+
+                            wedge_result = self.is_rising_wedge(data)
+                            if wedge_result:
+                                results.append((stock, "pattern_rising_wedge", True))
+
+                            wedge_result = self.is_falling_wedge(data)
+                            if wedge_result:
+                                results.append((stock, "pattern_falling_wedge", True))
+
+                            triangle_result = self.is_triangle(data)
+                            if triangle_result == "bullish":
+                                results.append((stock, "pattern_triangle_bullish", True))
+                            elif triangle_result == "bearish":
+                                results.append((stock, "pattern_triangle_bearish", True))
+
+                            pennant_result = self.is_pennant(data)
+                            if pennant_result == "bullish":
+                                results.append((stock, "pattern_pennant_bullish", True))
+                            elif pennant_result == "bearish":
+                                results.append((stock, "pattern_pennant_bearish", True))
+
+                            rectangle_result = self.is_rectangle(data)
+                            if rectangle_result == "bullish":
+                                results.append((stock, "pattern_rectangle_bullish", True))
+                            elif rectangle_result == "bearish":
+                                results.append((stock, "pattern_rectangle_bearish", True))
+
+                            flag_result = self.is_flag(data)
+                            if flag_result == "bullish":
+                                results.append((stock, "pattern_flag_bullish", True))
+                            elif flag_result == "bearish":
+                                results.append((stock, "pattern_flag_bearish", True))
+
+                            channel_result = self.is_channel(data)
+                            if channel_result:
+                                results.append((stock, f"pattern_channel_{channel_result}", True))
+
+                            if self.is_triple_top(data):
+                                results.append((stock, "pattern_triple_top", True))
+                            if self.is_triple_bottom(data):
+                                results.append((stock, "pattern_triple_bottom", True))
+
+                            if self.is_cup_and_handle(data):
+                                results.append((stock, "pattern_cup_and_handle", True))
+
+                            if self.is_rounding_bottom(data):
+                                results.append((stock, "pattern_rounding_bottom", True))
+
+                            diamond_result = self.is_diamond(data)
+                            if diamond_result == "bullish":
+                                results.append((stock, "pattern_diamond_bullish", True))
+                            elif diamond_result == "bearish":
+                                results.append((stock, "pattern_diamond_bearish", True))
+
                         except Exception as e:
-                            print(f"Error processing {name} timeframe for {stock}: {e}")
+                            print(f"Error processing stock {stock}: {e}")
                     
-                    # Add SRS and ARS scanner logic
-                    try:
-                        srs = self.calculate_srs(stock, data)
-                        ars = self.calculate_ars(stock, data)
-
-                        # Ensure SRS and ARS are pandas Series
-                        if not srs.empty and not ars.empty:
-                            # New scan logic
-                            if srs.iloc[-1] > 0 and ars.iloc[-1] > 0:
-                                results.append((stock, "srs_ars_above_zero", True))
-                            elif srs.iloc[-1] < 0 and ars.iloc[-1] < 0:
-                                results.append((stock, "srs_ars_below_zero", False))
-                            if srs.iloc[-2] < 0 and srs.iloc[-1] > 0:
-                                results.append((stock, "srs_crossing_above_zero", True))
-                            if srs.iloc[-2] > 0 and srs.iloc[-1] < 0:
-                                results.append((stock, "srs_crossing_below_zero", False))
-                            if ars.iloc[-2] > 0 and ars.iloc[-1] < 0:
-                                results.append((stock, "ars_crossing_below_zero", False))
-                            if ars.iloc[-2] < 0 and ars.iloc[-1] > 0:
-                                results.append((stock, "ars_crossing_above_zero", True))
-                            if srs.iloc[-1] > 0 and ars.iloc[-1] > ars.iloc[-2]:
-                                results.append((stock, "both_above_zero_and_ars_rising", True))
-                            if ars.iloc[-1] > 0 and srs.iloc[-1] > srs.iloc[-2]:
-                                results.append((stock, "both_above_zero_and_srs_rising", True))
-
-                    except Exception as e:
-                        print(f"Error calculating SRS/ARS for {stock}: {e}")
-
-                    # Add 1-day behavior scans
-                    results.extend(self.calculate_1_day_behaviors(stock, data))
-
-                    # Add 2-day behavior scans
-                    results.extend(self.calculate_2_day_behaviors(stock, data))
-
-                    # Add 3-day behavior scans
-                    results.extend(self.calculate_3_day_behaviors(stock, data))
-
-                    # Add absolute return scans
-                    results.extend(self.calculate_absolute_returns(stock, data))
-
-                    # Add candlestick pattern scans
-                    results.extend(self.calculate_candlestick_scans(stock, data))
-
-                    # Add momentum score scans
-                    results.extend(self.calculate_momentum_scans(stock, data))
-
-                    # Add SMA scans
-                    self.calculate_sma_scans(stock, data, results)
-                    self.calculate_weekly_sma_scans(stock, weekly_data, results)
-
-                    # Add EMA scans
-                    self.calculate_ema_scans(stock, data, results)
-                    self.calculate_weekly_ema_scans(stock, weekly_data, results)
-
-                    # Add Stochastic scans
-                    self.calculate_stochastic_scans(stock, data, results)
-
-                    # Add Parabolic SAR scans
-                    self.calculate_parabolic_sar_scans(stock, data, results)
-                    self.calculate_weekly_parabolic_sar_scans(stock, weekly_data, results)
-
-                    # Add CCI scans
-                    self.calculate_cci_scans(stock, data, results)
-
-                    # Add RSI scans
-                    self.calculate_rsi_scans(stock, data, results)
-                    self.calculate_weekly_rsi_scans(stock, weekly_data, results)
-
-                    # Add MFI scans
-                    self.calculate_mfi_scans(stock, data, results)
-
-                    # Add Williams %R scans
-                    self.calculate_williams_r_scans(stock, data, results)
-
-                    # Add ROC scans
-                    self.calculate_roc_scans(stock, data, results)
-
-                    # Add MACD scans
-                    self.calculate_macd_scans(stock, data, results)
-
-                    # Add ADX scans
-                    self.calculate_adx_scans(stock, data, results)
-
-                    # Add ATR scans
-                    self.calculate_atr_scans(stock, data, results)
-
-                    # Add Bollinger Band scans
-                    self.calculate_bollinger_band_scans(stock, data, results)
-
-                    # Add Narrow Range scans
-                    self.calculate_narrow_range_scans(stock, data, results)
-
-                    # Add Supertrend scans
-                    self.calculate_supertrend_scans(stock, data, results)
-                    self.calculate_weekly_supertrend_scans(stock, weekly_data, results, period=7, multiplier=3)
-
-
-                    self.calculate_supertrend_scans(stock, data, results)
-                    self.calculate_weekly_supertrend_scans(stock, weekly_data, results, period=7, multiplier=3)
-
-
-                    if self.is_double_top(data):
-                        results.append((stock, "pattern_double_top", True))
-
-
-
-                    if self.is_double_bottom(data):
-                        results.append((stock, "pattern_double_bottom", True))
-
-
-
-                    if self.is_head_and_shoulders(data):
-                        results.append((stock, "pattern_head_and_shoulders", True))
-
-                    if self.is_inverse_head_and_shoulders(data):
-                        results.append((stock, "pattern_inverse_head_and_shoulders", True))
-
-                    wedge_result = self.is_rising_wedge(data)
-                    if wedge_result:
-                        results.append((stock, "pattern_rising_wedge", True))
-
-                    wedge_result = self.is_falling_wedge(data)
-                    if wedge_result:
-                        results.append((stock, "pattern_falling_wedge", True))
-
-
-                    triangle_result = self.is_triangle(data)
-                    if triangle_result == "bullish":
-                        results.append((stock, "pattern_triangle_bullish", True))
-                    elif triangle_result == "bearish":
-                        results.append((stock, "pattern_triangle_bearish", True))
-
-                    pennant_result = self.is_pennant(data)
-                    if pennant_result == "bullish":
-                        results.append((stock, "pattern_pennant_bullish", True))
-                    elif pennant_result == "bearish":
-                        results.append((stock, "pattern_pennant_bearish", True))
-
-                    rectangle_result = self.is_rectangle(data)
-                    if rectangle_result == "bullish":
-                        results.append((stock, "pattern_rectangle_bullish", True))
-                    elif rectangle_result == "bearish":
-                        results.append((stock, "pattern_rectangle_bearish", True))
-
-                    flag_result = self.is_flag(data)
-                    if flag_result == "bullish":
-                        results.append((stock, "pattern_flag_bullish", True))
-                    elif flag_result == "bearish":
-                        results.append((stock, "pattern_flag_bearish", True))
-
-                    channel_result = self.is_channel(data)
-                    if channel_result:
-                        results.append((stock, f"pattern_channel_{channel_result}", True))
-
-
-                    if self.is_triple_top(data):
-                        results.append((stock, "pattern_triple_top", True))
-                    if self.is_triple_bottom(data):
-                        results.append((stock, "pattern_triple_bottom", True))
-
-                    if self.is_cup_and_handle(data):
-                        results.append((stock, "pattern_cup_and_handle", True))
-
-                    if self.is_rounding_bottom(data):
-                        results.append((stock, "pattern_rounding_bottom", True))
-
-                    diamond_result = self.is_diamond(data)
-                    if diamond_result == "bullish":
-                        results.append((stock, "pattern_diamond_bullish", True))
-                    elif diamond_result == "bearish":
-                        results.append((stock, "pattern_diamond_bearish", True))
-
+                    # Calculate batch processing statistics
+                    batch_time = time.time() - batch_start_time
+                    batch_success_rate = len([s for s in batch_stocks if s in batch_daily_data.columns.levels[0]]) / len(batch_stocks) * 100
+                    
+                    print(f"Batch {batch_idx+1}/{total_batches} completed in {batch_time:.2f}s with {batch_success_rate:.1f}% success rate")
+                    print(f"Processed {total_processed}/{total_stocks} stocks so far")
+                    
+                    # Adaptive delay between batches based on success rate
+                    if batch_success_rate < 70:
+                        delay = min(10, 5 * (1 + (70 - batch_success_rate) / 20))
+                        print(f"Low success rate detected. Cooling down for {delay:.1f}s before next batch")
+                        time.sleep(delay)
+                    else:
+                        time.sleep(2)  # Small delay between successful batches
+                        
                 except Exception as e:
-                    print(f"Error processing stock {stock}: {e}")
-    
+                    print(f"Error processing batch {batch_idx+1}: {e}")
+                    time.sleep(10)  # Longer delay after batch-level exception
+            
             # Add futures open interest scan
             futures_oi_results = self.scan_futures_oi_changes()
             if futures_oi_results:
@@ -1535,16 +1590,16 @@ class ScannerService:
             if options_oi_results:
                 results.extend(options_oi_results)
 
-            print(f"Processed {total_processed}/{len(fno_stocks)} stocks, found {len(results)} breakouts/breakdowns")
-    
+            success_rate = (total_processed / total_stocks) * 100 if total_stocks > 0 else 0
+            print(f"Scanner completed: processed {total_processed}/{total_stocks} stocks ({success_rate:.1f}%), found {len(results)} signals")
+
             # Save results to the database
             if results:
-                print("results -> ", results)
                 self.save_scanner_results(results)
                 print(f"Saved {len(results)} hourly scanner results successfully.")
             else:
-                print("No breakouts/breakdowns found to save")
-    
+                print("No signals found to save")
+
         except Exception as e:
             print(f"Error in hourly scanner: {e}")
     
