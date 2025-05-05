@@ -10,6 +10,7 @@ from bokeh.palettes import Category10
 from decimal import Decimal
 import pytz
 from datetime import datetime, timedelta
+from services.option_chain import OptionChainService
 from services.database import DatabaseService  # Import DatabaseService
 import concurrent.futures
 import time
@@ -18,6 +19,7 @@ import random
 
 class StockAnalysisService:
     def __init__(self):
+        self.option_chain_service = OptionChainService()
         self.LOCAL_CSV_FILE = "nse_stocks.csv"
         self.database_service = DatabaseService()  # Initialize database_service
         # Initialize proxy rotation list and user agents
@@ -1067,7 +1069,7 @@ class StockAnalysisService:
     def get_52_week_extremes(self, threshold=0.05):
         """Get stocks near 52-week highs or lows within threshold percentage"""
         try:
-            nse_stocks = self.fetch_all_nse_stocks()
+            fno_stocks = self.option_chain_service.get_fno_stocks_with_symbols()
             if not nse_stocks:
                 return {"error": "No stocks found"}
 
@@ -1077,7 +1079,7 @@ class StockAnalysisService:
 
             # Process stocks in smaller batches to avoid rate limiting
             batch_size = 10
-            stock_batches = [nse_stocks[i:i+batch_size] for i in range(0, len(nse_stocks), batch_size)]
+            stock_batches = [fno_stocks[i:i+batch_size] for i in range(0, len(fno_stocks), batch_size)]
             
             for batch in stock_batches:
                 # Process each batch
@@ -1086,7 +1088,7 @@ class StockAnalysisService:
                         if not symbol or len(symbol) < 2:
                             continue
 
-                        full_symbol = f"{symbol}.NS"
+                        full_symbol = symbol
                         
                         # Use a custom session
                         session = self._get_session()
@@ -1117,7 +1119,7 @@ class StockAnalysisService:
 
                         if pct_from_high <= threshold:
                             results.append({
-                                "symbol": symbol,
+                                "symbol": symbol.replace(".NS", ""),
                                 "current_price": round(current, 2),
                                 "week52_high": round(high_52, 2),
                                 "week52_low": round(low_52, 2),
@@ -1130,7 +1132,7 @@ class StockAnalysisService:
 
                         if pct_from_low <= threshold:
                             results.append({
-                                "symbol": symbol,
+                                "symbol": symbol.replace(".NS", ""),
                                 "current_price": round(current, 2),
                                 "week52_high": round(high_52, 2),
                                 "week52_low": round(low_52, 2),
