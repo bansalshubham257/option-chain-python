@@ -842,7 +842,7 @@ def run_financials_worker():
             else:
                 # If coverage was poor, try again sooner
                 wait_time = 2 * 3600  # 2 hours
-            
+            scanner_service.run_hourly_scanner()
             print(f"Sleeping for {wait_time/3600:.1f} hours before next run")
             time.sleep(wait_time)
             
@@ -949,19 +949,16 @@ def run_db_clearing_worker():
 def run_background_workers():
     """Run all background workers in separate threads"""
 
-    market_data_thread = threading.Thread(target=run_market_data_worker, daemon=True)
     option_chain_thread = threading.Thread(target=run_option_chain_worker, daemon=True)
     oi_buildup_thread = threading.Thread(target=option_chain_service.run_analytics_worker, daemon=True)
     stock_data_thread = threading.Thread(target=run_stock_data_updater, daemon=True)
     scanner_thread = threading.Thread(target=run_scanner_worker, daemon=True)
     financials_thread = threading.Thread(target=run_financials_worker, daemon=True)
     db_clearing_thread = threading.Thread(target=run_db_clearing_worker, daemon=True)
-    
-    #market_data_thread.start()
+
     option_chain_thread.start()
     oi_buildup_thread.start()
     stock_data_thread.start()
-    #scanner_thread.start()
     #financials_thread.start()
     db_clearing_thread.start()
     print("Background workers started successfully")
@@ -975,10 +972,15 @@ if __name__ == "__main__":
         ist = pytz.timezone('Asia/Kolkata')
         now = datetime.now(ist)
         current_time = now.time()
-        is_weekday = now.weekday() in Config.TRADING_DAYS #
+        is_weekday = now.weekday() in Config.TRADING_DAYS
+        
         if is_weekday and (Config.MARKET_OPEN <= current_time <= Config.MARKET_CLOSE):
             print("Market is open, starting background workers...")
             run_background_workers()
+        elif is_weekday and (Config.POST_MARKET_START <= current_time <= Config.POST_MARKET_END):
+            # Run financial data worker only during the post-market window
+            print(f"Post-market window ({Config.POST_MARKET_START.strftime('%H:%M')}-{Config.POST_MARKET_END.strftime('%H:%M')}): Running financial data worker only...")
+            run_financials_worker()
         else:
             if not is_weekday:
                 print("Market closed (weekend)")
@@ -1003,3 +1005,4 @@ if __name__ == "__main__":
         else:
             print("❌ Database connection failed")
         app.run(host="0.0.0.0", port=port)
+
