@@ -1,4 +1,3 @@
-import yfinance as yf
 import pandas as pd
 import numpy as np
 import ta
@@ -16,57 +15,17 @@ import concurrent.futures
 import time
 import requests
 import random
+from curl_cffi import requests
+import yfinance as yf
+
 
 class StockAnalysisService:
     def __init__(self):
         self.option_chain_service = OptionChainService()
         self.LOCAL_CSV_FILE = "nse_stocks.csv"
         self.database_service = DatabaseService()  # Initialize database_service
-        # Initialize proxy rotation list and user agents
-        self.proxy_list = [
-            None,  # Direct connection as fallback
-            # Add your proxies here if you have them
-            # 'http://username:password@proxyserver:port',
-        ]
-        self.current_proxy_index = 0
-        self.user_agents = [
-            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36',
-            'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/15.0 Safari/605.1.15',
-            'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:90.0) Gecko/20100101 Firefox/90.0',
-            'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/92.0.4515.107 Safari/537.36',
-            'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/96.0.4664.45 Safari/537.36',
-            'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/94.0.4606.81 Safari/537.36'
-        ]
-        print("stock analysis init done")
-
-    def _get_session(self):
-        """Create a custom session with rotating headers and optional proxy"""
-        session = requests.Session()
-        
-        # Set a random user agent
-        user_agent = random.choice(self.user_agents)
-            
-        # Set session headers
-        session.headers.update({
-            'User-Agent': user_agent,
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,image/apng,*/*;q=0.8',
-            'Accept-Language': 'en-US,en;q=0.9',
-            'Accept-Encoding': 'gzip, deflate, br',
-            'Connection': 'keep-alive',
-            'Upgrade-Insecure-Requests': '1',
-            'Cache-Control': 'max-age=0',
-        })
-        
-        # Use a proxy if available in the list
-        if len(self.proxy_list) > 1:  # If we have proxies other than None
-            proxy = self.proxy_list[self.current_proxy_index]
-            if proxy:
-                session.proxies = {'http': proxy, 'https': proxy}
-            
-            # Rotate to next proxy for next call
-            self.current_proxy_index = (self.current_proxy_index + 1) % len(self.proxy_list)
-        
-        return session
+        self.session = requests.Session(impersonate="chrome110")
+    
 
     def fetch_all_nse_stocks(self):
         """Read NSE-listed stocks from local CSV"""
@@ -1065,96 +1024,46 @@ class StockAnalysisService:
         return script, div
 
     def get_52_week_extremes(self, threshold=0.05):
-        """Get stocks near 52-week highs or lows within threshold percentage"""
+        """Get stocks near 52-week highs or lows within threshold percentage, using data from stock_data_cache."""
         try:
-            # Use F&O stocks list instead of all NSE stocks
-
-            fno_stocks = self.option_chain_service.get_fno_stocks_with_symbols()
-            if not fno_stocks:
-                return {"error": "No F&O stocks found"}
-
-            results = []
-            ist = pytz.timezone('Asia/Kolkata')
-            now = datetime.now(ist)
-
-            # Process stocks in smaller batches to avoid rate limiting
-            batch_size = 10
-            stock_batches = [fno_stocks[i:i+batch_size] for i in range(0, len(fno_stocks), batch_size)]
-            
-            for batch in stock_batches:
-                # Process each batch
-                for symbol in batch:
-                    try:
-                        if not symbol or len(symbol) < 2:
-                            continue
-
-                        # For F&O stocks, we already have the .NS suffix
-                        full_symbol = symbol
-                        
-                        # Use a custom session
-                        session = self._get_session()
-                        
-                        stock = yf.Ticker(full_symbol, session=session)
-                        hist = stock.history(period="1y")
-
-                        if hist.empty or len(hist) < 5:  # Minimum data points
-                            continue
-
-                        # Robust timezone handling
-                        if hist.index.tz is None:
-                            hist.index = hist.index.tz_localize('UTC')
-                        hist.index = hist.index.tz_convert(ist)
-
-                        high_52 = hist["High"].max()
-                        low_52 = hist["Low"].min()
-                        current = hist["Close"].iloc[-1]
-
-                        pct_from_high = (high_52 - current) / high_52
-                        pct_from_low = (current - low_52) / low_52
-
-                        high_date = hist["High"].idxmax()
-                        low_date = hist["Low"].idxmin()
-
-                        days_since_high = (now - high_date).days
-                        days_since_low = (now - low_date).days
-
-                        if pct_from_high <= threshold:
-                            results.append({
-                                "symbol": symbol.replace(".NS", ""),
-                                "current_price": round(current, 2),
-                                "week52_high": round(high_52, 2),
-                                "week52_low": round(low_52, 2),
-                                "pct_from_high": round(pct_from_high * 100, 2),
-                                "pct_from_low": round(pct_from_low * 100, 2),
-                                "days_since_high": days_since_high,
-                                "days_since_low": days_since_low,
-                                "status": "near_high"
-                            })
-
-                        if pct_from_low <= threshold:
-                            results.append({
-                                "symbol": symbol.replace(".NS", ""),
-                                "current_price": round(current, 2),
-                                "week52_high": round(high_52, 2),
-                                "week52_low": round(low_52, 2),
-                                "pct_from_high": round(pct_from_high * 100, 2),
-                                "pct_from_low": round(pct_from_low * 100, 2),
-                                "days_since_high": days_since_high,
-                                "days_since_low": days_since_low,
-                                "status": "near_low"
-                            })
-
-                    except Exception as e:
-                        print(f"Error processing {symbol}: {str(e)}")
-                        continue
+            # Get data directly from database instead of making API calls
+            with self.database_service._get_cursor() as cur:
+                query = """
+                    SELECT 
+                        symbol, close as current_price, week52_high, week52_low, 
+                        pct_from_week52_high, pct_from_week52_low, days_since_week52_high, days_since_week52_low, week52_status
+                    FROM stock_data_cache
+                    WHERE interval = '1d'
+                    AND week52_high IS NOT NULL
+                    AND week52_low IS NOT NULL
+                    AND (
+                        (pct_from_high <= %s AND pct_from_high > 0) OR 
+                        (pct_from_low <= %s AND pct_from_low > 0)
+                    )
+                """
+                cur.execute(query, (threshold * 100, threshold * 100))
                 
-                # Add delay between batches to avoid rate limiting
-                time.sleep(1)
-
-            return results
-
+                results = []
+                for row in cur.fetchall():
+                    symbol = row[0].replace(".NS", "") if row[0] else ""
+                    status = row[8] or ('near_high' if row[4] <= threshold * 100 else 'near_low')
+                    
+                    results.append({
+                        "symbol": symbol,
+                        "current_price": round(float(row[1]), 2) if row[1] else 0,
+                        "week52_high": round(float(row[2]), 2) if row[2] else 0,
+                        "week52_low": round(float(row[3]), 2) if row[3] else 0,
+                        "pct_from_high": round(float(row[4]), 2) if row[4] else 0,
+                        "pct_from_low": round(float(row[5]), 2) if row[5] else 0,
+                        "days_since_high": int(row[6]) if row[6] else 0,
+                        "days_since_low": int(row[7]) if row[7] else 0,
+                        "status": status
+                    })
+                
+                return results
+        
         except Exception as e:
-            print(f"Error in get_52_week_extremes: {str(e)}")
+            print(f"Error fetching 52-week data from database: {str(e)}")
             return []
 
     def fetch_and_store_financials(self):
@@ -1202,8 +1111,7 @@ class StockAnalysisService:
             ticker_str = " ".join(batch_tickers)
             
             try:
-                # First, get basic data for all stocks in the batch at once
-                session = self._get_session()
+                
                 print(f"Downloading batch data for {len(batch_tickers)} stocks")
                 
                 # Fetch price data for all stocks in batch in one API call
@@ -1213,7 +1121,7 @@ class StockAnalysisService:
                     interval="1d",     # Daily data
                     group_by='ticker', # Group by ticker
                     progress=False,    # Disable progress bar
-                    session=session    # Use our custom session
+                    session=self.session    # Use our custom session
                 )
                 
                 # Pre-fetch financials data for the entire batch in one call if possible
@@ -1221,7 +1129,7 @@ class StockAnalysisService:
                     # Try to get financials data for multiple tickers at once by creating a batch of Ticker objects
                     # This reduces individual network calls for financials
                     print(f"Pre-fetching financial data for batch {batch_idx+1}")
-                    multi_ticker = yf.Tickers(ticker_str, session=session)
+                    multi_ticker = yf.Tickers(ticker_str, session=self.session)
                     
                     # Store these pre-fetched tickers for later use
                     ticker_objects = {symbol: multi_ticker.tickers[f"{symbol}.NS"] for symbol in batch_symbols}
@@ -1290,7 +1198,7 @@ class StockAnalysisService:
                             print(f"API called individually for {symbol} ****************")
                             # Only create individual Ticker object if we don't have it from the batch
                             session = self._get_session()
-                            stock = yf.Ticker(full_symbol, session=session)
+                            stock = yf.Ticker(full_symbol, session=self.session)
                         
                         # Get next earnings date from calendar if available
                         next_earnings_date = None
@@ -1546,3 +1454,4 @@ class StockAnalysisService:
             "failed_count": failed_count,
             "completion_time": (datetime.now(ist) - now).total_seconds()
         }
+
