@@ -958,8 +958,8 @@ def run_background_workers():
     db_clearing_thread = threading.Thread(target=run_db_clearing_worker, daemon=True)
     
     #market_data_thread.start()
-    #option_chain_thread.start()
-    #oi_buildup_thread.start()
+    option_chain_thread.start()
+    oi_buildup_thread.start()
     stock_data_thread.start()
     #scanner_thread.start()
     #financials_thread.start()
