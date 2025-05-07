@@ -14,6 +14,8 @@ import numpy as np  # Add this import
 
 from datetime import datetime, date
 import pytz
+from curl_cffi import requests
+import yfinance as yf
 
 # Memory cache for pivot point calculation tracking
 
@@ -31,6 +33,7 @@ class DatabaseService:
         }
         self.max_retries = max_retries
         self.retry_delay = retry_delay
+        self.session = requests.Session(impersonate="chrome110")
         print("databse init done")
 
     def test_connection(self):
@@ -416,79 +419,11 @@ class DatabaseService:
                 })
             return results
 
-    def save_52_week_data(self, data):
-        """Save 52-week high/low data to database"""
-        if not data:
-            return
-
-        timestamp = datetime.now(pytz.timezone('Asia/Kolkata'))
-
-        # Convert NumPy types to native Python types
-        processed_data = []
-        for item in data:
-            processed_data.append((
-                str(item['symbol']),
-                float(item['current_price']),  # Convert to native float
-                float(item['week52_high']),
-                float(item['week52_low']),
-                float(item['pct_from_high']),
-                float(item['pct_from_low']),
-                int(item['days_since_high']),  # Convert to native int
-                int(item['days_since_low']),
-                str(item['status']),
-                timestamp
-            ))
-
-        with self._get_cursor() as cur:
-            # Clear old data
-            cur.execute("DELETE FROM fiftytwo_week_extremes")
-
-            # Insert new data with proper type conversion
-            execute_batch(cur, """
-                INSERT INTO fiftytwo_week_extremes 
-                (symbol, current_price, week52_high, week52_low, 
-                 pct_from_high, pct_from_low, days_since_high, 
-                 days_since_low, status, timestamp)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-            """, processed_data, page_size=100)
-
-    def get_52_week_data(self, limit=50):
-        """Get cached 52-week high/low data"""
-        with self._get_cursor() as cur:
-            cur.execute("""
-                SELECT symbol, current_price, week52_high, week52_low,
-                       pct_from_high, pct_from_low, days_since_high,
-                       days_since_low, status, timestamp
-                FROM fiftytwo_week_extremes
-                ORDER BY 
-                    CASE WHEN status = 'near_high' THEN pct_from_high ELSE pct_from_low END,
-                    timestamp DESC
-                LIMIT %s
-            """, (limit,))
-
-            results = []
-            for row in cur.fetchall():
-                results.append({
-                    'symbol': row[0],
-                    'current_price': float(row[1]),
-                    'week52_high': float(row[2]),
-                    'week52_low': float(row[3]),
-                    'pct_from_high': float(row[4]),
-                    'pct_from_low': float(row[5]),
-                    'days_since_high': row[6],
-                    'days_since_low': row[7],
-                    'status': row[8],
-                    'timestamp': row[9].isoformat()
-                })
-            return results
-
-
     @lru_cache(maxsize=100)
     def get_anchored_pivot_data(self, ticker, interval):
         """Cache yfinance data for pivot calculations to reduce API calls"""
         try:
-            import yfinance as yf
-            stock = yf.Ticker(ticker)
+            stock = yf.Ticker(ticker, session=self.session)
 
             # Determine anchor timeframe based on current interval
             if interval in ['5m', '15m']:
@@ -550,16 +485,39 @@ class DatabaseService:
 
             if len(df) > 1:
                 df['macd_line'], df['macd_signal'], df['macd_histogram'] = ta.MACD(df['Close'])
-                try:
-                    # Technical indicator calculation
-                    df['adx'] = ta.ADX(df['High'], df['Low'], df['Close'], timeperiod=14)
-                except Exception as e:
-                    print(f"Error calculating ADX: {str(e)}")
-                    df['adx'] = None
-                df['adx_di_positive'] = ta.PLUS_DI(df['High'], df['Low'], df['Close'])
-                df['adx_di_negative'] = ta.MINUS_DI(df['High'], df['Low'], df['Close'])
+                
+                # Fix for ADX calculation - ensure enough data and better error handling
+                df['adx'] = None  # Initialize with None
+                if len(df) >= 14:  # ADX needs at least 14 periods
+                    try:
+                        # Calculate ADX with explicit error handling
+                        adx_values = ta.ADX(df['High'], df['Low'], df['Close'], timeperiod=14)
+                        # Only assign if calculation was successful and the result length matches
+                        if adx_values is not None and len(adx_values) == len(df):
+                            df['adx'] = adx_values
+                    except Exception as e:
+                        print(f"Error calculating ADX for {symbol}: {str(e)}")
+                        # Leave as None - already initialized
+                
+                # Calculate DI indicators with similar safeguards
+                df['adx_di_positive'] = None
+                df['adx_di_negative'] = None
+                if len(df) >= 14:
+                    try:
+                        di_pos = ta.PLUS_DI(df['High'], df['Low'], df['Close'])
+                        if di_pos is not None and len(di_pos) == len(df):
+                            df['adx_di_positive'] = di_pos
+                    except Exception as e:
+                        print(f"Error calculating +DI for {symbol}: {str(e)}")
+                    
+                    try:
+                        di_neg = ta.MINUS_DI(df['High'], df['Low'], df['Close'])
+                        if di_neg is not None and len(di_neg) == len(df):
+                            df['adx_di_negative'] = di_neg
+                    except Exception as e:
+                        print(f"Error calculating -DI for {symbol}: {str(e)}")
 
-
+                # Continue with other indicators
                 df['parabolic_sar'] = ta.SAR(df['High'], df['Low'])
                 df['rsi'] = ta.RSI(df['Close'])
                 stoch_rsi_k, stoch_rsi_d = ta.STOCHRSI(df['Close'])
@@ -893,6 +851,49 @@ class DatabaseService:
             trailing_pe = info_data.get('trailingPE')
             trailing_peg_ratio = info_data.get('trailingPegRatio')
 
+            # Calculate 52-week high/low data if we have enough historical data
+            week52_high = week52_low = None
+            pct_from_high = pct_from_low = None
+            days_since_high = days_since_low = None
+            w52_status = None
+
+            if len(df) > 30:  # Ensure we have enough data
+                try:
+                    # Use up to 252 trading days (approximately 1 year)
+                    lookback = min(252, len(df))
+                    year_data = df.iloc[-lookback:]
+
+                    # Calculate 52-week high and low
+                    week52_high = year_data['High'].max()
+                    week52_low = year_data['Low'].min()
+
+                    # Get the dates of the high and low
+                    high_date = year_data['High'].idxmax()
+                    low_date = year_data['Low'].idxmax()
+
+                    # Calculate percentage from high and low
+                    pct_from_high = ((week52_high - latest_data['Close']) / week52_high) * 100
+                    pct_from_low = ((latest_data['Close'] - week52_low) / week52_low) * 100
+
+                    # Calculate days since high and low
+                    current_date = timestamp.date() if hasattr(timestamp, 'date') else datetime.now().date()
+                    high_date = high_date.date() if hasattr(high_date, 'date') else high_date
+                    low_date = low_date.date() if hasattr(low_date, 'date') else low_date
+
+                    days_since_high = (current_date - high_date).days
+                    days_since_low = (current_date - low_date).days
+
+                    # Determine status (near high, near low, or neutral)
+                    if pct_from_high <= 5.0:
+                        w52_status = 'near_high'
+                    elif pct_from_low <= 5.0:
+                        w52_status = 'near_low'
+                    else:
+                        w52_status = 'neutral'
+
+                except Exception as e:
+                    print(f"Error calculating 52-week data for {symbol}: {e}")
+
             # Prepare data for insertion
             required_columns = [
                 'HA_Open', 'HA_Close', 'HA_High', 'HA_Low', 'Supertrend',
@@ -922,16 +923,12 @@ class DatabaseService:
                 'wave_trend', 'wave_trend_trigger', 'wave_trend_momentum'
             ]
 
-
-
             # Identify missing columns
             missing_columns = {col: None for col in required_columns if col not in df.columns}
 
             # Add missing columns in one operation
             if missing_columns:
                 print("missing columns", missing_columns)
-                # df = pd.concat([df, pd.DataFrame(missing_columns, index=df.index)], axis=1)
-
 
             # Update database using a single query with upsert
             with self._get_cursor() as cur:
@@ -965,7 +962,9 @@ class DatabaseService:
                         payout_ratio, price_to_book, profit_margins, return_on_assets,
                         return_on_equity, revenue_growth, revenue_per_share, sector,
                         total_cash, total_cash_per_share, total_debt, total_revenue,
-                        trailing_eps, trailing_pe, trailing_peg_ratio
+                        trailing_eps, trailing_pe, trailing_peg_ratio,
+                        week52_high, week52_low, pct_from_week52_high, pct_from_week52_low, 
+                        days_since_week52_high, days_since_week52_low, week52_status
                     ) VALUES (
                         %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
                         %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
@@ -974,7 +973,7 @@ class DatabaseService:
                         %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
                         %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
                         %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
-                        %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
+                        %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
                     )
                     ON CONFLICT (symbol, interval)
                     DO UPDATE SET
@@ -1061,11 +1060,15 @@ class DatabaseService:
                         total_revenue = EXCLUDED.total_revenue,
                         trailing_eps = EXCLUDED.trailing_eps,
                         trailing_pe = EXCLUDED.trailing_pe,
-                        trailing_peg_ratio = EXCLUDED.trailing_peg_ratio
+                        trailing_peg_ratio = EXCLUDED.trailing_peg_ratio,
+                        week52_high = EXCLUDED.week52_high,
+                        week52_low = EXCLUDED.week52_low,
+                        pct_from_week52_high = EXCLUDED.pct_from_week52_high,
+                        pct_from_week52_low = EXCLUDED.pct_from_week52_low,
+                        days_since_week52_high = EXCLUDED.days_since_week52_high,
+                        days_since_week52_low = EXCLUDED.days_since_week52_low,
+                        week52_status = EXCLUDED.week52_status
                 """
-
-                # Convert all numpy values to native Python types
-                # In your update_stock_data method, replace the params tuple construction with:
 
                 params = (
                     symbol,                                                    # 1
@@ -1235,7 +1238,14 @@ class DatabaseService:
                     self._convert_numpy_types(total_revenue),                   # total_revenue
                     self._convert_numpy_types(trailing_eps),                    # trailing_eps
                     self._convert_numpy_types(trailing_pe),                     # trailing_pe
-                    self._convert_numpy_types(trailing_peg_ratio)               # trailing_peg_ratio
+                    self._convert_numpy_types(trailing_peg_ratio),              # trailing_peg_ratio
+                    self._convert_numpy_types(week52_high),                     # week52_high
+                    self._convert_numpy_types(week52_low),                      # week52_low
+                    self._convert_numpy_types(pct_from_high),                   # pct_from_high
+                    self._convert_numpy_types(pct_from_low),                    # pct_from_low
+                    self._convert_numpy_types(days_since_high),                 # days_since_high
+                    self._convert_numpy_types(days_since_low),                  # days_since_low
+                    w52_status                                                # week52_status
                 )
 
                 cur.execute(upsert_sql, params)
@@ -1504,5 +1514,6 @@ class DatabaseService:
                     "ebitda": float(row[5]) if row[5] is not None else None  # Add ebitda
                 })
             return results
+
 
 
