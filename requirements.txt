@@ -19,5 +19,5 @@ flask-socketio==5.3.4
 python-socketio==5.8.0
 python-engineio==4.5.1
 flask_caching
-pip install git+https://github.com/bretsky/yfinance.git@fix/curl-cffi-cookies
-pip install yfinance curl-cffi
+git+https://github.com/bretsky/yfinance.git@fix/curl-cffi-cookies
+yfinance curl-cffi
