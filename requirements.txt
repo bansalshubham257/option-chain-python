@@ -7,7 +7,7 @@ datetime
 numpy
 redis
 ta
-yfinance==0.2.54
+yfinance
 scipy
 bokeh
 pytz
