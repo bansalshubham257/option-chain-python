@@ -1037,8 +1037,8 @@ class StockAnalysisService:
                     AND week52_high IS NOT NULL
                     AND week52_low IS NOT NULL
                     AND (
-                        (pct_from_high <= %s AND pct_from_high > 0) OR 
-                        (pct_from_low <= %s AND pct_from_low > 0)
+                        (pct_from_week52_high <= %s AND pct_from_week52_high > 0) OR 
+                        (pct_from_week52_low <= %s AND pct_from_week52_low > 0)
                     )
                 """
                 cur.execute(query, (threshold * 100, threshold * 100))
