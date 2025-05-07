@@ -1,12 +1,13 @@
 import time
 from _datetime import timedelta
 
-import yfinance as yf
 import requests
 import pytz
 from datetime import datetime
 from config import Config
 from services.option_chain import OptionChainService
+from curl_cffi import requests
+import yfinance as yf
 
 class MarketDataService:
     def __init__(self, database_service=None, option_chain_service=None):
@@ -28,6 +29,7 @@ class MarketDataService:
         self.database = database_service
         self.update_interval = 300  # 5 minutes
         self.last_update = 0
+        self.session = requests.Session(impersonate="chrome110")
 
     def is_market_open(self):
         ist = pytz.timezone('Asia/Kolkata')
@@ -76,26 +78,27 @@ class MarketDataService:
 
         try:
             # Indian market data
+            print("Updating Indian market data...")
             indian_data = self._get_indian_market_data_direct()
             if self.database:
                 self.database.save_market_data('indian_market', indian_data)
-
+            print("Indian market data updated.")
             # Global market data
             global_data = self._get_global_market_data_direct()
             if self.database:
                 self.database.save_market_data('global_market', global_data)
-
+            print("Global market data updated.")
             # FII/DII data (monthly, so we don't need to update frequently)
             if datetime.now().day == 1:  # Update on 1st of each month
                 fii_dii = self._get_fii_dii_data_direct()
                 if self.database:
                     self.database.save_market_data('fii_dii', fii_dii)
-
+            print("FII/DII data updated.")
             # IPOs data
             ipos = self._get_ipos_direct()
             if self.database:
                 self.database.save_market_data('ipos', ipos)
-
+            print("IPOs data updated.")
             self.last_update = current_time
             return True
 
@@ -183,6 +186,47 @@ class MarketDataService:
         return self._get_ipos_direct()
 
     # Helper methods
+    def _get_yfinance_indices(self):
+        indices_data = []
+        try:
+            # Create a string of all index symbols separated by spaces for bulk query
+            symbols_str = " ".join([index["symbol"] for index in self.INDIAN_INDICES])
+            
+            # Fetch all indices in a single API call
+            tickers = yf.Tickers(symbols_str, session=self.session)
+            
+            for index in self.INDIAN_INDICES:
+                try:
+                    symbol = index["symbol"]
+                    ticker = tickers.tickers[symbol]
+                    
+                    # Get current price from the latest 1-minute data
+                    current_data = ticker.history(period="1d", interval="1m")
+                    current_price = current_data['Close'].iloc[-1] if not current_data.empty else None
+                    
+                    # Get previous close from daily data
+                    hist_data = ticker.history(period="3d", interval="1d")
+                    prev_close = hist_data['Close'].iloc[-2] if len(hist_data) >= 2 else None
+
+                    if current_price and prev_close:
+                        change = round(current_price - prev_close, 2)
+                        change_percent = round((change / prev_close) * 100, 2)
+
+                        indices_data.append({
+                            "name": index["name"], "current_price": current_price,
+                            "change": change, "change_percent": change_percent,
+                            "prev_close": prev_close, "color": index["color"],
+                            "status_color": "#2ecc71" if change >= 0 else "#e74c3c"
+                        })
+                except Exception as e:
+                    print(f"Error processing index {index['name']}: {str(e)}")
+                    continue
+                    
+        except Exception as e:
+            print(f"Error in bulk index fetch: {str(e)}")
+            
+        return indices_data
+
     def _get_global_indices(self):
         indices = {
             '^GSPC': 'S&P 500', '^DJI': 'Dow Jones', '^IXIC': 'NASDAQ',
@@ -190,21 +234,30 @@ class MarketDataService:
         }
 
         results = []
-        for symbol, name in indices.items():
-            try:
-                data = yf.Ticker(symbol).history(period='1d')
-                if not data.empty:
-                    last_close = data['Close'].iloc[-1]
-                    prev_close = data['Close'].iloc[-2] if len(data) > 1 else last_close
-                    change = last_close - prev_close
-                    percent_change = (change / prev_close) * 100
+        try:
+            # Get all global indices in one call
+            symbols_str = " ".join(indices.keys())
+            tickers = yf.Tickers(symbols_str, session=self.session)
+            
+            for symbol, name in indices.items():
+                try:
+                    ticker = tickers.tickers[symbol]
+                    data = ticker.history(period='1d')
+                    
+                    if not data.empty:
+                        last_close = data['Close'].iloc[-1]
+                        prev_close = data['Close'].iloc[-2] if len(data) > 1 else last_close
+                        change = last_close - prev_close
+                        percent_change = (change / prev_close) * 100
 
-                    results.append({
-                        'symbol': symbol, 'name': name, 'price': round(last_close, 2),
-                        'change': round(change, 2), 'percent_change': round(percent_change, 2)
-                    })
-            except Exception:
-                continue
+                        results.append({
+                            'symbol': symbol, 'name': name, 'price': round(last_close, 2),
+                            'change': round(change, 2), 'percent_change': round(percent_change, 2)
+                        })
+                except Exception:
+                    continue
+        except Exception as e:
+            print(f"Error in bulk global indices fetch: {str(e)}")
 
         return sorted(results, key=lambda x: abs(x['percent_change']), reverse=True)
 
@@ -215,23 +268,30 @@ class MarketDataService:
         }
 
         results = []
-        for symbol, name in list(cryptos.items())[:limit]:
-            try:
-                ticker = yf.Ticker(symbol)
-                data = ticker.history(period='1d')
+        try:
+            # Get all crypto data in one call
+            symbols_str = " ".join(list(cryptos.keys())[:limit])
+            tickers = yf.Tickers(symbols_str, session=self.session)
+            
+            for symbol, name in list(cryptos.items())[:limit]:
+                try:
+                    ticker = tickers.tickers[symbol]
+                    data = ticker.history(period='1d')
 
-                if not data.empty:
-                    last_close = data['Close'].iloc[-1]
-                    prev_close = data['Close'].iloc[-2] if len(data) > 1 else last_close
-                    change = last_close - prev_close
-                    percent_change = (change / prev_close) * 100
+                    if not data.empty:
+                        last_close = data['Close'].iloc[-1]
+                        prev_close = data['Close'].iloc[-2] if len(data) > 1 else last_close
+                        change = last_close - prev_close
+                        percent_change = (change / prev_close) * 100
 
-                    results.append({
-                        'name': name, 'symbol': symbol.replace('-USD', ''),
-                        'price': round(last_close, 2), 'percent_change_24h': round(percent_change, 2)
-                    })
-            except Exception:
-                continue
+                        results.append({
+                            'name': name, 'symbol': symbol.replace('-USD', ''),
+                            'price': round(last_close, 2), 'percent_change_24h': round(percent_change, 2)
+                        })
+                except Exception:
+                    continue
+        except Exception as e:
+            print(f"Error in bulk crypto fetch: {str(e)}")
 
         return results
 
@@ -242,46 +302,33 @@ class MarketDataService:
         }
 
         results = []
-        for symbol, name in commodities.items():
-            try:
-                data = yf.Ticker(symbol).history(period='1d')
-                if not data.empty:
-                    last_close = data['Close'].iloc[-1]
-                    prev_close = data['Close'].iloc[-2] if len(data) > 1 else last_close
-                    change = last_close - prev_close
-                    percent_change = (change / prev_close) * 100
+        try:
+            # Get all commodities data in one call
+            symbols_str = " ".join(commodities.keys())
+            tickers = yf.Tickers(symbols_str, session=self.session)
+            
+            for symbol, name in commodities.items():
+                try:
+                    ticker = tickers.tickers[symbol]
+                    data = ticker.history(period='1d')
+                    
+                    if not data.empty:
+                        last_close = data['Close'].iloc[-1]
+                        prev_close = data['Close'].iloc[-2] if len(data) > 1 else last_close
+                        change = last_close - prev_close
+                        percent_change = (change / prev_close) * 100
 
-                    results.append({
-                        'name': name, 'symbol': symbol,
-                        'price': round(last_close, 2), 'change': round(change, 2),
-                        'percent_change': round(percent_change, 2)
-                    })
-            except Exception:
-                continue
+                        results.append({
+                            'name': name, 'symbol': symbol,
+                            'price': round(last_close, 2), 'change': round(change, 2),
+                            'percent_change': round(percent_change, 2)
+                        })
+                except Exception:
+                    continue
+        except Exception as e:
+            print(f"Error in bulk commodities fetch: {str(e)}")
 
         return results
-
-    def _get_yfinance_indices(self):
-        indices_data = []
-        for index in self.INDIAN_INDICES:
-            try:
-                current_price = self._get_current_price(index["symbol"])
-                prev_close = self._get_previous_close(index["symbol"])
-
-                if current_price and prev_close:
-                    change = round(current_price - prev_close, 2)
-                    change_percent = round((change / prev_close) * 100, 2)
-
-                    indices_data.append({
-                        "name": index["name"], "current_price": current_price,
-                        "change": change, "change_percent": change_percent,
-                        "prev_close": prev_close, "color": index["color"],
-                        "status_color": "#2ecc71" if change >= 0 else "#e74c3c"
-                    })
-            except Exception:
-                continue
-
-        return indices_data
 
     def get_fno_stocks(self):
         """Get F&O stocks list from OptionChainService"""
@@ -339,16 +386,3 @@ class MarketDataService:
             print(f"Error fetching top movers: {e}")
             return [], []
 
-    def _get_previous_close(self, symbol):
-        try:
-            hist = yf.Ticker(symbol).history(period="3d", interval="1d")
-            return hist['Close'].iloc[-2] if len(hist) >= 2 else None
-        except Exception:
-            return None
-
-    def _get_current_price(self, symbol):
-        try:
-            hist = yf.Ticker(symbol).history(period="1d", interval="1m")
-            return hist['Close'].iloc[-1] if not hist.empty else None
-        except Exception:
-            return None
