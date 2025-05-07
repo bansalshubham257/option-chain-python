@@ -613,4 +613,11 @@ CREATE TABLE IF NOT EXISTS stock_earnings (
 
 CREATE INDEX IF NOT EXISTS idx_stock_earnings_date ON stock_earnings(next_earnings_date);
 
-
+ALTER TABLE stock_data_cache
+        ADD COLUMN week52_high DECIMAL(20, 4),
+        ADD COLUMN week52_low DECIMAL(20, 4),
+        ADD COLUMN pct_from_week52_high DECIMAL(10, 2),
+        ADD COLUMN pct_from_week52_low DECIMAL(10, 2),
+        ADD COLUMN days_since_week52_high INTEGER,
+        ADD COLUMN days_since_week52_low INTEGER,
+        ADD COLUMN week52_status VARCHAR(20);
