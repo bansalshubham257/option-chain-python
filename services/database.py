@@ -488,6 +488,9 @@ class DatabaseService:
                 
                 # Fix for ADX calculation - ensure enough data and better error handling
                 df['adx'] = None  # Initialize with None
+                df['adx_di_positive'] = None  # Initialize with None
+                df['adx_di_negative'] = None  # Initialize with None
+
                 if len(df) >= 14:  # ADX needs at least 14 periods
                     try:
                         # Calculate ADX with explicit error handling
@@ -495,28 +498,23 @@ class DatabaseService:
                         # Only assign if calculation was successful and the result length matches
                         if adx_values is not None and len(adx_values) == len(df):
                             df['adx'] = adx_values
+
+                        plus_di = ta.PLUS_DI(df['High'], df['Low'], df['Close'], timeperiod=14)
+                        minus_di = ta.MINUS_DI(df['High'], df['Low'], df['Close'], timeperiod=14)
+
+                        # Assign to DataFrame if calculations were successful
+                        if plus_di is not None:
+                            df['adx_di_positive'] = plus_di.iloc[-1]
+
+                        if minus_di is not None:
+                            df['adx_di_negative'] = minus_di.iloc[-1]
+
                     except Exception as e:
                         print(f"Error calculating ADX for {symbol}: {str(e)}")
                         # Leave as None - already initialized
                 
                 # Calculate DI indicators with similar safeguards
-                df['adx_di_positive'] = None
-                df['adx_di_negative'] = None
-                if len(df) >= 14:
-                    try:
-                        di_pos = ta.PLUS_DI(df['High'], df['Low'], df['Close'])
-                        if di_pos is not None and len(di_pos) == len(df):
-                            df['adx_di_positive'] = di_pos
-                    except Exception as e:
-                        print(f"Error calculating +DI for {symbol}: {str(e)}")
-                    
-                    try:
-                        di_neg = ta.MINUS_DI(df['High'], df['Low'], df['Close'])
-                        if di_neg is not None and len(di_neg) == len(df):
-                            df['adx_di_negative'] = di_neg
-                    except Exception as e:
-                        print(f"Error calculating -DI for {symbol}: {str(e)}")
-
+                
                 # Continue with other indicators
                 df['parabolic_sar'] = ta.SAR(df['High'], df['Low'])
                 df['rsi'] = ta.RSI(df['Close'])
