@@ -15,9 +15,14 @@ from services.stock_analysis import StockAnalysisService
 from services.database import DatabaseService
 from services.scanner import ScannerService
 from config import Config
+from concurrent.futures import ThreadPoolExecutor
+import concurrent.futures
 
+from curl_cffi import requests
 import yfinance as yf
 
+
+session = requests.Session(impersonate="chrome110")
 
 app = Flask(__name__)
 CORS(app, resources={r"/*": {"origins": [
@@ -430,8 +435,7 @@ def get_52_week_extremes():
     threshold = float(request.args.get("threshold", 5.0))  # in percentage
 
     # Get data from database
-    data = database_service.get_52_week_data(limit=limit)
-
+    data = stock_analysis_service.get_52_week_extremes(threshold=threshold/100)
     if not data:
         return jsonify({"error": "No 52-week data available", "timestamp": datetime.now().isoformat()})
 
@@ -450,32 +454,6 @@ def get_52_week_extremes():
         "timestamp": datetime.now().isoformat()
     })
 
-def run_52_week_worker():
-    """Background worker to update 52-week highs/lows"""
-    while True:
-        try:
-            ist = pytz.timezone('Asia/Kolkata')
-            now = datetime.now(ist)
-            # Run once per hour during market hours
-            if now.weekday() < 5 and Config.MARKET_OPEN <= now.time() <= Config.MARKET_CLOSE:
-                print(f"{now}: Running 52-week high/low update...")
-                # Get fresh data
-                data = stock_analysis_service.get_52_week_extremes(threshold=0.05)
-                print("Saving 52-week data", data)
-                # Save to database
-                if data and not isinstance(data, dict) and 'error' not in data:
-                    database_service.save_52_week_data(data)
-                    print(f"Updated 52-week data with {len(data)} records")
-                else:
-                    print("No valid data received for 52-week update")
-                # Sleep for 1 hour
-                time.sleep(3600)
-            else:
-                # Sleep for 15 minutes when market is closed
-                time.sleep(900)
-        except Exception as e:
-            print(f"Error in 52-week worker: {e}")
-            time.sleep(300)  # Retry after 5 minutes on error
 
 @app.route('/api/scanner/save', methods=['POST'])
 def save_scanner():
@@ -559,14 +537,15 @@ def get_most_active_strikes():
     return jsonify(data)
 
 def run_stock_data_updater():
-    """Hyper-optimized stock data updater to complete all intervals in 4-5 minutes"""
+    """Optimized stock data updater that only processes 1d interval"""
     last_cache_clear_date = None
-    intervals = ['1d', '1h', '15m', '5m']
-
-    # Aggressive parallel configuration
-    interval_threads = 4      # One thread per interval
-    stocks_per_worker = 10    # Each worker handles 10 stocks
-    max_workers_per_interval = 5  # 10 workers per interval
+    
+    # Only process 1d interval
+    interval = '1d'
+    
+    # Configuration for batch processing
+    stocks_per_worker = 20
+    max_workers = 20  # Increase workers since we're only handling one interval
 
     while True:
         try:
@@ -582,37 +561,21 @@ def run_stock_data_updater():
 
             # Check market hours
             if now.weekday() in Config.TRADING_DAYS and Config.MARKET_OPEN <= now.time() <= Config.MARKET_CLOSE:
-                print(f"{now}: Running high-speed stock data update...")
+                print(f"{now}: Running stock data update for 1d interval only...")
                 fno_stocks = option_chain_service.get_fno_stocks_with_symbols()
 
-                from concurrent.futures import ThreadPoolExecutor
-                import concurrent.futures
-
-                # Process all intervals in parallel
-                interval_futures = []
-                with ThreadPoolExecutor(max_workers=interval_threads) as interval_executor:
-                    for interval in intervals:
-                        # Submit each interval as a separate task
-                        interval_futures.append(
-                            interval_executor.submit(
-                                update_stocks_for_interval,
-                                fno_stocks,
-                                interval,
-                                stocks_per_worker,
-                                max_workers_per_interval
-                            )
-                        )
-
-                # Wait for all intervals to complete and log results
-                for future, interval in zip(concurrent.futures.as_completed(interval_futures), intervals):
-                    try:
-                        success_count, total_time = future.result()
-                        #print(f"✅ {interval} completed: {success_count} stocks in {total_time:.2f}s")
-                    except Exception as e:
-                        print(f"❌ Error processing {interval}: {e}")
-
-                print(f"{now}: Full stock data update completed")
-                time.sleep(600)  # 10 minutes between full updates
+                # Process 1d interval
+                start_time = time.time()
+                success_count = update_stocks_for_interval(fno_stocks, interval, stocks_per_worker, max_workers)
+                total_time = time.time() - start_time
+                
+                print(f"✅ {interval} completed: {success_count} stocks in {total_time:.2f}s")
+                print(f"{now}: 1d interval stock data update completed")
+                
+                # Wait longer between updates since we're only processing 1d data
+                time.sleep(30)  # 30 minutes between updates
+                market_data_service.update_all_market_data()
+                time.sleep(30)  # 30 minutes between updates
             else:
                 # Sleep when market is closed
                 time.sleep(1800)  # 30 minutes
@@ -629,8 +592,15 @@ def update_stocks_for_interval(stocks, interval, stocks_per_worker, max_workers)
     start_time = time.time()
     success_count = 0
 
+    # Filter out any empty symbols first
+    valid_stocks = [stock for stock in stocks if stock and stock.strip()]
+    
+    if not valid_stocks:
+        print(f"No valid stocks to process for {interval} interval")
+        return 0, 0
+
     # Divide stocks into chunks for parallel processing
-    stock_chunks = [stocks[i:i+stocks_per_worker] for i in range(0, len(stocks), stocks_per_worker)]
+    stock_chunks = [valid_stocks[i:i+stocks_per_worker] for i in range(0, len(valid_stocks), stocks_per_worker)]
 
     # Create a thread pool to process chunks in parallel
     with ThreadPoolExecutor(max_workers=max_workers) as executor:
@@ -665,37 +635,47 @@ def process_stock_chunk(stock_chunk, interval, chunk_idx, total_chunks):
 
     # Get period settings for this interval
     period_map = {
-        '1d': ('1y', '1d'),
+        '1d': ('1y', '1d'),  # Use 1 year of data for daily to properly calculate 52-week high/low
         '1h': ('7d', '1h'),
         '15m': ('5d', '15m'),
         '5m': ('5d', '5m')
     }
     period, interval_str = period_map.get(interval, ('1mo', interval))
-
+    
+    # Filter out any empty symbols that might have slipped through
+    valid_stocks = [stock for stock in stock_chunk if stock and stock.strip()]
+    
+    if not valid_stocks:
+        print(f"No valid stocks in chunk {chunk_idx+1}/{total_chunks} for {interval} interval")
+        return 0
+        
     # Optimize by creating a single YFinance session
-    yf_session = yf.Tickers(" ".join(stock_chunk))
+    yf_session = yf.Tickers(" ".join(valid_stocks), session=session)
 
     # Process each stock in the chunk
-    for stock in stock_chunk:
+    for stock in valid_stocks:
         try:
             # Get data using the shared session
             data = yf_session.tickers[stock].history(period=period, interval=interval_str)
-
+  
+            # Fetch company info data
             info_data = yf_session.tickers[stock].info
 
+            # The 52-week high/low data will be calculated inside the update_stock_data method
+            # Only for daily interval data (to avoid redundant calculations)
+            
             if not data.empty:
                 # Process the data
                 success = database_service.update_stock_data(stock, interval, data, info_data)
                 if success:
                     success_count += 1
-                    #print(f"Updated {stock} {interval} data: {len(data)} records")
             else:
                 print(f"No data for {stock} {interval}")
 
         except Exception as e:
             print(f"Error updating {stock} {interval}: {e}")
 
-    print(f"Completed chunk {chunk_idx+1}/{total_chunks} for {interval}")
+    print(f"Completed chunk {chunk_idx+1}/{total_chunks} for {interval}: {success_count}/{len(valid_stocks)} successful")
     return success_count
 
 def update_stock_batch(stocks, interval):
@@ -711,7 +691,7 @@ def update_stock_batch(stocks, interval):
         period, interval_str = period_map.get(interval, ('1mo', interval))
 
         # Create a single Tickers object for all stocks in batch
-        tickers = yf.Tickers(" ".join(stocks))
+        tickers = yf.Tickers(" ".join(stocks), session=session)
 
         success_count = 0
         for stock in stocks:
@@ -871,6 +851,7 @@ def run_financials_worker():
             import traceback
             traceback.print_exc()
             time.sleep(1800)  # Retry after 30 minutes on error
+
 @app.route('/api/stock-data', methods=['GET'])
 def get_stock_data():
     """API endpoint to fetch stock data for heatmap visualization"""
@@ -971,17 +952,15 @@ def run_background_workers():
     market_data_thread = threading.Thread(target=run_market_data_worker, daemon=True)
     option_chain_thread = threading.Thread(target=run_option_chain_worker, daemon=True)
     oi_buildup_thread = threading.Thread(target=option_chain_service.run_analytics_worker, daemon=True)
-    fiftytwo_week_thread = threading.Thread(target=run_52_week_worker, daemon=True)
     stock_data_thread = threading.Thread(target=run_stock_data_updater, daemon=True)
     scanner_thread = threading.Thread(target=run_scanner_worker, daemon=True)
     financials_thread = threading.Thread(target=run_financials_worker, daemon=True)
     db_clearing_thread = threading.Thread(target=run_db_clearing_worker, daemon=True)
     
     #market_data_thread.start()
-    option_chain_thread.start()
-    oi_buildup_thread.start()
-    #fiftytwo_week_thread.start()
-    #stock_data_thread.start()
+    #option_chain_thread.start()
+    #oi_buildup_thread.start()
+    stock_data_thread.start()
     #scanner_thread.start()
     #financials_thread.start()
     db_clearing_thread.start()
