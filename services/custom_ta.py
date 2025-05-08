@@ -149,43 +149,57 @@ class TA:
     @staticmethod
     def PLUS_DI(high, low, close, timeperiod=14):
         """Plus Directional Indicator"""
+        if len(high) < timeperiod + 1:
+            return pd.Series(np.nan, index=high.index)
+            
         # Calculate True Range
-        tr1 = abs(high - low)
-        tr2 = abs(high - pd.Series(close).shift(1))
-        tr3 = abs(low - pd.Series(close).shift(1))
-        tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
-        atr = tr.ewm(span=timeperiod, adjust=False).mean()
-
+        tr = TA.TRUE_RANGE(high, low, close)
+        
         # Calculate Directional Movement
-        up_move = high - high.shift(1)
+        up_move = high.diff()
         down_move = low.shift(1) - low
-
+        
         # Positive Directional Movement
-        plus_dm = np.where((up_move > down_move) & (up_move > 0), up_move, 0)
-        plus_dm = pd.Series(plus_dm).ewm(span=timeperiod, adjust=False).mean()
-        plus_di = 100 * plus_dm / atr.replace(0, np.finfo(float).eps)
-
+        plus_dm = pd.Series(np.zeros(len(high)), index=high.index)
+        for i in range(1, len(high)):
+            if (up_move.iloc[i] > down_move.iloc[i]) and up_move.iloc[i] > 0:
+                plus_dm.iloc[i] = up_move.iloc[i]
+        
+        # Smooth the calculations using Wilder's method
+        smoothed_tr = tr.rolling(timeperiod).sum()
+        smoothed_plus_dm = plus_dm.rolling(timeperiod).sum()
+        
+        # Calculate +DI
+        plus_di = 100 * smoothed_plus_dm / smoothed_tr.replace(0, np.finfo(float).eps)
+        
         return plus_di
 
     @staticmethod
     def MINUS_DI(high, low, close, timeperiod=14):
         """Minus Directional Indicator"""
+        if len(high) < timeperiod + 1:
+            return pd.Series(np.nan, index=high.index)
+            
         # Calculate True Range
-        tr1 = abs(high - low)
-        tr2 = abs(high - pd.Series(close).shift(1))
-        tr3 = abs(low - pd.Series(close).shift(1))
-        tr = pd.concat([tr1, tr2, tr3], axis=1).max(axis=1)
-        atr = tr.ewm(span=timeperiod, adjust=False).mean()
-
+        tr = TA.TRUE_RANGE(high, low, close)
+        
         # Calculate Directional Movement
-        up_move = high - high.shift(1)
+        up_move = high.diff()
         down_move = low.shift(1) - low
-
+        
         # Negative Directional Movement
-        minus_dm = np.where((down_move > up_move) & (down_move > 0), down_move, 0)
-        minus_dm = pd.Series(minus_dm).ewm(span=timeperiod, adjust=False).mean()
-        minus_di = 100 * minus_dm / atr.replace(0, np.finfo(float).eps)
-
+        minus_dm = pd.Series(np.zeros(len(high)), index=high.index)
+        for i in range(1, len(high)):
+            if (down_move.iloc[i] > up_move.iloc[i]) and down_move.iloc[i] > 0:
+                minus_dm.iloc[i] = down_move.iloc[i]
+        
+        # Smooth the calculations using Wilder's method
+        smoothed_tr = tr.rolling(timeperiod).sum()
+        smoothed_minus_dm = minus_dm.rolling(timeperiod).sum()
+        
+        # Calculate -DI
+        minus_di = 100 * smoothed_minus_dm / smoothed_tr.replace(0, np.finfo(float).eps)
+        
         return minus_di
 
     @staticmethod
@@ -607,4 +621,3 @@ class TA:
 
 # Create a singleton instance
 ta = TA()
-
