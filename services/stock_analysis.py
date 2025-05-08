@@ -1,3 +1,5 @@
+from pprint import pformat
+
 import pandas as pd
 import numpy as np
 import ta
@@ -278,48 +280,46 @@ class StockAnalysisService:
                         "Industry": industry_result[0],
                         "Sector": industry_result[1]
                     }
-
                 fundamental_metrics = {}
-                if cur.fetchone()[0]:  # Columns exist
-                    # Get key fundamental metrics
-                    cur.execute("""
+
+                cur.execute("""
                         SELECT pe_ratio, market_cap, dividend_yield, dividend_rate, total_debt
                         FROM stock_data_cache
                         WHERE symbol = %s AND interval = '1d'
                         ORDER BY timestamp DESC
                         LIMIT 1
                     """, (symbol_with_ns,))
-                    
-                    metrics_result = cur.fetchone()
-                    if metrics_result:
-                        # Format market cap and total debt in more readable format (B for billions, M for millions)
-                        market_cap = metrics_result[1]
-                        if market_cap:
-                            if market_cap >= 1_000_000_000:
-                                market_cap_formatted = f"{market_cap/1_000_000_000:.2f}B"
-                            else:
-                                market_cap_formatted = f"{market_cap/1_000_000:.2f}M"
-                        else:
-                            market_cap_formatted = "N/A"
-                            
-                        total_debt = metrics_result[4]
-                        if total_debt:
-                            if total_debt >= 1_000_000_000:
-                                total_debt_formatted = f"{total_debt/1_000_000_000:.2f}B"
-                            else:
-                                total_debt_formatted = f"{total_debt/1_000_000:.2f}M"
-                        else:
-                            total_debt_formatted = "N/A"
 
-                        fundamental_metrics = {
-                            "P/E Ratio": round(metrics_result[0], 2) if metrics_result[0] else "N/A",
-                            "Market Cap": market_cap_formatted,
-                            "Dividend Yield": f"{metrics_result[2]:.2f}%" if metrics_result[2] else "N/A",
-                            "Dividend Rate": metrics_result[3] if metrics_result[3] else "N/A",
-                            "Total Debt": total_debt_formatted
-                        }
+                metrics_result = cur.fetchone()
+                if metrics_result:
+                    # Format market cap and total debt in more readable format (B for billions, M for millions)
+                    market_cap = metrics_result[1]
+                    if market_cap:
+                        if market_cap >= 1_000_000_000:
+                            market_cap_formatted = f"{market_cap/1_000_000_000:.2f}B"
+                        else:
+                            market_cap_formatted = f"{market_cap/1_000_000:.2f}M"
+                    else:
+                        market_cap_formatted = "N/A"
 
-                # Get quarterly financials data
+                    total_debt = metrics_result[4]
+                    if total_debt:
+                        if total_debt >= 1_000_000_000:
+                            total_debt_formatted = f"{total_debt/1_000_000_000:.2f}B"
+                        else:
+                            total_debt_formatted = f"{total_debt/1_000_000:.2f}M"
+                    else:
+                        total_debt_formatted = "N/A"
+
+                    fundamental_metrics = {
+                        "P/E Ratio": round(metrics_result[0], 2) if metrics_result[0] else "N/A",
+                        "Market Cap": market_cap_formatted,
+                        "Dividend Yield": f"{metrics_result[2]:.2f}%" if metrics_result[2] else "N/A",
+                        "Dividend Rate": metrics_result[3] if metrics_result[3] else "N/A",
+                        "Total Debt": total_debt_formatted
+                    }
+
+            # Get quarterly financials data
                 cur.execute("""
                     SELECT quarter_ending, revenue, net_income, operating_income, ebitda, type
                     FROM quarterly_financials
@@ -331,7 +331,6 @@ class StockAnalysisService:
                 rows = cur.fetchall()
                 if not rows:
                     return None
-
                 # Format the quarterly financial data
                 financials = []
                 for row in rows:
@@ -361,7 +360,6 @@ class StockAnalysisService:
 
                 # Generate financial charts if we have data
                 financials_chart_script, financials_chart_div = self._generate_quarterly_financials_chart(financials)
-
                 result = {
                     "Next_Earnings": earnings_date.strftime("%Y-%m-%d") if hasattr(earnings_date, "strftime") else str(earnings_date) if earnings_date else "Not available",
                     "Quarterly_Financials": financials,
@@ -371,11 +369,9 @@ class StockAnalysisService:
                         "div": financials_chart_div
                     }
                 }
-                
                 # Add industry info if available
                 if industry_info:
-                    result["Company_Info"] = industry_info
-                    
+                    result["Company_Info"] = industry_info\
                 # Add fundamental metrics if available
                 if fundamental_metrics:
                     result["Key_Metrics"] = fundamental_metrics
