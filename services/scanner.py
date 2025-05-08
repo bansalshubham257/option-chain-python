@@ -6,11 +6,12 @@ import time
 
 import numpy as np
 import pandas as pd
-import yfinance as yf
 from datetime import datetime, timedelta
 import pytz
 from psycopg2.extras import execute_batch
 from scipy.stats import linregress
+from curl_cffi import requests
+import yfinance as yf
 
 # Add correct imports
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -22,6 +23,7 @@ class ScannerService:
     def __init__(self, database_service, option_chain_service):
         self.database_service = database_service
         self.option_chain_service = option_chain_service
+        self.session = requests.Session(impersonate="chrome110")
 
     def save_scanner(self, name, conditions, stock_type, logic="AND"):
         """Save a scanner configuration to the database"""
@@ -478,6 +480,7 @@ class ScannerService:
 
             with self.database_service._get_cursor() as cur:
                 # Query for significant OI changes in futures from the fno_analytics table
+                # Fix the timestamp comparison by casting timestamp to timestamp type
                 cur.execute("""
                     SELECT 
                         symbol, 
@@ -489,7 +492,7 @@ class ScannerService:
                         analytics_type = 'buildup' 
                         AND category IN ('options_long', 'options_short')
                         AND option_type = 'FUT'
-                        AND timestamp >= NOW() - INTERVAL '24 hours'
+                        AND CAST(timestamp AS timestamp) >= NOW() - INTERVAL '24 hours'
                     ORDER BY 
                         ABS(oi_change) DESC
                 """)
@@ -519,60 +522,97 @@ class ScannerService:
             print(f"Error in scan_futures_oi_changes: {e}")
             return []
 
-    def scan_options_oi_changes(self):
-        """Scan for high increases or decreases in options open interest."""
-        results = []
+    def scan_options_oi_changes(self, condition):
+        """Scan for options with significant OI changes"""
         try:
-            # Define thresholds for significant OI changes (in percentage)
-            high_increase_threshold = 15
-            high_decrease_threshold = -15
-
-            with self.database_service._get_cursor() as cur:
-                # Query for significant OI changes in options from the fno_analytics table
-                cur.execute("""
-                    SELECT 
-                        symbol, 
-                        option_type,
-                        oi_change, 
-                        absolute_oi,
-                        timestamp
-                    FROM fno_analytics
-                    WHERE 
-                        analytics_type = 'buildup' 
-                        AND category IN ('oi_gainer', 'oi_loser')
-                        AND option_type IN ('CE', 'PE')
-                        AND timestamp >= NOW() - INTERVAL '24 hours'
-                    ORDER BY 
-                        ABS(oi_change) DESC
-                """)
-
-                options_data = cur.fetchall()
-
-                for row in options_data:
-                    symbol, option_type, oi_change, absolute_oi, timestamp = row
-
-                    # Remove .NS suffix if present for storage format consistency
-                    stock_name = symbol.replace('.NS', '')
-
-                    # Determine scan type based on option type and OI change
-                    if option_type == 'CE':
-                        if oi_change >= high_increase_threshold:
-                            results.append((stock_name, "call_options_high_oi_increase", True))
-                            print(f"📈 CALL HIGH OI INCREASE: {stock_name} with {oi_change:.2f}% change")
-                        elif oi_change <= high_decrease_threshold:
-                            results.append((stock_name, "call_options_high_oi_decrease", True))
-                            print(f"📉 CALL HIGH OI DECREASE: {stock_name} with {oi_change:.2f}% change")
-                    elif option_type == 'PE':
-                        if oi_change >= high_increase_threshold:
-                            results.append((stock_name, "put_options_high_oi_increase", True))
-                            print(f"📈 PUT HIGH OI INCREASE: {stock_name} with {oi_change:.2f}% change")
-                        elif oi_change <= high_decrease_threshold:
-                            results.append((stock_name, "put_options_high_oi_decrease", True))
-                            print(f"📉 PUT HIGH OI DECREASE: {stock_name} with {oi_change:.2f}% change")
-
-                print(f"Found {len(results)} stocks with significant options OI changes")
-                return results
-
+            threshold = float(condition.get('value', 100))
+            timeframe = condition.get('timeframe', '1d')
+            direction = condition.get('direction', 'above')
+            option_type = condition.get('option_type', 'both').upper()
+            
+            interval = '2 hours' if timeframe == '1d' else '30 minutes'
+            
+            # Convert timestamp string to proper timestamp value
+            with self.database._get_cursor() as cur:
+                query = """
+                    SELECT symbol, strike_price, option_type, oi, price, 
+                           CAST(display_time AS timestamp) as timestamp
+                    FROM oi_volume_history
+                    WHERE option_type != 'FU'
+                          AND CAST(display_time AS timestamp) >= NOW() - INTERVAL %s
+                """
+                
+                params = [interval]
+                
+                # Filter by option type if specified
+                if option_type != 'BOTH':
+                    query += " AND option_type = %s"
+                    params.append(option_type)
+                
+                query += " ORDER BY symbol, strike_price, option_type, CAST(display_time AS timestamp)"
+                
+                cur.execute(query, params)
+                
+                data = cur.fetchall()
+                
+                # Process the data to find OI changes
+                result_symbols = set()
+                
+                options_data = {}
+                for row in data:
+                    symbol, strike, opt_type, oi, price, timestamp = row
+                    key = f"{symbol}_{strike}_{opt_type}"
+                    
+                    if key not in options_data:
+                        options_data[key] = []
+                        
+                    options_data[key].append({
+                        'symbol': symbol,
+                        'strike': strike,
+                        'type': opt_type,
+                        'oi': float(oi) if oi else 0,
+                        'price': float(price) if price else 0,
+                        'timestamp': timestamp
+                    })
+                
+                # Calculate OI changes
+                results = []
+                for key, data_points in options_data.items():
+                    if len(data_points) >= 2:
+                        # Sort by timestamp to ensure proper order
+                        sorted_data = sorted(data_points, key=lambda x: x['timestamp'])
+                        
+                        # Compare oldest and newest data points
+                        oldest = sorted_data[0]
+                        newest = sorted_data[-1]
+                        
+                        initial_oi = oldest['oi']
+                        current_oi = newest['oi']
+                        
+                        # Skip if initial OI is too low to be meaningful
+                        if initial_oi < 100:
+                            continue
+                        
+                        # Calculate percentage change
+                        if initial_oi > 0:  # Avoid division by zero
+                            pct_change = ((current_oi - initial_oi) / initial_oi) * 100
+                            
+                            # Apply threshold filter
+                            if (direction == 'above' and pct_change >= threshold) or \
+                               (direction == 'below' and pct_change <= -threshold):
+                                result_symbols.add(newest['symbol'])
+                                results.append({
+                                    'symbol': newest['symbol'],
+                                    'strike': newest['strike'],
+                                    'option_type': newest['type'],
+                                    'initial_oi': initial_oi,
+                                    'current_oi': current_oi,
+                                    'pct_change': pct_change,
+                                    'price': newest['price']
+                                })
+                
+                return list(result_symbols)
+        
         except Exception as e:
             print(f"Error in scan_options_oi_changes: {e}")
             return []
@@ -1285,7 +1325,8 @@ class ScannerService:
                         interval="1d",      # Daily data
                         group_by='ticker',  # Group by ticker
                         progress=False,     # Disable progress bar
-                        auto_adjust=True    # Adjust for splits and dividends
+                        auto_adjust=True,    # Adjust for splits and dividends
+                        session=self.session
                     )
                     
                     # Fetch weekly data for the batch
@@ -1296,7 +1337,8 @@ class ScannerService:
                         interval="1wk",     # Weekly data
                         group_by='ticker',  # Group by ticker
                         progress=False,     # Disable progress bar
-                        auto_adjust=True    # Adjust for splits and dividends
+                        auto_adjust=True,    # Adjust for splits and dividends
+                        session=self.session
                     )
                     
                     # Process each stock in the batch
@@ -1585,8 +1627,14 @@ class ScannerService:
             if futures_oi_results:
                 results.extend(futures_oi_results)
                 
-            # Add options open interest scan
-            options_oi_results = self.scan_options_oi_changes()
+            # Add options open interest scan - provide a default condition
+            options_condition = {
+                'value': 100,  # Default threshold percentage
+                'timeframe': '1d',  # Default timeframe
+                'direction': 'above',  # Default direction
+                'option_type': 'both'  # Default option type
+            }
+            options_oi_results = self.scan_options_oi_changes(options_condition)
             if options_oi_results:
                 results.extend(options_oi_results)
 
