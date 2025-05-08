@@ -1336,19 +1336,23 @@ class DatabaseService:
                         f["net_income"],
                         f["operating_income"],
                         f["ebitda"],
+                        f["pat"],
+                        f["debt"],
                         f["type"]
                     )
                     for f in financials
                 ]
                 execute_batch(cur, """
                     INSERT INTO quarterly_financials (
-                        symbol, quarter_ending, revenue, net_income, operating_income, ebitda, type
-                    ) VALUES (%s, %s, %s, %s, %s, %s, %s)
+                        symbol, quarter_ending, revenue, net_income, operating_income, ebitda, pat, debt, type
+                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
                     ON CONFLICT (symbol, quarter_ending) DO UPDATE SET
                         revenue = EXCLUDED.revenue,  -- Ensure revenue is updated
                         net_income = EXCLUDED.net_income,
                         operating_income = EXCLUDED.operating_income,
                         ebitda = EXCLUDED.ebitda,
+                        pat = EXCLUDED.pat
+                        debt = EXCLUDED.debt
                         type = EXCLUDED.type
                 """, data)
             
@@ -1403,6 +1407,8 @@ class DatabaseService:
                             self._convert_numpy_types(fin["net_income"]),
                             self._convert_numpy_types(fin["operating_income"]),
                             self._convert_numpy_types(fin["ebitda"]),
+                            self._convert_numpy_types(fin["pat"]),
+                            self._convert_numpy_types(fin["debt"]),
                             fin["type"]
                         ))
                     except Exception as e:
@@ -1413,13 +1419,15 @@ class DatabaseService:
             if financials_data:
                 execute_batch(cur, """
                     INSERT INTO quarterly_financials (
-                        symbol, quarter_ending, revenue, net_income, operating_income, ebitda, type
-                    ) VALUES (%s, %s, %s, %s, %s, %s, %s)
+                        symbol, quarter_ending, revenue, net_income, operating_income, ebitda, pat, debt, type
+                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
                     ON CONFLICT (symbol, quarter_ending) DO UPDATE SET
                         revenue = EXCLUDED.revenue,
                         net_income = EXCLUDED.net_income,
                         operating_income = EXCLUDED.operating_income,
                         ebitda = EXCLUDED.ebitda,
+                        pat = COALESCE(EXCLUDED.pat, quarterly_financials.pat),
+                        debt = COALESCE(EXCLUDED.debt, quarterly_financials.debt),
                         type = EXCLUDED.type
                 """, financials_data, page_size=100)
             
