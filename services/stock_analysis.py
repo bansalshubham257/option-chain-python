@@ -1087,6 +1087,12 @@ class StockAnalysisService:
         MAX_RETRIES = 2   # Maximum number of retries for a failed request
         BASE_DELAY = 1.0  # Base delay between API calls in seconds
         
+        # Banks and financial companies sector identifiers
+        FINANCIAL_SECTORS = ['Financial Services', 'Banks', 'Finance', 'Banking', 'Insurance',
+                             'Capital Markets', 'Financial', 'Asset Management']
+        FINANCIAL_INDUSTRIES = ['Banks', 'Insurance', 'Capital Markets', 'Investment Banking', 'Financial Services',
+                                'Asset Management', 'Consumer Finance', 'Diversified Financial Services']
+        
         # Split stocks into batches
         batches = [fno_symbols[i:i + BATCH_SIZE] for i in range(0, len(fno_symbols), BATCH_SIZE)]
         total_batches = len(batches)
@@ -1197,7 +1203,7 @@ class StockAnalysisService:
                         else:
                             print(f"API called individually for {symbol} ****************")
                             # Only create individual Ticker object if we don't have it from the batch
-                            session = self._get_session()
+                            
                             stock = yf.Ticker(full_symbol, session=self.session)
                         
                         # Get next earnings date from calendar if available
@@ -1223,7 +1229,6 @@ class StockAnalysisService:
                                     "dividend_yield": info.get("dividendYield") * 100 if info.get("dividendYield") else None,
                                     "dividend_rate": info.get("dividendRate"),
                                     "total_debt": info.get("totalDebt"),
-                                    
                                     # Add data from batch download
                                     "current_price": extracted_metrics["current_price"] or info.get("currentPrice"),
                                     "price_change": extracted_metrics["price_change"],
@@ -1298,7 +1303,15 @@ class StockAnalysisService:
                         # Process fetched data if available
                         financials = []
                         if financials_data is not None and not financials_data.empty:
-                            # Process financial data
+                            # Determine if this is a financial company/bank
+                            sector = company_info.get("sector", "")
+                            industry = company_info.get("industry", "")
+                            is_financial = (sector in FINANCIAL_SECTORS or industry in FINANCIAL_INDUSTRIES)
+                            
+                            if is_financial:
+                                print(f"{symbol} identified as financial sector company: {sector} / {industry}")
+                            
+                            # Process financial data for each quarter
                             for quarter in financials_data.columns:
                                 quarter_date = None
                                 if isinstance(quarter, pd.Timestamp):
@@ -1317,37 +1330,70 @@ class StockAnalysisService:
                                 
                                 # Safely access rows using `.get` method
                                 revenue = None
-                                for rev_field in ['Total Revenue', 'Revenue', 'Net Revenue', 'Gross Revenue']:
+                                for rev_field in ['Total Revenue', 'Revenue', 'Net Revenue', 'Gross Revenue', 'Interest Income']:
                                     if rev_field in financials_data.index:
                                         revenue = financials_data.loc[rev_field, quarter]
                                         break
                                 
-                                # Handle other financial metrics similarly with failover fields
+                                # Handle net income consistently for all companies
                                 net_income = None
-                                for ni_field in ['Net Income', 'Net Income Common Stockholders', 'Net Income From Continuing Operations']:
+                                for ni_field in ['Net Income', 'Net Income Common Stockholders', 'Net Income From Continuing Operations', 'Net Income to Common']:
                                     if ni_field in financials_data.index:
                                         net_income = financials_data.loc[ni_field, quarter]
                                         break
-                                        
-                                operating_income = None
-                                for oi_field in ['Operating Income', 'EBIT', 'Operating Profit']:
-                                    if oi_field in financials_data.index:
-                                        operating_income = financials_data.loc[oi_field, quarter]
-                                        break
-                                        
-                                ebitda = None
-                                if 'EBITDA' in financials_data.index:
-                                    ebitda = financials_data.loc['EBITDA', quarter]
                                 
-                                financials.append({
+                                # Extract PAT (Profit After Tax) - which may be the same as net income in some cases
+                                pat = None
+                                    
+                                # Extract debt information
+                                debt = fundamental_metrics.get("total_debt")
+                                
+                                # Handle fields differently based on company type
+                                operating_income = None
+                                ebitda = None
+                                
+                                if is_financial:
+                                    # For financial companies/banks, look for different metrics for operating income
+                                    for oi_field in ['Net Interest Income', 'Interest Income', 'Net Interest Margin', 'Operating Income']:
+                                        if oi_field in financials_data.index:
+                                            operating_income = financials_data.loc[oi_field, quarter]
+                                            break
+                                    
+                                    # Banks often don't report EBITDA, use pre-provision profit or similar
+                                    for ebitda_field in ['Pre Provision Profit', 'Pre-Provision Net Revenue', 'Operating Profit', 'Operating Income']:
+                                        if ebitda_field in financials_data.index:
+                                            ebitda = financials_data.loc[ebitda_field, quarter]
+                                            break
+                                            
+                                    # If ebitda is still None for a financial company but operating_income exists, use that
+                                    if ebitda is None and operating_income is not None:
+                                        ebitda = operating_income
+                                        print(f"Using Net Interest Income as EBITDA for {symbol}")
+                                else:
+                                    # For non-financial companies, use standard metrics
+                                    for oi_field in ['Operating Income', 'EBIT', 'Operating Profit']:
+                                        if oi_field in financials_data.index:
+                                            operating_income = financials_data.loc[oi_field, quarter]
+                                            break
+                                    
+                                    if 'EBITDA' in financials_data.index:
+                                        ebitda = financials_data.loc['EBITDA', quarter]
+                                
+                                # Create quarterly data entry
+                                quarterly_data = {
                                     "quarter_ending": quarter_date,
                                     "revenue": revenue,
                                     "net_income": net_income,
                                     "operating_income": operating_income,
                                     "ebitda": ebitda,
-                                    "type": type
-                                })
-                            
+                                    "pat": pat,
+                                    "debt": debt,
+                                    "type": type,
+                                    "is_financial": is_financial
+                                }
+                                
+                                financials.append(quarterly_data)
+                                
                             # Reset rate limit delay on success and consecutive failures
                             consecutive_failures = 0
                             rate_limit_delay = max(BASE_DELAY, rate_limit_delay * 0.9)  # Gradually reduce delay on success
@@ -1454,4 +1500,3 @@ class StockAnalysisService:
             "failed_count": failed_count,
             "completion_time": (datetime.now(ist) - now).total_seconds()
         }
-
