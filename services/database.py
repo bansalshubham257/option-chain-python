@@ -239,7 +239,7 @@ class DatabaseService:
             """, data, page_size=100)
 
     def save_oi_volume_batch(self, records):
-        """Save OI volume data"""
+        """Save OI volume data with option greeks as individual columns"""
         if not records:
             return
 
@@ -251,7 +251,7 @@ class DatabaseService:
 
         if not filtered_records:
             return
-
+        
         # Convert NumPy types to native Python types
         processed_records = [
             (
@@ -263,21 +263,27 @@ class DatabaseService:
                 float(r['volume']),  # Convert np.float64 to float
                 float(r['price']),  # Convert np.float64 to float
                 str(r['timestamp']),
-                float(r['pct_change'])
+                float(r['pct_change']),
+                float(r['vega']),
+                float(r['theta']),
+                float(r['gamma']),
+                float(r['delta']),
+                float(r['iv']),
+                float(r['pop'])
             )
             for r in filtered_records
         ]
-
+        
         with self._get_cursor() as cur:
             execute_batch(cur, """
                 INSERT INTO oi_volume_history (
                     symbol, expiry_date, strike_price, option_type,
-                    oi, volume, price, display_time, pct_change
-                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    oi, volume, price, display_time, pct_change,
+                    vega, theta, gamma, delta, iv, pop
+                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 ON CONFLICT (symbol, expiry_date, strike_price, option_type, display_time) 
                 DO NOTHING
             """, processed_records, page_size=100)
-
 
     def clear_old_data(self):
         """Delete previous day's data"""
@@ -1520,6 +1526,7 @@ class DatabaseService:
                     "ebitda": float(row[5]) if row[5] is not None else None  # Add ebitda
                 })
             return results
+
 
 
 
