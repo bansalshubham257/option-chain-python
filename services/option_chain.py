@@ -487,7 +487,8 @@ class OptionChainService:
             if now.weekday() < 5 and Config.MARKET_OPEN <= now.time() <= Config.MARKET_CLOSE:
                 try:
                     self._fetch_and_store_orders()
-                    time.sleep(30)  # Run every 30 seconds
+                    print("fetched and stored orders completed")
+                    time.sleep(120)  # Run every 30 seconds
                 except Exception as e:
                     print(f"Script error: {e}")
                     time.sleep(60)
@@ -1016,7 +1017,6 @@ class OptionChainService:
                 else:
                     continue
 
-
                 # Check if it's NIFTY or SENSEX (weekly expiry format: NIFTY{DDMMM}{STRIKE}{CE/PE})
                 if "NIFTY" in symbol or "SENSEX" in symbol:
                     strike_match = re.search(r'(?:NIFTY|SENSEX)\d{5}(\d+)(CE|PE)$', symbol)
@@ -1054,7 +1054,27 @@ class OptionChainService:
                         'timestamp': datetime.now(pytz.timezone('Asia/Kolkata'))
                     })
 
-                # Prepare OI data
+                # Extract option greeks if available
+                vega = theta = gamma = delta = iv = pop = 0.0
+                
+                # Find the matching option in the original data to get Greeks
+                for option_data in data:
+                    if option_data['strike_price'] == strike_price:
+                        # Get the appropriate option type data
+                        option_detail = option_data['call_options'] if option_type == 'CE' else option_data['put_options']
+                        
+                        # Extract greeks properly
+                        if 'option_greeks' in option_detail:
+                            greeks = option_detail['option_greeks']
+                            vega = greeks.get('vega', 0)
+                            theta = greeks.get('theta', 0)
+                            gamma = greeks.get('gamma', 0)
+                            delta = greeks.get('delta', 0)
+                            iv = greeks.get('iv', 0)
+                            pop = greeks.get('pop', 0)
+                        break
+
+                # Prepare OI data with option greeks data
                 result['oi_records'].append({
                     'symbol': stock_symbol,
                     'expiry': expiry_date,
@@ -1064,7 +1084,13 @@ class OptionChainService:
                     'volume': Decimal(str(quote_data.get('volume', 0))),
                     'price': Decimal(str(ltp)),
                     'pct_change': Decimal(str(pct_change)),
-                    'timestamp': datetime.now(pytz.timezone('Asia/Kolkata')).strftime("%H:%M")
+                    'timestamp': datetime.now(pytz.timezone('Asia/Kolkata')).strftime("%H:%M"),
+                    'vega': Decimal(str(vega)) if vega is not None else Decimal('0'),
+                    'theta': Decimal(str(theta)) if theta is not None else Decimal('0'),
+                    'gamma': Decimal(str(gamma)) if gamma is not None else Decimal('0'),
+                    'delta': Decimal(str(delta)) if delta is not None else Decimal('0'),
+                    'iv': Decimal(str(iv)) if iv is not None else Decimal('0'),
+                    'pop': Decimal(str(pop)) if pop is not None else Decimal('0')
                 })
 
         except Exception as e:
@@ -1154,3 +1180,4 @@ class OptionChainService:
                 expiries.append(date.strftime('%Y-%m-%d'))
 
         return expiries
+
