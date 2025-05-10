@@ -899,7 +899,170 @@ def get_stock_data():
     except Exception as e:
         logging.error(f"Error fetching stock data: {str(e)}")
         return jsonify({"error": str(e)}), 500
-        
+
+
+@app.route('/api/option-metadata', methods=['GET'])
+def get_option_metadata():
+    """Get all option metadata (symbols, expiries, strikes) in a single API call"""
+    try:
+        with database_service._get_cursor() as cur:
+            # First get all unique symbols
+            cur.execute("""
+                SELECT DISTINCT symbol 
+                FROM oi_volume_history 
+                ORDER BY symbol
+            """)
+            symbols = [row[0] for row in cur.fetchall()]
+            
+            # Then get all symbol-expiry combinations
+            cur.execute("""
+                SELECT DISTINCT symbol, expiry_date 
+                FROM oi_volume_history 
+                ORDER BY symbol, expiry_date
+            """)
+            expiry_map = {}
+            for row in cur.fetchall():
+                symbol = row[0]
+                expiry_date = row[1].strftime('%Y-%m-%d')
+                
+                if symbol not in expiry_map:
+                    expiry_map[symbol] = []
+                
+                expiry_map[symbol].append(expiry_date)
+            
+            # Finally get all symbol-expiry-strike combinations
+            cur.execute("""
+                SELECT DISTINCT symbol, expiry_date, strike_price
+                FROM oi_volume_history 
+                ORDER BY symbol, expiry_date, strike_price
+            """)
+            strike_map = {}
+            for row in cur.fetchall():
+                symbol = row[0]
+                expiry_date = row[1].strftime('%Y-%m-%d')
+                strike = float(row[2])
+                
+                key = f"{symbol}|{expiry_date}"
+                if key not in strike_map:
+                    strike_map[key] = []
+                
+                strike_map[key].append(strike)
+            
+            return jsonify({
+                "status": "success",
+                "data": {
+                    "symbols": symbols,
+                    "expiry_map": expiry_map,
+                    "strike_map": strike_map
+                }
+            })
+            
+    except Exception as e:
+        logging.error(f"Error fetching option metadata: {str(e)}")
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+@app.route('/api/option-price-prediction', methods=['POST'])
+def predict_option_price():
+    """Calculate predicted option price based on changes to option parameters"""
+    try:
+        data = request.json
+        if not data:
+            return jsonify({"error": "No data provided"}), 400
+
+        # Extract required parameters
+        base_price = float(data.get('base_price', 0))
+        delta = float(data.get('delta', 0))
+        gamma = float(data.get('gamma', 0))
+        theta = float(data.get('theta', 0))
+        vega = float(data.get('vega', 0))
+        current_iv = float(data.get('current_iv', 0))
+
+        # Get parameter changes from request - convert to daily values for intraday
+        underlying_change = float(data.get('underlying_change', 0)) / 100  # Convert % to decimal
+        iv_change = float(data.get('iv_change', 0)) / 100  # Convert % to decimal
+        days_to_expiry = float(data.get('days_to_expiry', 1)) / 365  # Convert days to year fraction
+
+        # Calculate price impact of each factor
+        delta_effect = delta * underlying_change
+        gamma_effect = 0.5 * gamma * (underlying_change ** 2)
+        theta_effect = theta * days_to_expiry  # Already in year fraction
+        vega_effect = vega * iv_change
+
+        # Calculate predicted price
+        predicted_price = base_price + delta_effect + gamma_effect + theta_effect + vega_effect
+
+        # Ensure price doesn't go negative
+        predicted_price = max(0, predicted_price)
+
+        return jsonify({
+            "status": "success",
+            "predicted_price": predicted_price,
+            "price_impact": {
+                "delta_effect": delta_effect,
+                "gamma_effect": gamma_effect,
+                "theta_effect": theta_effect,
+                "vega_effect": vega_effect
+            }
+        })
+    except Exception as e:
+        logging.error(f"Error calculating option price prediction: {str(e)}")
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
+@app.route('/api/option-analysis', methods=['GET'])
+def get_option_analysis():
+    """Get detailed option analysis data for a specific option"""
+    symbol = request.args.get('symbol')
+    expiry = request.args.get('expiry')
+    strike = request.args.get('strike')
+    option_type = request.args.get('optionType')
+
+    if not all([symbol, expiry, strike, option_type]):
+        return jsonify({"error": "All parameters (symbol, expiry, strike, option_type) are required"}), 400
+
+    try:
+        with database_service._get_cursor() as cur:
+            cur.execute("""
+                SELECT 
+                    display_time, oi, volume, price, pct_change,
+                    vega, theta, gamma, delta, iv, pop
+                FROM oi_volume_history
+                WHERE symbol = %s 
+                  AND expiry_date = %s 
+                  AND strike_price = %s 
+                  AND option_type = %s
+                ORDER BY display_time
+            """, (symbol, expiry, strike, option_type))
+
+            results = cur.fetchall()
+            data = [{
+                'time': row[0].isoformat() if hasattr(row[0], 'isoformat') else str(row[0]),
+                'oi': int(row[1]) if row[1] else 0,
+                'volume': int(row[2]) if row[2] else 0,
+                'price': float(row[3]) if row[3] else 0,
+                'pct_change': float(row[4]) if row[4] else 0,
+                'vega': float(row[5]) if row[5] else 0,
+                'theta': float(row[6]) if row[6] else 0,
+                'gamma': float(row[7]) if row[7] else 0,
+                'delta': float(row[8]) if row[8] else 0,
+                'iv': float(row[9]) if row[9] else 0,
+                'pop': float(row[10]) if row[10] else 0
+            } for row in results]
+
+            return jsonify({
+                "status": "success",
+                "data": data,
+                "symbol": symbol,
+                "expiry": expiry,
+                "strike": strike,
+                "option_type": option_type
+            })
+
+    except Exception as e:
+        logging.error(f"Error fetching option analysis: {str(e)}")
+        return jsonify({"status": "error", "message": str(e)}), 500
+
+
 def run_scanner_worker():
     """Background worker to run the scanner every hour."""
     while True:
