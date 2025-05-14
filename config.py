@@ -41,3 +41,8 @@ class Config:
         "2025-05-22",
         "2025-05-29"
     ]
+
+    # These should include all relevant expiry dates for different instruments
+    INSTRUMENT_EXPIRIES = [
+        "2025-05-29"
+    ]
