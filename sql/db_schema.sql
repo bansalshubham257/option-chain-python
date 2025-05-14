@@ -630,3 +630,26 @@ ADD COLUMN IF NOT EXISTS delta DECIMAL,
 ADD COLUMN IF NOT EXISTS iv DECIMAL,
 ADD COLUMN IF NOT EXISTS pop DECIMAL;
 
+-- Create table for instrument keys
+CREATE TABLE IF NOT EXISTS instrument_keys (
+    id SERIAL PRIMARY KEY,
+    symbol VARCHAR(20) NOT NULL,
+    instrument_key VARCHAR(100) NOT NULL,
+    exchange VARCHAR(20) NOT NULL,
+    tradingsymbol VARCHAR(100) NOT NULL,
+    lot_size INTEGER,
+    instrument_type VARCHAR(20) NOT NULL,
+    expiry_date DATE,
+    strike_price DECIMAL(20, 2),
+    option_type VARCHAR(5),
+    last_updated TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+    UNIQUE (tradingsymbol, exchange)
+);
+
+-- Create indexes for efficient queries
+CREATE INDEX IF NOT EXISTS idx_instrument_keys_symbol ON instrument_keys(symbol);
+CREATE INDEX IF NOT EXISTS idx_instrument_keys_instrument_key ON instrument_keys(instrument_key);
+CREATE INDEX IF NOT EXISTS idx_instrument_keys_instrument_type ON instrument_keys(instrument_type);
+CREATE INDEX IF NOT EXISTS idx_instrument_keys_expiry_date ON instrument_keys(expiry_date);
+
+
