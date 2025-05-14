@@ -26,7 +26,6 @@ class Config:
     TRADING_DAYS = {0, 1, 2, 3, 4}  # Monday to Friday
 
     SENSEX_EXPIRIES = [
-        "2025-05-13",
         "2025-05-20",
         "2025-05-27"
     ]
@@ -36,7 +35,6 @@ class Config:
     ]
 
     NIFTY_EXPIRIES = [
-        "2025-05-08",
         "2025-05-15",
         "2025-05-22",
         "2025-05-29"
