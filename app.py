@@ -429,6 +429,96 @@ def run_option_chain_worker():
     """Background worker for option chain processing"""
     option_chain_service.run_market_processing()
 
+def run_instrument_keys_worker():
+    """Background worker to periodically fetch and store instrument keys in the database."""
+    print(f"Starting instrument keys worker at {datetime.now()}")
+    
+    last_update_date = None
+    
+    while True:
+        try:
+            current_date = datetime.now().date()
+            
+            # Update instrument keys once per day or on first run
+            if last_update_date is None or last_update_date != current_date:
+                print(f"Fetching instrument keys at {datetime.now()}")
+                
+                # Fetch instrument data from Upstox with strike filtering
+                instrument_dict = option_chain_service.fetch_instrument_keys()
+                
+                if instrument_dict:
+                    print(f"Successfully fetched {len(instrument_dict)} filtered instruments")
+                    
+                    # Save to database
+                    batch_size = 500
+                    filtered_instruments = []
+                    
+                    # Extract strike prices for better filtering
+                    for key, details in instrument_dict.items():
+                        # Add instrument details including strike price from trading symbol
+                        instrument_data = {
+                            'instrument_key': key,
+                            'tradingsymbol': details.get('trading_symbol'),
+                            'name': details.get('name'),
+                            'instrument_type': details.get('instrument_type'),
+                            'exchange': details.get('exchange'),
+                            'expiry': details.get('expiry'),
+                            'lot_size': details.get('lot_size', 0)
+                        }
+                        
+                        # Parse the trading symbol to get strike price
+                        if 'trading_symbol' in details:
+                            parsed = option_chain_service._parse_option_symbol(details['trading_symbol'])
+                            if parsed:
+                                instrument_data['strike_price'] = parsed.get('strike_price')
+                            else:
+                                # For non-options like futures
+                                instrument_data['strike_price'] = None
+                        
+                        filtered_instruments.append(instrument_data)
+                    
+                    # Save to database in batches
+                    total_instruments = len(filtered_instruments)
+                    print(f"Preparing to save {total_instruments} instruments to database")
+                    
+                    for i in range(0, total_instruments, batch_size):
+                        batch = filtered_instruments[i:i+batch_size]
+                        database_service.save_instrument_keys(batch)
+                        print(f"Saved batch {i//batch_size + 1}/{(total_instruments-1)//batch_size + 1} ({len(batch)} instruments)")
+                    
+                    last_update_date = current_date
+                    print(f"Successfully updated instrument keys at {datetime.now()}")
+                else:
+                    print("No instrument data available")
+            
+            # Sleep for 6 hours before next check
+            sleep_time = 6 * 3600
+            print(f"Instrument keys worker sleeping for {sleep_time//3600} hours")
+            time.sleep(sleep_time)
+            
+        except Exception as e:
+            print(f"Error in instrument keys worker: {e}")
+            import traceback
+            traceback.print_exc()
+            # Shorter sleep on error
+            time.sleep(1800)  # 30 minutes
+
+# Helper function to extract strike price from trading symbol
+def get_strike_price(trading_symbol):
+    """Extract strike price from trading symbol if it's an option"""
+    if not trading_symbol:
+        return None
+    
+    try:
+        # Try to match patterns like "RELIANCE24APR4000CE" or "NIFTY24APR24000CE"
+        import re
+        match = re.match(r"[A-Z]+\d{2}[A-Z]{3}(\d+)(?:CE|PE)$", trading_symbol)
+        if match:
+            return float(match.group(1))
+        return None
+    except Exception:
+        return None
+
 @app.route("/52-week-extremes", methods=["GET"])
 def get_52_week_extremes():
     limit = int(request.args.get("limit", 50))
@@ -547,6 +637,26 @@ def run_stock_data_updater():
     stocks_per_worker = 20
     max_workers = 20  # Increase workers since we're only handling one interval
 
+    # Define the main indices with their Yahoo Finance symbols
+    main_indices = [
+        "^NSEI",      # NIFTY 50
+        "^NSEBANK",   # NIFTY BANK
+        "NIFTY_FIN_SERVICE.NS",    # FINNIFTY
+        "^NSEMDCP50",   # MIDCPNIFTY
+        "^BSESN",     # SENSEX
+        "BSE-BANK.BO"    # BANKEX
+    ]
+    
+    # Define mapping from Yahoo symbols to our internal names for consistency
+    index_mapping = {
+        "^NSEI": "NIFTY.NS",
+        "^NSEBANK": "BANKNIFTY.NS",
+        "NIFTY_FIN_SERVICE.NS": "FINNIFTY.NS",
+        "^NSEMDCP50": "MIDCPNIFTY.NS",
+        "^BSESN": "SENSEX.NS",
+        "BSE-BANK.BO": "BANKEX.NS"
+    }
+
     while True:
         try:
             ist = pytz.timezone('Asia/Kolkata')
@@ -562,14 +672,42 @@ def run_stock_data_updater():
             # Check market hours
             if now.weekday() in Config.TRADING_DAYS and Config.MARKET_OPEN <= now.time() <= Config.MARKET_CLOSE:
                 print(f"{now}: Running stock data update for 1d interval only...")
+                
+                # Get FNO stocks
                 fno_stocks = option_chain_service.get_fno_stocks_with_symbols()
+                
+                # First update the main indices as they are more important
+                print(f"{now}: Updating main indices data...")
+                start_time = time.time()
+                
+                # Create a Tickers object for all indices together
+                indices_tickers = yf.Tickers(" ".join(main_indices), session=session)
+                
+                for yahoo_symbol, local_name in index_mapping.items():
+                    try:
+                        # Get data from the batch request
+                        data = indices_tickers.tickers[yahoo_symbol].history(period='1y', interval='1d')
 
-                # Process 1d interval
+                        if not data.empty:
+                            # For indices, use simplified method that only stores price data without calculating indicators
+                            success = database_service.update_index_data(local_name, interval, data)
+                            if success:
+                                print(f"✅ Updated {local_name} index data successfully")
+                            else:
+                                print(f"❌ Failed to update {local_name} index data")
+                    except Exception as e:
+                        print(f"Error updating {local_name} ({yahoo_symbol}) index: {e}")
+                
+                indices_time = time.time() - start_time
+                print(f"✅ Indices update completed in {indices_time:.2f}s")
+                
+                # Then update the regular FNO stocks
+                print(f"{now}: Updating FNO stocks data...")
                 start_time = time.time()
                 success_count = update_stocks_for_interval(fno_stocks, interval, stocks_per_worker, max_workers)
                 total_time = time.time() - start_time
                 
-                print(f"✅ {interval} completed: {success_count} stocks in {total_time:.2f}s")
+                print(f"✅ FNO stocks completed: {success_count} stocks in {total_time:.2f}s")
                 print(f"{now}: 1d interval stock data update completed")
                 
                 # Wait longer between updates since we're only processing 1d data
@@ -1092,6 +1230,7 @@ def run_db_clearing_worker():
                 print(f"{now}: Running database clearing operations...")
                 database_service.clear_old_data()
                 last_clear_date = current_date
+                run_instrument_keys_worker()
                 print(f"{now}: Database cleared successfully")
 
                 # Sleep until next day after successful clearing
@@ -1103,7 +1242,7 @@ def run_db_clearing_worker():
                 time.sleep(sleep_seconds)
             else:
                 # Outside clearing window, check every minute
-                time.sleep(60)
+                time.sleep(300)
         except Exception as e:
             print(f"Error in DB clearing worker: {e}")
             time.sleep(300)  # Sleep for 5 minutes on error before retrying
@@ -1118,17 +1257,43 @@ def run_background_workers():
     scanner_thread = threading.Thread(target=run_scanner_worker, daemon=True)
     financials_thread = threading.Thread(target=run_financials_worker, daemon=True)
     db_clearing_thread = threading.Thread(target=run_db_clearing_worker, daemon=True)
+    # Add new instrument keys worker
+    instrument_keys_thread = threading.Thread(target=run_instrument_keys_worker, daemon=True)
 
     option_chain_thread.start()
     oi_buildup_thread.start()
     stock_data_thread.start()
     #financials_thread.start()
     db_clearing_thread.start()
+    #instrument_keys_thread.start()
     print("Background workers started successfully")
 
     # Keep main thread alive
     while True:
         time.sleep(3600)
+
+@app.route('/api/instrument-keys', methods=['GET'])
+def get_instrument_keys():
+    """API endpoint to fetch instrument keys"""
+    try:
+        symbol = request.args.get('symbol')
+        instrument_type = request.args.get('type')
+        limit = int(request.args.get('limit', 100))
+        
+        result = database_service.get_instrument_keys(symbol, instrument_type)
+        
+        # Apply limit after fetching
+        if len(result) > limit:
+            result = result[:limit]
+        
+        return jsonify({
+            "status": "success",
+            "count": len(result),
+            "data": result
+        })
+    except Exception as e:
+        logging.error(f"Error fetching instrument keys: {str(e)}")
+        return jsonify({"status": "error", "message": str(e)}), 500
 
 if __name__ == "__main__":
     if os.getenv('BACKGROUND_WORKER', 'false').lower() == 'true':
