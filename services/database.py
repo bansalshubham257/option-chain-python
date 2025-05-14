@@ -295,6 +295,7 @@ class DatabaseService:
             cur.execute("DELETE FROM oi_volume_history")
             cur.execute("DELETE FROM buildup_results")
             cur.execute("DELETE FROM fno_analytics")
+            cur.execute("DELETE FROM instrument_keys")
 
 
     def save_market_data(self, data_type, data):
@@ -447,6 +448,106 @@ class DatabaseService:
         except Exception as e:
             print(f"Error fetching anchor data for {ticker}: {str(e)}")
             return None
+
+    def update_index_data(self, symbol, interval, data):
+        """
+        Update index data with only price information, no indicators calculation.
+        Used for indices like NIFTY, BANKNIFTY, etc. to save processing time.
+        
+        Args:
+            symbol: The index symbol (e.g. 'NIFTY', 'BANKNIFTY')
+            interval: Data interval (e.g. '1d', '1h')
+            data: DataFrame with OHLCV data
+        
+        Returns:
+            bool: Success status
+        """
+        try:
+            # Convert to DataFrame if it's not already
+            if not isinstance(data, pd.DataFrame):
+                if isinstance(data, dict):
+                    data = pd.DataFrame(data)
+                else:
+                    raise TypeError(f"Expected DataFrame or dict, got {type(data)}")
+
+            # Make copy to avoid modifying original
+            df = data.copy()
+
+            # Ensure the index is datetime
+            if not isinstance(df.index, pd.DatetimeIndex):
+                df.index = pd.to_datetime(df.index)
+
+            # Sort by date
+            df = df.sort_index()
+
+            # Take only the most recent valid data point
+            latest_data = df.iloc[-1] if not df.empty else None
+            if latest_data is None:
+                print(f"No valid data available for index {symbol} at interval {interval}.")
+                return False
+
+            latest_data = latest_data.apply(lambda x: self._convert_numpy_types(x))
+
+            # Extract only the price data we need
+            timestamp = latest_data.name.to_pydatetime()
+            high = float(latest_data['High'])
+            low = float(latest_data['Low'])
+            close = float(latest_data['Close'])
+            Open = float(latest_data['Open'])
+            volume = float(latest_data['Volume']) if 'Volume' in latest_data else 0
+
+            # Calculate price change and percent change
+            if len(df) > 1:
+                prev_close = float(df.iloc[-2]['Close'])
+                price_change = close - prev_close
+                percent_change = (price_change / prev_close) * 100 if prev_close != 0 else 0
+            else:
+                price_change = 0
+                percent_change = 0
+
+            # Update database using a simplified query for indices
+            with self._get_cursor() as cur:
+                upsert_sql = """
+                    INSERT INTO stock_data_cache (
+                        symbol, interval, timestamp, open, high, low, close, volume,
+                        price_change, percent_change
+                    ) VALUES (
+                        %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
+                    )
+                    ON CONFLICT (symbol, interval)
+                    DO UPDATE SET
+                        timestamp = EXCLUDED.timestamp,
+                        open = EXCLUDED.open, 
+                        high = EXCLUDED.high, 
+                        low = EXCLUDED.low,
+                        close = EXCLUDED.close, 
+                        volume = EXCLUDED.volume,
+                        price_change = EXCLUDED.price_change,
+                        percent_change = EXCLUDED.percent_change,
+                        last_updated = NOW()
+                """
+
+                params = (
+                    symbol,
+                    interval,
+                    self._convert_numpy_types(timestamp),
+                    self._convert_numpy_types(Open),
+                    self._convert_numpy_types(high),
+                    self._convert_numpy_types(low),
+                    self._convert_numpy_types(close),
+                    self._convert_numpy_types(volume),
+                    self._convert_numpy_types(price_change),
+                    self._convert_numpy_types(percent_change)
+                )
+
+                cur.execute(upsert_sql, params)
+
+            return True
+        except Exception as e:
+            import traceback
+            print(f"Error updating index {symbol} data: {str(e)}")
+            traceback.print_exc()
+            return False
 
     def update_stock_data(self, symbol, interval, data, info_data=None):
         """Update stock data with daily recalculation of pivot points and indicators"""
@@ -1527,6 +1628,264 @@ class DatabaseService:
                 })
             return results
 
+    def save_instrument_keys(self, instruments):
+        """Save instrument keys to database"""
+        if not instruments:
+            return
 
+        records = []
+        
+        # Define index keys outside the loop
+        index_keys = {
+            "NIFTY": "NSE_INDEX|Nifty 50",
+            "BANKNIFTY": "NSE_INDEX|Nifty Bank",
+            "MIDCPNIFTY": "NSE_INDEX|Nifty Midcap 50",
+            "FINNIFTY": "NSE_INDEX|Nifty Fin Service",
+            "SENSEX": "BSE_INDEX|SENSEX",
+            "BANKEX": "BSE_INDEX|BANKEX"
+        }
+        
+        # Process regular instruments first
+        for inst in instruments:
+            try:
+                # Parse symbol and option details if applicable
+                trading_symbol = inst.get('tradingsymbol', '')
+                instrument_key = inst.get('instrument_key', '')
+                exchange = inst.get('exchange', '')
 
+                # For equity instruments, use trading symbol directly as the symbol
+                if exchange == 'NSE_EQ':
+                    symbol = trading_symbol
+                # For futures and options, extract symbol from trading symbol
+                elif exchange in ['NSE_FO', 'BSE_FO']:
+                    # Check if it's a futures contract first (e.g., INFY25MAYFUT)
+                    if trading_symbol.endswith('FUT'):
+                        import re
+                        fut_match = re.match(r"([A-Z]+)\d+[A-Z]{3}FUT", trading_symbol)
+                        if fut_match:
+                            symbol = fut_match.group(1)
+                        else:
+                            symbol = inst.get('name', trading_symbol)
+                    else:
+                        # Try to parse option details
+                        parsed = self._parse_option_symbol(trading_symbol)
+                        if parsed:
+                            symbol = parsed['stock']
+                        else:
+                            symbol = inst.get('name', trading_symbol)
+                # For indices or other instruments
+                elif 'INDEX' in exchange:
+                    symbol = inst.get('name', trading_symbol)
+                else:
+                    # Default fallback using name from instrument or tradingsymbol
+                    symbol = inst.get('name', trading_symbol)
+
+                # Truncate symbol if too long (50 chars limit in DB)
+                if len(symbol) > 50:
+                    symbol = symbol[:50]
+
+                instrument_type = inst.get('instrument_type', 'EQ')
+                option_type = None
+                strike_price = None
+                lot_size = inst.get('lot_size', 0)
+
+                # Process expiry date - it could be in DD/MM/YY format from CSV
+                expiry_date = inst.get('expiry')
+                
+                # Handle NaN or None values for expiry_date
+                if expiry_date is None or (isinstance(expiry_date, float) and (pd.isna(expiry_date) or np.isnan(expiry_date))):
+                    expiry_date = None
+                # Standardize expiry date format if it exists and is valid
+                elif expiry_date and not pd.isna(expiry_date):
+                    try:
+                        expiry_str = str(expiry_date)
+                        if '/' in expiry_str:  # DD/MM/YY format
+                            day, month, year = expiry_str.split('/')
+                            if len(year) == 2:
+                                year = f"20{year}"
+                            expiry_date = f"{year}-{month.zfill(2)}-{day.zfill(2)}"
+                        elif '-' in expiry_str:  # Could be DD-MM-YYYY or YYYY-MM-DD
+                            parts = expiry_str.split('-')
+                            if len(parts[0]) == 4:  # YYYY-MM-DD
+                                expiry_date = expiry_str
+                            else:  # DD-MM-YYYY
+                                day, month, year = parts
+                                expiry_date = f"{year}-{month.zfill(2)}-{day.zfill(2)}"
+                    except Exception as e:
+                        print(f"Error processing expiry date '{expiry_date}': {str(e)}")
+                        expiry_date = None  # Set to None if there's any error
+
+                # Set instrument type based on exchange
+                if exchange in ['NSE_FO', 'BSE_FO']:
+                    instrument_type = 'FO'
+                    
+                    # Extract option details for FO instruments
+                    if trading_symbol.endswith('FUT'):
+                        option_type = 'FU'
+                    else:
+                        parsed = self._parse_option_symbol(trading_symbol)
+                        if parsed:
+                            option_type = parsed['option_type']
+                            strike_price = parsed['strike_price']
+                elif 'INDEX' in exchange:
+                    instrument_type = 'INDEX'
+                elif exchange == 'NSE_EQ':
+                    instrument_type = 'EQUITY'
+
+                # Only add valid records with both instrument_key and tradingsymbol
+                if instrument_key and trading_symbol:
+                    records.append((
+                        symbol,
+                        instrument_key,
+                        exchange,
+                        trading_symbol,
+                        lot_size,
+                        instrument_type,
+                        expiry_date,  # This could be None now, which is fine for DATE fields
+                        strike_price,
+                        option_type
+                    ))
+            except Exception as e:
+                print(f"Error processing instrument: {str(e)}")
+                continue
+
+        # Now add index instruments
+        for index_name, instrument_key in index_keys.items():
+            exchange = "BSE_INDEX" if "BSE_INDEX" in instrument_key else "NSE_INDEX"
+            tradingsymbol = instrument_key.split('|')[1]
+            
+            records.append((
+                index_name,  # Use the index name (NIFTY, BANKNIFTY, etc.) as the symbol
+                instrument_key,
+                exchange,
+                tradingsymbol,
+                0,  # lot_size (0 for indices)
+                'INDEX',  # instrument_type
+                None,  # expiry_date (None for indices)
+                None,  # strike_price (None for indices)
+                None   # option_type (None for indices)
+            ))
+
+        if records:
+            with self._get_cursor() as cur:
+                execute_batch(cur, """
+                    INSERT INTO instrument_keys 
+                    (symbol, instrument_key, exchange, tradingsymbol, lot_size, instrument_type, 
+                     expiry_date, strike_price, option_type)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    ON CONFLICT (tradingsymbol, exchange) 
+                    DO UPDATE SET
+                        instrument_key = EXCLUDED.instrument_key,
+                        lot_size = EXCLUDED.lot_size,
+                        symbol = EXCLUDED.symbol,
+                        instrument_type = EXCLUDED.instrument_type,
+                        expiry_date = EXCLUDED.expiry_date,
+                        strike_price = EXCLUDED.strike_price,
+                        option_type = EXCLUDED.option_type,
+                        last_updated = NOW()
+                """, records, page_size=100)
+
+    def get_instrument_keys(self, symbol=None, instrument_type=None, limit=100):
+        """Get instrument keys from database"""
+        with self._get_cursor() as cur:
+            query = """
+                SELECT symbol, instrument_key, exchange, tradingsymbol, lot_size, 
+                       instrument_type, expiry_date, strike_price, option_type
+                FROM instrument_keys
+                WHERE 1=1
+            """
+            params = []
+
+            if symbol:
+                query += " AND symbol = %s"
+                params.append(symbol)
+
+            if instrument_type:
+                query += " AND instrument_type = %s"
+                params.append(instrument_type)
+
+            query += " ORDER BY tradingsymbol LIMIT %s"
+            params.append(limit)
+
+            cur.execute(query, params)
+            results = cur.fetchall()
+
+            return [
+                {
+                    'symbol': row[0],
+                    'instrument_key': row[1],
+                    'exchange': row[2],
+                    'tradingsymbol': row[3],
+                    'lot_size': row[4],
+                    'instrument_type': row[5],
+                    'expiry_date': row[6].isoformat() if row[6] else None,
+                    'strike_price': float(row[7]) if row[7] else None,
+                    'option_type': row[8]
+                }
+                for row in results
+            ]
+
+    def _parse_option_symbol(self, symbol):
+        """Parse option symbol into components"""
+        try:
+            # Try to match standard monthly pattern like RELIANCE24APR4000CE or NIFTY24APR24000CE
+            import re
+            match = re.match(r"([A-Z]+)(\d{2}[A-Z]{3})(\d+)(CE|PE)$", symbol)
+            if match:
+                return {
+                    "stock": match.group(1),
+                    "expiry": match.group(2),
+                    "strike_price": int(match.group(3)),
+                    "option_type": match.group(4)
+                }
+                
+            # Try to match weekly expiry pattern for indices with either single or double-digit month
+            # Format: Symbol + YY + [M|MM] + DD + Strike + CE/PE
+            # Examples: 
+            # - SENSEX2552089700PE means SENSEX, year 25, month 5, day 20, strike 89700, PE option
+            # - SENSEX251152089700PE means SENSEX, year 25, month 11, day 20, strike 89700, PE option
+            
+            # First try with double-digit month pattern (YY + MM + DD)
+            weekly_match_double = re.match(r"(SENSEX|NIFTY)(\d{2})(\d{2})(\d{2})(\d+)(CE|PE)$", symbol)
+            if weekly_match_double:
+                stock = weekly_match_double.group(1)
+                yy = weekly_match_double.group(2)      # YY format (e.g., 25)
+                mm = weekly_match_double.group(3)      # MM format (e.g., 05 or 11)
+                dd = weekly_match_double.group(4)      # DD format
+                
+                # Format expiry as DDMMYY for consistency with our system
+                expiry = f"{dd}{mm}{yy}"
+                
+                return {
+                    "stock": stock,
+                    "expiry": expiry,
+                    "strike_price": int(weekly_match_double.group(5)),
+                    "option_type": weekly_match_double.group(6),
+                    "is_weekly": True
+                }
+            
+            # Then try with single-digit month pattern (YY + M + DD)
+            weekly_match_single = re.match(r"(SENSEX|NIFTY)(\d{2})(\d{1})(\d{2})(\d+)(CE|PE)$", symbol)
+            if weekly_match_single:
+                stock = weekly_match_single.group(1)
+                yy = weekly_match_single.group(2)      # YY format (e.g., 25)
+                m = weekly_match_single.group(3)       # M format (e.g., 5)
+                dd = weekly_match_single.group(4)      # DD format
+                
+                # Format expiry as DDMMYY for consistency with our system
+                # Pad the month with a leading zero for consistency
+                mm = m.zfill(2)
+                expiry = f"{dd}{mm}{yy}"
+                
+                return {
+                    "stock": stock,
+                    "expiry": expiry,
+                    "strike_price": int(weekly_match_single.group(5)),
+                    "option_type": weekly_match_single.group(6),
+                    "is_weekly": True
+                }
+                
+            return None
+        except Exception:
+            return None
 
