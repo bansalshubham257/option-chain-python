@@ -103,6 +103,60 @@ class DatabaseService:
                 if conn:
                     conn.close()
 
+    def get_instrument_details_by_key(self, instrument_key):
+        """Get instrument details by instrument key."""
+        with self._get_cursor() as cur:
+            cur.execute("""
+                SELECT symbol, instrument_key, exchange, tradingsymbol, lot_size,
+                       instrument_type, expiry_date, strike_price, option_type
+                FROM instrument_keys
+                WHERE instrument_key = %s
+            """, (instrument_key,))
+            result = cur.fetchone()
+            if result:
+                return {
+                    'symbol': result[0],
+                    'instrument_key': result[1],
+                    'exchange': result[2],
+                    'tradingsymbol': result[3],
+                    'lot_size': result[4],
+                    'instrument_type': result[5],
+                    'expiry_date': result[6],
+                    'strike_price': result[7],
+                    'option_type': result[8]
+                }
+            return None
+
+    def get_instruments_by_keys(self, instrument_keys):
+        """Get multiple instrument details by instrument keys."""
+        if not instrument_keys:
+            return []
+            
+        with self._get_cursor() as cur:
+            placeholders = ','.join(['%s'] * len(instrument_keys))
+            query = f"""
+                SELECT symbol, instrument_key, exchange, tradingsymbol, lot_size,
+                       instrument_type, expiry_date, strike_price, option_type
+                FROM instrument_keys
+                WHERE instrument_key IN ({placeholders})
+            """
+            cur.execute(query, instrument_keys)
+            results = cur.fetchall()
+            
+            return [
+                {
+                    'symbol': row[0],
+                    'instrument_key': row[1],
+                    'exchange': row[2],
+                    'tradingsymbol': row[3],
+                    'lot_size': row[4],
+                    'instrument_type': row[5],
+                    'expiry_date': row[6].isoformat() if row[6] else None,
+                    'strike_price': float(row[7]) if row[7] else None,
+                    'option_type': row[8]
+                }
+                for row in results
+            ]
 
     def get_options_orders(self):
         """Get all options orders"""
@@ -238,6 +292,72 @@ class DatabaseService:
                 ON CONFLICT (symbol) DO NOTHING
             """, data, page_size=100)
 
+    def save_oi_volume_batch_feed(self, records):
+        """Save OI volume data with option greeks as individual columns"""
+        if not records:
+            return
+
+        # Filter and process records
+        filtered_records = [
+            r for r in records
+            if not (isinstance(r['strike'], (int, float)) and r['strike'] < 10)
+        ]
+
+        if not filtered_records:
+            return
+
+        # Convert NumPy types to native Python types and handle None values
+        processed_records = []
+        for r in filtered_records:
+            try:
+                # Safely convert values or use defaults if None
+                processed_record = (
+                    str(r['symbol']),
+                    str(r['expiry']) if r['expiry'] is not None else None,
+                    float(r['strike']) if r['strike'] is not None else 0.0,
+                    str(r['option_type']) if r['option_type'] is not None else None,
+                    float(r['oi']) if r['oi'] is not None else 0.0,
+                    float(r['volume']) if r['volume'] is not None else 0.0,
+                    float(r['price']) if r['price'] is not None else 0.0,
+                    str(r['timestamp']) if r['timestamp'] is not None else None,
+                    float(r['pct_change']) if r['pct_change'] is not None else 0.0,
+                    float(r['vega']) if r['vega'] is not None else 0.0,
+                    float(r['theta']) if r['theta'] is not None else 0.0,
+                    float(r['gamma']) if r['gamma'] is not None else 0.0,
+                    float(r['delta']) if r['delta'] is not None else 0.0,
+                    float(r['iv']) if r['iv'] is not None else 0.0,
+                    float(r['pop']) if r['pop'] is not None else 0.0
+                )
+                processed_records.append(processed_record)
+            except (TypeError, ValueError) as e:
+                print(f"Error processing record: {r}")
+                print(f"Error details: {e}")
+                # Skip this record to avoid breaking the batch
+                continue
+
+        # If we have no valid records after processing, exit early
+        if not processed_records:
+            print("No valid records to insert after processing")
+            return
+
+        try:
+            with self._get_cursor() as cur:
+                execute_batch(cur, """
+                    INSERT INTO oi_volume_history (
+                        symbol, expiry_date, strike_price, option_type,
+                        oi, volume, price, display_time, pct_change,
+                        vega, theta, gamma, delta, iv, pop
+                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    ON CONFLICT (symbol, expiry_date, strike_price, option_type, display_time) 
+                    DO NOTHING
+                """, processed_records, page_size=100)
+                print(f"Successfully inserted {len(processed_records)} records into oi_volume_history")
+        except Exception as e:
+            print(f"Database error in save_oi_volume_batch: {e}")
+            import traceback
+            traceback.print_exc()
+
+
     def save_oi_volume_batch(self, records):
         """Save OI volume data with option greeks as individual columns"""
         if not records:
@@ -273,6 +393,8 @@ class DatabaseService:
             )
             for r in filtered_records
         ]
+
+
         
         with self._get_cursor() as cur:
             execute_batch(cur, """
@@ -548,6 +670,43 @@ class DatabaseService:
             print(f"Error updating index {symbol} data: {str(e)}")
             traceback.print_exc()
             return False
+
+    def update_stock_prices_batch(self, stock_data_list):
+        """Update stock prices in bulk"""
+        if not stock_data_list:
+            return
+
+        try:
+            with self._get_cursor() as cur:
+                # Prepare data for batch update
+                records = []
+                for data in stock_data_list:
+                    symbol = data['symbol']
+                    # Ensure symbol has .NS suffix
+                    if not symbol.endswith('.NS'):
+                        symbol = f"{symbol}.NS"
+
+                    records.append((
+                        symbol,
+                        float(data['close']) if data['close'] is not None else 0.0,
+                        float(data['price_change']) if data['price_change'] is not None else 0.0,
+                        float(data['percent_change']) if data['percent_change'] is not None else 0.0,
+                        data['timestamp'].strftime('%Y-%m-%d %H:%M:%S') if isinstance(data['timestamp'], datetime) else data['timestamp']
+                    ))
+                
+                # Use execute_batch for efficient batch update
+                execute_batch(cur, """
+                    UPDATE stock_data_cache
+                    SET close = %s, price_change = %s, percent_change = %s, last_updated = %s
+                    WHERE symbol = %s
+                """, [(r[1], r[2], r[3], r[4], r[0]) for r in records], page_size=100)
+
+                rows_affected = cur.rowcount
+                print(f"Updated {rows_affected} stock price records")
+        except Exception as e:
+            print(f"Error updating stock prices batch: {e}")
+            import traceback
+            traceback.print_exc()
 
     def update_stock_data(self, symbol, interval, data, info_data=None):
         """Update stock data with daily recalculation of pivot points and indicators"""
@@ -1790,7 +1949,7 @@ class DatabaseService:
         with self._get_cursor() as cur:
             query = """
                 SELECT symbol, instrument_key, exchange, tradingsymbol, lot_size, 
-                       instrument_type, expiry_date, strike_price, option_type
+                       instrument_type, expiry_date, strike_price, option_type, prev_close
                 FROM instrument_keys
                 WHERE 1=1
             """
@@ -1820,7 +1979,8 @@ class DatabaseService:
                     'instrument_type': row[5],
                     'expiry_date': row[6].isoformat() if row[6] else None,
                     'strike_price': float(row[7]) if row[7] else None,
-                    'option_type': row[8]
+                    'option_type': row[8],
+                    'prev_close': float(row[9]) if row[9] is not None else None
                 }
                 for row in results
             ]
@@ -1830,61 +1990,99 @@ class DatabaseService:
         try:
             # Try to match standard monthly pattern like RELIANCE24APR4000CE or NIFTY24APR24000CE
             import re
-            match = re.match(r"([A-Z]+)(\d{2}[A-Z]{3})(\d+)(CE|PE)$", symbol)
+            match = re.match(r"([A-Z]+)(\d{2}[A-Z]{3})(\d+(?:\.\d+)?)(CE|PE)$", symbol)
             if match:
                 return {
                     "stock": match.group(1),
                     "expiry": match.group(2),
-                    "strike_price": int(match.group(3)),
+                    "strike_price": float(match.group(3)),  # Convert to float to handle decimals
                     "option_type": match.group(4)
                 }
                 
-            # Try to match weekly expiry pattern for indices with either single or double-digit month
-            # Format: Symbol + YY + [M|MM] + DD + Strike + CE/PE
-            # Examples: 
-            # - SENSEX2552089700PE means SENSEX, year 25, month 5, day 20, strike 89700, PE option
-            # - SENSEX251152089700PE means SENSEX, year 25, month 11, day 20, strike 89700, PE option
+            # For weekly options with specific 5-digit strike price handling
+            weekly_indices = ["NIFTY", "SENSEX", "BANKNIFTY", "FINNIFTY", "MIDCPNIFTY"]
             
-            # First try with double-digit month pattern (YY + MM + DD)
-            weekly_match_double = re.match(r"(SENSEX|NIFTY)(\d{2})(\d{2})(\d{2})(\d+)(CE|PE)$", symbol)
-            if weekly_match_double:
-                stock = weekly_match_double.group(1)
-                yy = weekly_match_double.group(2)      # YY format (e.g., 25)
-                mm = weekly_match_double.group(3)      # MM format (e.g., 05 or 11)
-                dd = weekly_match_double.group(4)      # DD format
-                
-                # Format expiry as DDMMYY for consistency with our system
-                expiry = f"{dd}{mm}{yy}"
-                
-                return {
-                    "stock": stock,
-                    "expiry": expiry,
-                    "strike_price": int(weekly_match_double.group(5)),
-                    "option_type": weekly_match_double.group(6),
-                    "is_weekly": True
-                }
+            for index in weekly_indices:
+                if symbol.startswith(index) and symbol.endswith(("CE", "PE")):
+                    option_type = symbol[-2:]  # CE or PE
+                    remaining = symbol[len(index):-2]  # Remove index name and option type
+                    
+                    if len(remaining) < 9:  # Not enough chars for a weekly symbol, skip
+                        continue
+                        
+                    # For NIFTY indices:
+                    # First 2 chars: YY (year)
+                    # Next 1-2 chars: MM or M (month)
+                    # Next 2 chars: DD (day)
+                    # Remaining: Strike price (should be 5 digits for NIFTY, SENSEX)
+                    
+                    # Extract year
+                    year_digits = remaining[:2]
+                    
+                    # Check if month is 1 or 2 digits
+                    if remaining[2:4].isdigit() and 1 <= int(remaining[2:4]) <= 12:
+                        # Two-digit month
+                        month_digits = remaining[2:4]
+                        remaining_after_month = remaining[4:]
+                    else:
+                        # One-digit month
+                        month_digits = remaining[2:3]
+                        remaining_after_month = remaining[3:]
+                    
+                    # Extract day
+                    day_digits = remaining_after_month[:2]
+                    
+                    # Extract strike price - all remaining digits
+                    strike_part = remaining_after_month[2:]
+                    
+                    if not strike_part.isdigit():
+                        # Not a valid strike price
+                        continue
+                        
+                    # For NIFTY/SENSEX, strike should be 5 digits
+                    expected_strike_length = 5
+                    if len(strike_part) != expected_strike_length and index in ["NIFTY", "SENSEX", "BANKNIFTY"]:
+                        print(f"Warning: Unexpected strike length for {index}: {strike_part} (expected {expected_strike_length} digits)")
+                        # Continue to try other patterns
+                        continue
+                    
+                    # Format the expiry as DDMMYY for consistency
+                    expiry = f"{day_digits}{month_digits.zfill(2)}{year_digits}"
+                    
+                    # Construct the result
+                    result = {
+                        "stock": index,
+                        "expiry": expiry,
+                        "strike_price": float(strike_part),
+                        "option_type": option_type,
+                        "is_weekly": True
+                    }
+                    
+                    return result
             
-            # Then try with single-digit month pattern (YY + M + DD)
-            weekly_match_single = re.match(r"(SENSEX|NIFTY)(\d{2})(\d{1})(\d{2})(\d+)(CE|PE)$", symbol)
-            if weekly_match_single:
-                stock = weekly_match_single.group(1)
-                yy = weekly_match_single.group(2)      # YY format (e.g., 25)
-                m = weekly_match_single.group(3)       # M format (e.g., 5)
-                dd = weekly_match_single.group(4)      # DD format
-                
-                # Format expiry as DDMMYY for consistency with our system
-                # Pad the month with a leading zero for consistency
-                mm = m.zfill(2)
-                expiry = f"{dd}{mm}{yy}"
-                
-                return {
-                    "stock": stock,
-                    "expiry": expiry,
-                    "strike_price": int(weekly_match_single.group(5)),
-                    "option_type": weekly_match_single.group(6),
-                    "is_weekly": True
-                }
-                
+            # If no patterns matched, return None
             return None
-        except Exception:
+        except Exception as e:
+            print(f"Error parsing symbol {symbol}: {e}")
+            import traceback
+            traceback.print_exc()
             return None
+
+    def get_all_instrument_keys(self):
+        """Fetch all instrument keys from the database."""
+        with self._get_cursor() as cur:
+            cur.execute("""
+                SELECT instrument_key, tradingsymbol FROM instrument_keys
+            """)
+            return cur.fetchall()
+    def update_instrument_keys_with_prev_close(self, prev_close_data):
+        """
+        Update the instrument keys table with previous close prices.
+        :param prev_close_data: List of tuples (instrument_key, prev_close)
+        """
+        with self._get_cursor() as cur:
+            execute_batch(cur, """
+                UPDATE instrument_keys
+                SET prev_close = %s, last_updated = NOW()
+                WHERE instrument_key = %s
+            """, [(data['prev_close'], data['instrument_key']) for data in prev_close_data], page_size=100)
