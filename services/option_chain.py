@@ -464,6 +464,63 @@ class OptionChainService:
         except Exception as e:
             return {"error": str(e)}
 
+    def fetch_prev_close_prices(self, instrument_keys):
+        """
+        Fetch previous close prices for a list of instrument keys in batches of 500.
+        :param instrument_keys: List of instrument keys
+        :return: List of dictionaries with instrument_key and prev_close
+        """
+        url = f"{self.UPSTOX_BASE_URL}/v2/market-quote/ltp"
+        headers = {"Authorization": f"Bearer {Config.ACCESS_TOKEN}"}
+        batch_size = 500
+        result = []
+    
+        # Create a mapping of instrument_key to trading_symbol for reverse lookup
+        instrument_key_to_symbol = {key[0]: key[1] for key in instrument_keys}
+    
+        for i in range(0, len(instrument_keys), batch_size):
+            batch = instrument_keys[i:i + batch_size]
+            params = {'instrument_key': ','.join([key[0] for key in batch])}
+    
+            try:
+                response = requests.get(url, headers=headers, params=params)
+                response.raise_for_status()
+                data = response.json().get("data", {})
+    
+                for instrument_key, tradingsymbol in batch:
+                    # Determine the exchange type and construct the response key
+                    if "BSE_FO" in instrument_key:
+                        response_key = f"BSE_FO:{tradingsymbol}"
+                    elif "NSE_FO" in instrument_key:
+                        response_key = f"NSE_FO:{tradingsymbol}"
+                    elif "NSE_EQ" in instrument_key:
+                        response_key = f"NSE_EQ:{tradingsymbol}"
+                    elif "NSE_INDEX" in instrument_key:
+                        response_key = f"NSE_INDEX:{tradingsymbol}"
+                    elif "BSE_INDEX" in instrument_key:
+                        response_key = f"BSE_INDEX:{tradingsymbol}"
+                    else:
+                        continue  # Skip if the exchange type is not recognized
+    
+                    # Fetch the last price from the response
+                    quote_data = data.get(response_key, {})
+                    prev_close = quote_data.get("last_price", None)
+    
+                    if prev_close is not None:
+                        result.append({
+                            "instrument_key": instrument_key,
+                            "prev_close": float(prev_close)
+                        })
+    
+            except Exception as e:
+                print(f"Error fetching previous close prices for batch {i // batch_size + 1}: {e}")
+    
+            # Pause for 2 seconds before processing the next batch
+            time.sleep(2)
+    
+        return result
+
+
     def run_market_processing(self):
         """Background worker for market hours processing"""
         last_clear_date = None
@@ -1875,3 +1932,5 @@ class OptionChainService:
                 expiries.append(date.strftime('%Y-%m-%d'))
 
         return expiries
+
+
