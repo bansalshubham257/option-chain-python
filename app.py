@@ -1,3 +1,4 @@
+import asyncio
 import concurrent
 import logging
 from functools import lru_cache
@@ -14,6 +15,7 @@ from services.market_data import MarketDataService
 from services.stock_analysis import StockAnalysisService
 from services.database import DatabaseService
 from services.scanner import ScannerService
+from upstox_feed import UpstoxFeedWorker
 from config import Config
 from concurrent.futures import ThreadPoolExecutor
 import concurrent.futures
@@ -1259,6 +1261,14 @@ def run_background_workers():
     db_clearing_thread = threading.Thread(target=run_db_clearing_worker, daemon=True)
     # Add new instrument keys worker
     instrument_keys_thread = threading.Thread(target=run_instrument_keys_worker, daemon=True)
+
+    upstox_feed_worker = UpstoxFeedWorker(database_service)
+    upstox_feed_thread = threading.Thread(
+        target=lambda: asyncio.run(upstox_feed_worker.run_feed()),
+        daemon=True
+    )
+
+    #upstox_feed_thread.start()
 
     option_chain_thread.start()
     oi_buildup_thread.start()
