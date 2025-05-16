@@ -494,6 +494,7 @@ def run_instrument_keys_worker():
                     print("No instrument data available")
             
             # Sleep for 6 hours before next check
+            run_prev_close_worker()
             sleep_time = 6 * 3600
             print(f"Instrument keys worker sleeping for {sleep_time//3600} hours")
             time.sleep(sleep_time)
@@ -504,6 +505,34 @@ def run_instrument_keys_worker():
             traceback.print_exc()
             # Shorter sleep on error
             time.sleep(1800)  # 30 minutes
+
+def run_prev_close_worker():
+    """Background worker to fetch previous close prices for all instrument keys and update the database."""
+    print(f"Starting prev close worker at {datetime.now()}")
+    while True:
+        try:
+            # Fetch all instrument keys
+            instrument_keys = database_service.get_all_instrument_keys()
+            if not instrument_keys:
+                print("No instrument keys found.")
+                time.sleep(3600)  # Sleep for 1 hour if no keys are found
+                continue
+
+            # Fetch previous close prices
+            prev_close_data = option_chain_service.fetch_prev_close_prices(instrument_keys)
+
+            # Update the database with the fetched data
+            if prev_close_data:
+                database_service.update_instrument_keys_with_prev_close(prev_close_data)
+                print(f"Updated previous close prices for {len(prev_close_data)} instruments.")
+            else:
+                print("No previous close data fetched.")
+
+            # Sleep for 6 hours before the next run
+            time.sleep(6 * 3600)
+        except Exception as e:
+            print(f"Error in prev close worker: {e}")
+            time.sleep(1800)  # Retry after 30 minutes on error
 
 # Helper function to extract strike price from trading symbol
 def get_strike_price(trading_symbol):
@@ -1261,6 +1290,7 @@ def run_background_workers():
     db_clearing_thread = threading.Thread(target=run_db_clearing_worker, daemon=True)
     # Add new instrument keys worker
     instrument_keys_thread = threading.Thread(target=run_instrument_keys_worker, daemon=True)
+    prev_close_thread = threading.Thread(target=run_prev_close_worker, daemon=True)
 
     upstox_feed_worker = UpstoxFeedWorker(database_service)
     upstox_feed_thread = threading.Thread(
@@ -1274,8 +1304,9 @@ def run_background_workers():
     oi_buildup_thread.start()
     stock_data_thread.start()
     #financials_thread.start()
-    db_clearing_thread.start()
+    #db_clearing_thread.start()
     #instrument_keys_thread.start()
+    #prev_close_thread.start()
     print("Background workers started successfully")
 
     # Keep main thread alive
