@@ -1888,4 +1888,3 @@ class DatabaseService:
             return None
         except Exception:
             return None
-
