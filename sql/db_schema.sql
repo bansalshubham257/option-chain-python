@@ -646,6 +646,9 @@ CREATE TABLE IF NOT EXISTS instrument_keys (
     UNIQUE (tradingsymbol, exchange)
 );
 
+ALTER TABLE instrument_keys
+ADD COLUMN IF NOT EXISTS prev_close DECIMAL(20, 4);
+
 -- Create indexes for efficient queries
 CREATE INDEX IF NOT EXISTS idx_instrument_keys_symbol ON instrument_keys(symbol);
 CREATE INDEX IF NOT EXISTS idx_instrument_keys_instrument_key ON instrument_keys(instrument_key);
