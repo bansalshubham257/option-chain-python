@@ -1,4 +1,3 @@
-# Add this to app.py (after the existing imports)
 import asyncio
 import json
 import ssl
@@ -128,7 +127,12 @@ class UpstoxFeedWorker:
                 first_depth = feed_struct.get('firstDepth', {})
                 iv = feed_struct.get('iv')
 
-                # Process based on instrument type
+                prev_close = instrument.get('prev_close')
+                price_change = (ltp - prev_close) if ltp and prev_close else 0
+                pct_change = ((ltp - prev_close) / prev_close * 100) if ltp and prev_close else 0
+
+
+            # Process based on instrument type
                 if instrument['instrument_type'] == 'FO':
                     lot_size = instrument.get('lot_size', 0) or 1  # Default to 1 if not available
 
@@ -175,7 +179,7 @@ class UpstoxFeedWorker:
                                 'volume': volume,
                                 'price': ltp,
                                 'timestamp': datetime.now(pytz.timezone('Asia/Kolkata')).strftime("%H:%M"),
-                                'pct_change': 0,  # Will be calculated later
+                                'pct_change': pct_change,  # Will be calculated later
                                 'vega': greeks.get('vega'),
                                 'theta': greeks.get('theta'),
                                 'gamma': greeks.get('gamma'),
@@ -219,7 +223,7 @@ class UpstoxFeedWorker:
                                 'volume': volume,
                                 'price': ltp,
                                 'timestamp': current_time,
-                                'pct_change': 0,  # Will be calculated later
+                                'pct_change': pct_change,  # Will be calculated later
                                 'vega': None,
                                 'theta': None,
                                 'gamma': None,
@@ -237,6 +241,8 @@ class UpstoxFeedWorker:
                     stock_data = {
                         'symbol': symbol,
                         'close': ltp,
+                        'price_change': price_change,
+                        'percent_change': pct_change,
                         'timestamp': current_time,
                     }
 
