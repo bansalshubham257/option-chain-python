@@ -1156,15 +1156,79 @@ class OptionChainService:
         return None
 
     def _parse_option_symbol(self, symbol):
-        """Parse option symbol into components"""
-        match = re.match(r"([A-Z]+)(\d{2}[A-Z]{3})(\d+)(CE|PE)", symbol)
+        """Parse option symbol into components with enhanced support for weekly options"""
+        # Try standard monthly pattern (RELIANCE24APR4000CE)
+        match = re.match(r"([A-Z]+)(\d{2}[A-Z]{3})(\d+(?:\.\d+)?)(CE|PE)$", symbol)
         if match:
             return {
                 "stock": match.group(1),
                 "expiry": match.group(2),
-                "strike_price": int(match.group(3)),
+                "strike_price": float(match.group(3)),  # Convert to float to handle decimals
                 "option_type": match.group(4)
             }
+        
+        # For weekly options with specific 5-digit strike price handling
+        weekly_indices = ["NIFTY", "SENSEX", "BANKNIFTY", "FINNIFTY", "MIDCPNIFTY"]
+        
+        for index in weekly_indices:
+            if symbol.startswith(index) and symbol.endswith(("CE", "PE")):
+                option_type = symbol[-2:]  # CE or PE
+                remaining = symbol[len(index):-2]  # Remove index name and option type
+                
+                if len(remaining) < 9:  # Not enough chars for a weekly symbol, skip
+                    continue
+                    
+                # For NIFTY indices:
+                # First 2 chars: YY (year)
+                # Next 1-2 chars: MM or M (month)
+                # Next 2 chars: DD (day)
+                # Remaining: Strike price (should be 5 digits for NIFTY, SENSEX)
+                
+                # Extract year
+                year_digits = remaining[:2]
+                
+                # Check if month is 1 or 2 digits
+                if remaining[2:4].isdigit() and 1 <= int(remaining[2:4]) <= 12:
+                    # Two-digit month
+                    month_digits = remaining[2:4]
+                    remaining_after_month = remaining[4:]
+                else:
+                    # One-digit month
+                    month_digits = remaining[2:3]
+                    remaining_after_month = remaining[3:]
+                
+                # Extract day
+                day_digits = remaining_after_month[:2]
+                
+                # Extract strike price - all remaining digits
+                strike_part = remaining_after_month[2:]
+                
+                if not strike_part.isdigit():
+                    # Not a valid strike price
+                    continue
+                    
+                # For NIFTY/SENSEX, strike should be 5 digits
+                expected_strike_length = 5
+                if len(strike_part) != expected_strike_length and index in ["NIFTY", "SENSEX", "BANKNIFTY"]:
+                    print(f"Warning: Unexpected strike length for {index}: {strike_part} (expected {expected_strike_length} digits)")
+                    # Continue to try other patterns
+                    continue
+                
+                # Format the expiry as DDMMYY for consistency
+                expiry = f"{day_digits}{month_digits.zfill(2)}{year_digits}"
+                
+                # Construct the result
+                result = {
+                    "stock": index,
+                    "expiry": expiry,
+                    "strike_price": float(strike_part),
+                    "option_type": option_type,
+                    "is_weekly": True
+                }
+                
+                return result
+        
+        # If no weekly pattern matched, return None
         return None
 
     def _parse_option_upstox_symbol(self, symbol):
@@ -1392,6 +1456,20 @@ class OptionChainService:
             else:
                 weekly_options_df = pd.DataFrame()
                 print("No weekly options found for NIFTY/SENSEX in current month")
+            
+            # Add more debug information about weekly options
+            weekly_symbols = []
+            if len(weekly_options_df) > 0:
+                weekly_symbols = weekly_options_df['tradingsymbol'].tolist()[:10]  # Show first 10
+                print(f"Example weekly options: {weekly_symbols}")
+                
+                # Test parsing for some weekly options
+                for sym in weekly_symbols[:3]:
+                    parsed = self._parse_option_symbol(sym)
+                    if parsed:
+                        print(f"Successfully parsed weekly symbol: {sym} -> {parsed}")
+                    else:
+                        print(f"Failed to parse weekly symbol: {sym}")
             
             # If no weekly options found for current month, try next month
             if len(weekly_options_df) == 0:
