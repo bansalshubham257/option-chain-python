@@ -17,7 +17,7 @@ class Config:
     
     # Post-market window for financial data collection (3:35 PM - 3:39 PM)
     POST_MARKET_START = time(15, 35)
-    POST_MARKET_END = time(15, 39)
+    POST_MARKET_END = time(15, 45)
 
     # Database clearing time window
     DB_CLEARING_START = time(9, 0)  # 09:00 AM
