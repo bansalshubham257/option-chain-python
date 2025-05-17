@@ -432,14 +432,109 @@ class DatabaseService:
 
 
     def get_market_data(self, data_type):
-        """Get cached market data"""
-        with self._get_cursor() as cur:
-            cur.execute("""
-                SELECT data FROM market_data_cache
-                WHERE data_type = %s
-            """, (data_type,))
-            result = cur.fetchone()
-            return result[0] if result else None
+        """
+        Get market data including indices, top gainers, and top losers from stock_data_cache
+
+        Args:
+            data_type: Type of market data to fetch ('indices', 'gainers', 'losers', or 'all')
+
+        Returns:
+            dict: Structured market data
+        """
+        print("inside get_market_data........")
+        try:
+            market_data = {}
+
+            with self._get_cursor() as cur:
+                # Fetch indices data (NIFTY, BANKNIFTY, etc.)
+                cur.execute("""
+                        SELECT symbol, close, price_change, percent_change, timestamp
+                        FROM stock_data_cache
+                        WHERE symbol IN ('NIFTY.NS', 'BANKNIFTY.NS', 'BANKEX.NS', 'SENSEX.NS', 'FINNIFTY.NS', 'MIDCPNIFTY.NS')
+                        AND interval = '1d'
+                        ORDER BY symbol
+                    """)
+
+                indices = []
+                for row in cur.fetchall():
+                    # Ensure we have valid numeric values
+                    close = float(row[1]) if row[1] is not None else 0.0
+                    price_change = float(row[2]) if row[2] is not None else 0.0
+                    percent_change = float(row[3]) if row[3] is not None else 0.0
+
+                    indices.append({
+                        'symbol': row[0].replace('.NS', ''),
+                        'close': close,
+                        'price_change': price_change,
+                        'percent_change': percent_change,
+                        'timestamp': row[4].isoformat() if row[4] else None
+                    })
+
+                market_data['indices'] = indices
+
+                # Fetch top gainers (stocks with highest positive percent change)
+                cur.execute("""
+                        SELECT symbol, close, price_change, percent_change, timestamp
+                        FROM stock_data_cache
+                        WHERE interval = '1d'
+                        AND percent_change > 0
+                        AND symbol NOT LIKE '%INDEX%'
+                        ORDER BY percent_change DESC
+                        LIMIT 10
+                    """)
+
+                gainers = []
+                for row in cur.fetchall():
+                    # Ensure we have valid numeric values
+                    close = float(row[1]) if row[1] is not None else 0.0
+                    price_change = float(row[2]) if row[2] is not None else 0.0
+                    percent_change = float(row[3]) if row[3] is not None else 0.0
+
+                    gainers.append({
+                        'symbol': row[0].replace('.NS', ''),
+                        'close': close,
+                        'price_change': price_change,
+                        'percent_change': percent_change,
+                        'timestamp': row[4].isoformat() if row[4] else None
+                    })
+
+                market_data['gainers'] = gainers
+
+                # Fetch top losers (stocks with highest negative percent change)
+                cur.execute("""
+                        SELECT symbol, close, price_change, percent_change, timestamp
+                        FROM stock_data_cache
+                        WHERE interval = '1d'
+                        AND percent_change < 0
+                        AND symbol NOT LIKE '%INDEX%'
+                        ORDER BY percent_change ASC
+                        LIMIT 10
+                    """)
+
+                losers = []
+                for row in cur.fetchall():
+                    # Ensure we have valid numeric values
+                    close = float(row[1]) if row[1] is not None else 0.0
+                    price_change = float(row[2]) if row[2] is not None else 0.0
+                    percent_change = float(row[3]) if row[3] is not None else 0.0
+
+                    losers.append({
+                        'symbol': row[0].replace('.NS', ''),
+                        'close': close,
+                        'price_change': price_change,
+                        'percent_change': percent_change,
+                        'timestamp': row[4].isoformat() if row[4] else None
+                    })
+
+                market_data['losers'] = losers
+
+            return market_data
+
+        except Exception as e:
+            import traceback
+            print(f"Error fetching market data: {e}")
+            traceback.print_exc()
+            return None
 
     def clear_old_market_data(self):
         """Clear market data older than 1 day"""
