@@ -1458,7 +1458,7 @@ if __name__ == "__main__":
                 print(f"Connected to database: {cur.fetchone()[0]}")
         else:
             print("❌ Database connection failed")
-        app.run(host="0.0.0.0", port=port, debug=True)
+        app.run(host="0.0.0.0", port=port)
 
 
 
