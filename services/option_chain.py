@@ -103,47 +103,148 @@ class OptionChainService:
             return {}
 
     def fetch_stocks(self):
-        """Optimized version of fetch_stocks"""
-        start_time = time.time()
+        """Fetch all stocks options details from oi_volume_history table"""
+        try:
+            with self.database._get_cursor() as cur:
+                # Query to get distinct options data from the database with lot_size
+                # and join with stock_data_cache to get spot price
+                # Use DISTINCT ON to ensure each option appears only once
+                query = """
+                    SELECT DISTINCT ON (ovh.symbol, ovh.expiry_date, ovh.strike_price, ovh.option_type, ovh.display_time)
+                        ovh.symbol,
+                        ovh.expiry_date,
+                        ovh.strike_price,
+                        ovh.option_type,
+                        ovh.display_time as latest_time,
+                        ovh.oi as oi,
+                        ovh.volume as volume,
+                        ovh.price as price,
+                        COALESCE(ik.lot_size, 0) as lot_size,
+                        sdc.close as spot_price,
+                        ovh.vega,
+                        ovh.theta,
+                        ovh.gamma,
+                        ovh.delta,
+                        ovh.iv,
+                        ovh.pop
+                    FROM oi_volume_history ovh
+                    LEFT JOIN instrument_keys ik ON ovh.symbol = ik.symbol
+                    LEFT JOIN (
+                        SELECT symbol, close
+                        FROM stock_data_cache 
+                        WHERE interval = '1d'
+                        AND close > 0
+                    ) sdc ON ovh.symbol = REPLACE(sdc.symbol, '.NS', '')
+                    ORDER BY ovh.symbol, ovh.expiry_date, ovh.strike_price, ovh.option_type, ovh.display_time DESC, ik.lot_size DESC
+                """
+                cur.execute(query)
 
-        # Load instruments data if not already loaded
-        if self.instruments_data is None:
-            self._load_instruments_with_retry()
-            if self.instruments_data is None:
-                return {"error": "Failed to load instruments data"}
+                # Fetch all results
+                rows = cur.fetchall()
 
-        # Process data in parallel
-        with ThreadPoolExecutor(max_workers=4) as executor:
-            # Process F&O data
-            fno_future = executor.submit(self._process_fno_data, self.instruments_data)
+                # Process the data into the desired format
+                stock_data = {}
+                for row in rows:
+                    symbol = row[0]
+                    expiry = row[1].strftime('%Y-%m-%d') if row[1] else None
+                    strike_price = float(row[2]) if row[2] else None
+                    option_type = row[3]
+                    # Use COALESCE in the SQL query to handle NULL values
+                    lot_size = int(row[8]) if row[8] is not None else 0
+                    spot_price = float(row[9]) if row[9] is not None else None
 
-            # Process equity data
-            equity_future = executor.submit(self._process_equity_data, self.instruments_data)
+                    # Extract option greeks
+                    vega = float(row[10]) if row[10] is not None else None
+                    theta = float(row[11]) if row[11] is not None else None
+                    gamma = float(row[12]) if row[12] is not None else None
+                    delta = float(row[13]) if row[13] is not None else None
+                    iv = float(row[14]) if row[14] is not None else None
+                    pop = float(row[15]) if row[15] is not None else None
 
-            # Wait for both to complete
-            stock_data = fno_future.result()
-            equity_data = equity_future.result()
+                    # Initialize stock entry if not exists
+                    if symbol not in stock_data:
+                        stock_data[symbol] = {
+                            "expiries": set(),
+                            "options": [],
+                            "lot_size": lot_size,
+                            "spot_price": spot_price
+                        }
+                    elif spot_price is not None and stock_data[symbol]["spot_price"] is None:
+                        # Update spot price if it was None before but we have a value now
+                        stock_data[symbol]["spot_price"] = spot_price
 
-            # Merge results
-            for stock, data in equity_data.items():
-                if stock in stock_data:
-                    stock_data[stock]["instrument_key"] = data["instrument_key"]
+                    # Update lot_size if we get a non-zero value
+                    if lot_size > 0 and stock_data[symbol]["lot_size"] == 0:
+                        stock_data[symbol]["lot_size"] = lot_size
 
-        print(f"Processed stocks in {time.time() - start_time:.2f} seconds")
-        return stock_data
+                    # Add expiry date to set
+                    if expiry:
+                        stock_data[symbol]["expiries"].add(expiry)
+
+                    # Add option details with lot_size and greeks
+                    option = {
+                        "expiry": expiry,
+                        "strike_price": strike_price,
+                        "option_type": option_type,
+                        "oi": int(row[5]) if row[5] else 0,
+                        "volume": int(row[6]) if row[6] else 0,
+                        "price": float(row[7]) if row[7] else 0,
+                        "lot_size": lot_size,  # Use the lot_size directly from the query
+                        "vega": vega,
+                        "theta": theta,
+                        "gamma": gamma,
+                        "delta": delta,
+                        "iv": iv,
+                        "pop": pop
+                    }
+
+                    # Check if this option is already in the list to avoid duplicates
+                    # This is a safeguard in case DISTINCT ON doesn't work as expected
+                    duplicate = False
+                    for existing_option in stock_data[symbol]["options"]:
+                        if (existing_option["expiry"] == option["expiry"] and
+                            existing_option["strike_price"] == option["strike_price"] and
+                            existing_option["option_type"] == option["option_type"]):
+                            duplicate = True
+                            break
+
+                    if not duplicate:
+                        stock_data[symbol]["options"].append(option)
+
+                # Convert sets to sorted lists for expiries
+                for symbol in stock_data:
+                    stock_data[symbol]["expiries"] = sorted(list(stock_data[symbol]["expiries"]))
+
+                    # If we still don't have a lot_size for this symbol, try to get it from the fno_stocks
+                    if stock_data[symbol]["lot_size"] == 0:
+                        if symbol in self.fno_stocks:
+                            stock_data[symbol]["lot_size"] = self.fno_stocks[symbol]
+
+                            # Update all options with the symbol's lot_size
+                            for option in stock_data[symbol]["options"]:
+                                if option["lot_size"] == 0:
+                                    option["lot_size"] = stock_data[symbol]["lot_size"]
+
+                return stock_data
+
+        except Exception as e:
+            print(f"Error fetching stocks from database: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            return {"error": f"Failed to fetch stocks data: {str(e)}"}
 
     def _process_fno_data(self, df: pd.DataFrame) -> Dict:
         """Process F&O data in optimized way"""
         stock_data = {}
         self.symbol_to_instrument = {}
-    
+
         # Process NSE and BSE F&O data
         nse_fno = df[df['exchange'] == 'NSE_FO'][['tradingsymbol', 'lot_size', 'instrument_key']].dropna()
         bse_fno = df[(df['exchange'] == 'BSE_FO') &
                      (df['tradingsymbol'].str.contains('SENSEX|BANKEX', regex=True))][['tradingsymbol', 'lot_size', 'instrument_key']].dropna()
-    
+
         fno_stocks_raw = pd.concat([nse_fno, bse_fno])
-    
+
         for _, row in fno_stocks_raw.iterrows():
             parsed = self._parse_option_symbol(row['tradingsymbol'])
             if parsed:
@@ -152,7 +253,7 @@ class OptionChainService:
                 stock = parsed["stock"]
                 if stock not in stock_data:
                     stock_data[stock] = {"expiries": set(), "options": [], "instrument_key": None}
-    
+
                 stock_data[stock]["expiries"].add(parsed["expiry"])
                 stock_data[stock]["options"].append({
                     "expiry": parsed["expiry"],
@@ -163,11 +264,11 @@ class OptionChainService:
                     "tradingsymbol": row['tradingsymbol']
                 })
                 self.symbol_to_instrument[row['tradingsymbol']] = row['instrument_key']
-    
+
         # Convert sets to lists before returning
         for stock in stock_data:
             stock_data[stock]["expiries"] = sorted(list(stock_data[stock]["expiries"]))
-    
+
         return stock_data
 
     def _process_equity_data(self, df: pd.DataFrame) -> Dict:
@@ -474,19 +575,19 @@ class OptionChainService:
         headers = {"Authorization": f"Bearer {Config.ACCESS_TOKEN}"}
         batch_size = 500
         result = []
-    
+
         # Create a mapping of instrument_key to trading_symbol for reverse lookup
         instrument_key_to_symbol = {key[0]: key[1] for key in instrument_keys}
-    
+
         for i in range(0, len(instrument_keys), batch_size):
             batch = instrument_keys[i:i + batch_size]
             params = {'instrument_key': ','.join([key[0] for key in batch])}
-    
+
             try:
                 response = requests.get(url, headers=headers, params=params)
                 response.raise_for_status()
                 data = response.json().get("data", {})
-    
+
                 for instrument_key, tradingsymbol in batch:
                     # Determine the exchange type and construct the response key
                     if "BSE_FO" in instrument_key:
@@ -501,23 +602,23 @@ class OptionChainService:
                         response_key = f"BSE_INDEX:{tradingsymbol}"
                     else:
                         continue  # Skip if the exchange type is not recognized
-    
+
                     # Fetch the last price from the response
                     quote_data = data.get(response_key, {})
                     prev_close = quote_data.get("last_price", None)
-    
+
                     if prev_close is not None:
                         result.append({
                             "instrument_key": instrument_key,
                             "prev_close": float(prev_close)
                         })
-    
+
             except Exception as e:
                 print(f"Error fetching previous close prices for batch {i // batch_size + 1}: {e}")
-    
+
             # Pause for 2 seconds before processing the next batch
             time.sleep(2)
-    
+
         return result
 
 
@@ -844,12 +945,12 @@ class OptionChainService:
         """Analyze options buildup with proper time handling"""
         long_buildup = []
         short_buildup = []
-    
+
         try:
             ist = pytz.timezone('Asia/Kolkata')
             now = datetime.now(ist)
             threshold_time = (now - timedelta(minutes=lookback_minutes)).strftime('%H:%M')
-    
+
             with self.database._get_cursor() as cur:
                 cur.execute("""
                     WITH option_data AS (
@@ -873,17 +974,17 @@ class OptionChainService:
                     WHERE prev_price IS NOT NULL
                     ORDER BY strike_price, option_type, display_time DESC
                 """, (stock, threshold_time))
-    
+
                 for row in cur.fetchall():
                     strike, opt_type, price, oi, volume, display_time, price_pct, oi_pct, volume_pct = row
-    
+
                     # Create proper timestamp
                     try:
                         timestamp = datetime.strptime(f"{now.date()} {display_time}", "%Y-%m-%d %H:%M").astimezone(ist)
                         timestamp_str = timestamp.strftime('%Y-%m-%d %H:%M')
                     except ValueError:
                         timestamp_str = display_time  # Fallback to just the time
-    
+
                     if opt_type == 'CE' and price_pct > 1 and oi_pct > 10:
                         print("Long buildup detected for options")
                         long_buildup.append({
@@ -908,9 +1009,9 @@ class OptionChainService:
                         })
         except Exception as e:
             print(f"Error in _analyze_options_buildup for {stock}: {str(e)}")
-    
+
         return {'long': long_buildup, 'short': short_buildup}
-    
+
     def _fetch_and_store_orders(self):
         """Fetch and store option chain data"""
         total_start = time.time()
@@ -1113,13 +1214,13 @@ class OptionChainService:
 
                 # Extract option greeks if available
                 vega = theta = gamma = delta = iv = pop = 0.0
-                
+
                 # Find the matching option in the original data to get Greeks
                 for option_data in data:
                     if option_data['strike_price'] == strike_price:
                         # Get the appropriate option type data
                         option_detail = option_data['call_options'] if option_type == 'CE' else option_data['put_options']
-                        
+
                         # Extract greeks properly
                         if 'option_greeks' in option_detail:
                             greeks = option_detail['option_greeks']
@@ -1223,27 +1324,27 @@ class OptionChainService:
                 "strike_price": float(match.group(3)),  # Convert to float to handle decimals
                 "option_type": match.group(4)
             }
-        
+
         # For weekly options with specific 5-digit strike price handling
         weekly_indices = ["NIFTY", "SENSEX", "BANKNIFTY", "FINNIFTY", "MIDCPNIFTY"]
-        
+
         for index in weekly_indices:
             if symbol.startswith(index) and symbol.endswith(("CE", "PE")):
                 option_type = symbol[-2:]  # CE or PE
                 remaining = symbol[len(index):-2]  # Remove index name and option type
-                
+
                 if len(remaining) < 9:  # Not enough chars for a weekly symbol, skip
                     continue
-                    
+
                 # For NIFTY indices:
                 # First 2 chars: YY (year)
                 # Next 1-2 chars: MM or M (month)
                 # Next 2 chars: DD (day)
                 # Remaining: Strike price (should be 5 digits for NIFTY, SENSEX)
-                
+
                 # Extract year
                 year_digits = remaining[:2]
-                
+
                 # Check if month is 1 or 2 digits
                 if remaining[2:4].isdigit() and 1 <= int(remaining[2:4]) <= 12:
                     # Two-digit month
@@ -1253,27 +1354,27 @@ class OptionChainService:
                     # One-digit month
                     month_digits = remaining[2:3]
                     remaining_after_month = remaining[3:]
-                
+
                 # Extract day
                 day_digits = remaining_after_month[:2]
-                
+
                 # Extract strike price - all remaining digits
                 strike_part = remaining_after_month[2:]
-                
+
                 if not strike_part.isdigit():
                     # Not a valid strike price
                     continue
-                    
+
                 # For NIFTY/SENSEX, strike should be 5 digits
                 expected_strike_length = 5
                 if len(strike_part) != expected_strike_length and index in ["NIFTY", "SENSEX", "BANKNIFTY"]:
                     print(f"Warning: Unexpected strike length for {index}: {strike_part} (expected {expected_strike_length} digits)")
                     # Continue to try other patterns
                     continue
-                
+
                 # Format the expiry as DDMMYY for consistency
                 expiry = f"{day_digits}{month_digits.zfill(2)}{year_digits}"
-                
+
                 # Construct the result
                 result = {
                     "stock": index,
@@ -1282,9 +1383,9 @@ class OptionChainService:
                     "option_type": option_type,
                     "is_weekly": True
                 }
-                
+
                 return result
-        
+
         # If no weekly pattern matched, return None
         return None
 
@@ -1300,7 +1401,7 @@ class OptionChainService:
                     "strike_price": None,
                     "option_type": "FU"
                 }
-                
+
             # Try to match patterns like RELIANCE24APR4000CE or NIFTY24APR24000CE
             opt_match = re.match(r"([A-Z]+)(\d{2}[A-Z]{3})(\d+)(CE|PE)$", symbol)
             if opt_match:
@@ -1310,7 +1411,7 @@ class OptionChainService:
                     "strike_price": int(opt_match.group(3)),
                     "option_type": opt_match.group(4)
                 }
-                
+
             # Try to match weekly expiry pattern for SENSEX/NIFTY: SENSEX2552089700PE (YYMM format)
             # Format: Symbol + YYMM + DD + Strike + CE/PE
             # Examples: SENSEX2552089700PE (SENSEX 25/05/20 89700 PE)
@@ -1320,10 +1421,10 @@ class OptionChainService:
                 yy = weekly_match.group(2)    # YY format
                 mm = weekly_match.group(3)    # MM format
                 dd = weekly_match.group(4)    # DD format
-                
+
                 # Format expiry as DDMMYY for consistency with our system
                 expiry = f"{dd}{mm}{yy}"
-                
+
                 return {
                     "stock": stock,
                     "expiry": expiry,
@@ -1331,7 +1432,7 @@ class OptionChainService:
                     "option_type": weekly_match.group(6),
                     "is_weekly": True
                 }
-                
+
             return None
         except Exception as e:
             print(f"Error parsing symbol {symbol}: {e}")
@@ -1351,7 +1452,7 @@ class OptionChainService:
                     if trading_symbol.startswith(prefix):
                         index_len = len(prefix)
                         break
-                
+
                 if index_len > 0 and len(trading_symbol) > index_len + 4:
                     # Get the month digits (positions 3-4 in the numeric part)
                     month_digits = trading_symbol[index_len+2:index_len+4]
@@ -1367,41 +1468,41 @@ class OptionChainService:
         Filter by instrument_type (OPTSTK, OPTIDX, OPTFUT, FUTIDX, FUTSTK)
         and exchange (BSE_FO or NSE_FO).
         Also includes NSE_EQ for FNO stocks.
-        Handles both monthly expiry format (SENSEX25MAY89100CE) and 
+        Handles both monthly expiry format (SENSEX25MAY89100CE) and
         weekly expiry format (SENSEX2552089700PE).
-        
+
         If the current month's expiry has already passed, fetches next month's expiry instead.
         For weekly expiries, if none available in current month, fetches next month's weekly expiries.
-        
+
         Returns:
             Dict[str, Dict]: Dictionary with instrument_key as key and details as value
         """
         print("Fetching instrument data from Upstox...")
         url = "https://assets.upstox.com/market-quote/instruments/exchange/complete.csv.gz"
-        
+
         try:
             # Download the gzipped CSV file
             response = requests.get(url, timeout=10)
             response.raise_for_status()
-            
+
             # Decompress the gzipped content
             with gzip.GzipFile(fileobj=BytesIO(response.content)) as f:
                 # Read the decompressed content into a pandas DataFrame
                 df = pd.read_csv(f)
-            
+
             print(f"Downloaded instrument data: {len(df)} instruments")
-            
+
             # Define the filters
             instrument_types = ['OPTSTK', 'OPTIDX', 'OPTFUT', 'FUTIDX', 'FUTSTK']
             exchanges = ['BSE_FO', 'NSE_FO']
-            
+
             # Get current month, year information
             now = datetime.now()
             current_month = now.strftime('%b').upper()  # MAY, JUN, etc.
             current_month_digit = now.strftime('%m')    # 05, 06, etc.
             current_month_single_digit = str(now.month) # 5, 6, etc. (single digit for months < 10)
             current_year_digit = now.strftime('%y')     # 23, 24, etc.
-            
+
             # Check if the monthly expiry has passed for this month
             # For Indian market, typically last Thursday of the month
             last_day = monthrange(now.year, now.month)[1]
@@ -1409,16 +1510,16 @@ class OptionChainService:
             # Find the last Thursday of the month
             while last_date.weekday() != 3:  # 3 = Thursday
                 last_date -= timedelta(days=1)
-            
+
             # Now check if we've passed this date
             expiry_passed = now.date() > last_date
             print(f"Current date: {now.date()}, Last Thursday: {last_date}, Expiry passed: {expiry_passed}")
-            
+
             # If expiry has passed, use next month for monthly options
             if expiry_passed:
                 next_month = now.month + 1 if now.month < 12 else 1
                 next_year = now.year if now.month < 12 else now.year + 1
-                
+
                 # Update month info for monthly options
                 next_month_date = date(next_year, next_month, 1)
                 current_month = next_month_date.strftime('%b').upper()  # JUN, JUL, etc.
@@ -1426,86 +1527,86 @@ class OptionChainService:
                 current_month_single_digit = str(next_month)  # 6, 7, etc.
                 if next_month == 1:  # If next month is January, update year digit
                     current_year_digit = next_month_date.strftime('%y')  # 24, 25, etc.
-                
+
                 print(f"Monthly expiry for current month has passed. Using next month: {current_month}")
             else:
                 print(f"Using current month for options: {current_month} ({current_month_digit})")
-            
+
             # Apply filters for instrument types and exchanges
             filtered_df = df[
                 (df['instrument_type'].isin(instrument_types)) &
                 (df['exchange'].isin(exchanges))
             ]
-            
+
             print(f"Filtered by type/exchange: {len(filtered_df)} instruments")
-            
+
             # Get FNO stock symbols for equity filtering
             fno_stock_names = set(self.fno_stocks.keys())
-            
+
             # Get equity instruments for FNO stocks
             equity_df = df[
-                (df['exchange'] == 'NSE_EQ') & 
+                (df['exchange'] == 'NSE_EQ') &
                 (df['tradingsymbol'].isin(fno_stock_names))
             ]
             print(f"Found {len(equity_df)} NSE_EQ instruments for FNO stocks")
-            
+
             # Separate futures and options
             # For futures, identify by tradingsymbol ending with FUT and containing current month
             futures_df = filtered_df[
-                (filtered_df['tradingsymbol'].str.contains(current_month)) & 
+                (filtered_df['tradingsymbol'].str.contains(current_month)) &
                 (filtered_df['tradingsymbol'].str.endswith('FUT'))
             ]
             print(f"Found {len(futures_df)} futures contracts for {current_month}")
-            
+
             # For monthly options, filter by trading symbols containing current month abbreviation
             monthly_options_df = filtered_df[
                 (filtered_df['tradingsymbol'].str.contains(current_month)) &
                 ~(filtered_df['tradingsymbol'].str.endswith('FUT'))  # Exclude futures
             ]
-            
+
             print(f"Found {len(monthly_options_df)} monthly option contracts for {current_month}")
-            
+
             # For weekly options (SENSEX and NIFTY), we need a different approach
             # First try to get weekly options for current month
             now = datetime.now()
             weekly_month_digit = now.strftime('%m')      # Current month for weeklies
             weekly_month_single_digit = str(now.month)   # Current month for weeklies
             weekly_year_digit = now.strftime('%y')       # Current year for weeklies
-            
+
             # Create patterns for both single and double-digit months for weeklies
             current_year_month_double = f"{weekly_year_digit}{weekly_month_digit}"  # e.g., "2405" for May 2024
             current_year_month_single = f"{weekly_year_digit}{weekly_month_single_digit}"  # e.g., "245" for May 2024
-            
+
             print("Current month weekly options year-month patterns:", current_year_month_double, current_year_month_single)
-            
+
             # Find all weekly options for NIFTY and SENSEX for the current month - try both patterns
             weekly_options_dfs = []
-            
+
             # First try with double-digit month pattern
             weekly_options_pattern_double = f"(NIFTY|SENSEX){current_year_month_double}\\d{{2}}\\d+(CE|PE)"
             print("Weekly options pattern (double-digit):", weekly_options_pattern_double)
-            
+
             double_digit_matches = filtered_df[
                 filtered_df['tradingsymbol'].str.match(weekly_options_pattern_double)
             ]
-            
+
             if len(double_digit_matches) > 0:
                 weekly_options_dfs.append(double_digit_matches)
                 print(f"Found {len(double_digit_matches)} weekly option contracts with double-digit month pattern")
-            
+
             # Then try with single-digit month pattern (only if month < 10)
             if int(weekly_month_digit) < 10:
                 weekly_options_pattern_single = f"(NIFTY|SENSEX){current_year_month_single}\\d{{2}}\\d+(CE|PE)"
                 print("Weekly options pattern (single-digit):", weekly_options_pattern_single)
-                
+
                 single_digit_matches = filtered_df[
                     filtered_df['tradingsymbol'].str.match(weekly_options_pattern_single)
                 ]
-                
+
                 if len(single_digit_matches) > 0:
                     weekly_options_dfs.append(single_digit_matches)
                     print(f"Found {len(single_digit_matches)} weekly option contracts with single-digit month pattern")
-            
+
             # Combine all matches
             if weekly_options_dfs:
                 weekly_options_df = pd.concat(weekly_options_dfs)
@@ -1513,13 +1614,13 @@ class OptionChainService:
             else:
                 weekly_options_df = pd.DataFrame()
                 print("No weekly options found for NIFTY/SENSEX in current month")
-            
+
             # Add more debug information about weekly options
             weekly_symbols = []
             if len(weekly_options_df) > 0:
                 weekly_symbols = weekly_options_df['tradingsymbol'].tolist()[:10]  # Show first 10
                 print(f"Example weekly options: {weekly_symbols}")
-                
+
                 # Test parsing for some weekly options
                 for sym in weekly_symbols[:3]:
                     parsed = self._parse_option_symbol(sym)
@@ -1527,56 +1628,56 @@ class OptionChainService:
                         print(f"Successfully parsed weekly symbol: {sym} -> {parsed}")
                     else:
                         print(f"Failed to parse weekly symbol: {sym}")
-            
+
             # If no weekly options found for current month, try next month
             if len(weekly_options_df) == 0:
                 print("No weekly options found for current month, looking for next month's weekly options...")
-                
+
                 # Calculate next month details
                 next_month = now.month + 1 if now.month < 12 else 1
                 next_year = now.year if now.month < 12 else now.year + 1
                 next_year_digit = now.strftime('%y') if next_month > 1 else str(int(now.strftime('%y')) + 1)
-                
+
                 # Format next month digits
                 next_month_digit = f"{next_month:02d}"  # Double digit
                 next_month_single_digit = str(next_month)  # Single digit
-                
+
                 # Create patterns for next month's weekly options
                 next_year_month_double = f"{next_year_digit}{next_month_digit}"
                 next_year_month_single = f"{next_year_digit}{next_month_single_digit}"
-                
+
                 print(f"Next month weekly options year-month patterns: {next_year_month_double}, {next_year_month_single}")
-                
+
                 # Try double-digit month pattern for next month
                 next_weekly_options_pattern_double = f"(NIFTY|SENSEX){next_year_month_double}\\d{{2}}\\d+(CE|PE)"
                 print("Next month weekly options pattern (double-digit):", next_weekly_options_pattern_double)
-                
+
                 next_double_digit_matches = filtered_df[
                     filtered_df['tradingsymbol'].str.match(next_weekly_options_pattern_double)
                 ]
-                
+
                 if len(next_double_digit_matches) > 0:
                     weekly_options_dfs.append(next_double_digit_matches)
                     print(f"Found {len(next_double_digit_matches)} next month weekly option contracts with double-digit pattern")
-                
+
                 # Try single-digit month pattern for next month (only if month < 10)
                 if next_month < 10:
                     next_weekly_options_pattern_single = f"(NIFTY|SENSEX){next_year_month_single}\\d{{2}}\\d+(CE|PE)"
                     print("Next month weekly options pattern (single-digit):", next_weekly_options_pattern_single)
-                    
+
                     next_single_digit_matches = filtered_df[
                         filtered_df['tradingsymbol'].str.match(next_weekly_options_pattern_single)
                     ]
-                    
+
                     if len(next_single_digit_matches) > 0:
                         weekly_options_dfs.append(next_single_digit_matches)
                         print(f"Found {len(next_single_digit_matches)} next month weekly option contracts with single-digit pattern")
-                
+
                 # Combine all matches including next month's weekly options
                 if weekly_options_dfs:
                     weekly_options_df = pd.concat(weekly_options_dfs)
                     print(f"Found total {len(weekly_options_df)} weekly option contracts for NIFTY/SENSEX across current and next month")
-            
+
             # Check if we need a fallback approach
             if len(weekly_options_df) == 0:
                 print("No weekly options found with specific patterns, trying alternative approach...")
@@ -1589,7 +1690,7 @@ class OptionChainService:
                         (filtered_df['tradingsymbol'].str.endswith('CE') | filtered_df['tradingsymbol'].str.endswith('PE')) &
                         ~filtered_df['tradingsymbol'].str.contains(current_month)  # Exclude monthly options
                     ]
-                    
+
                     # Manually check for current month in both formats
                     valid_matches = []
                     for _, row in matches.iterrows():
@@ -1602,14 +1703,14 @@ class OptionChainService:
                                 if single_month_part == current_month_single_digit or single_month_part == next_month_single_digit:
                                     valid_matches.append(row)
                                     continue
-                            
+
                             # For double digit month (e.g., 05 for May or 11 for November)
                             if len(symbol) >= len(base_pattern) + 2:
                                 double_month_part = symbol[len(base_pattern):len(base_pattern)+2]
                                 if double_month_part == current_month_digit or double_month_part == next_month_digit:
                                     valid_matches.append(row)
                                     continue
-                    
+
                     if valid_matches:
                         print(f"Found {len(valid_matches)} weekly options for {index} using manual inspection")
                         weekly_df = pd.DataFrame(valid_matches)
@@ -1617,12 +1718,12 @@ class OptionChainService:
                             weekly_options_df = weekly_df
                         else:
                             weekly_options_df = pd.concat([weekly_options_df, weekly_df])
-            
+
             # Print sample weekly options for verification
             if len(weekly_options_df) > 0:
                 sample_weekly = weekly_options_df['tradingsymbol'].sample(min(5, len(weekly_options_df))).tolist()
                 print(f"Sample weekly options: {sample_weekly}")
-                
+
                 # Verify parsing of a sample
                 for symbol in sample_weekly[:2]:
                     parsed = self._parse_option_upstox_symbol(symbol)
@@ -1632,16 +1733,16 @@ class OptionChainService:
                         print(f"Failed to parse {symbol}")
             else:
                 print("No weekly options found for NIFTY/SENSEX with any pattern")
-            
+
             # Combine all dataframes - futures, monthly options, weekly options, and FNO equities
             filtered_df = pd.concat([futures_df, monthly_options_df, weekly_options_df, equity_df])
-            
+
             print(f"Combined {len(filtered_df)} instruments (including FNO equities)")
-            
+
             # Get current stock prices to filter strikes
             stock_prices = self._get_current_market_prices()
             print(f"Fetched {len(stock_prices)} current stock prices for strike filtering")
-            
+
             # Group instruments by stock symbol to process each stock separately
             parsed_instruments = []
             for _, row in filtered_df.iterrows():
@@ -1657,7 +1758,7 @@ class OptionChainService:
                             'is_equity': True
                         })
                     continue
-                
+
                 # Check if it's a futures contract
                 if row['tradingsymbol'].endswith('FUT'):
                     # Extract the stock symbol from futures tradingsymbol (like INFY25MAYFUT)
@@ -1671,7 +1772,7 @@ class OptionChainService:
                             'is_future': True
                         })
                     continue
-                
+
                 # Parse the tradingsymbol to get instrument details for options
                 parsed = self._parse_option_symbol(row['tradingsymbol'])
                 if parsed:
@@ -1684,7 +1785,7 @@ class OptionChainService:
                         'row': row,
                         'is_option': False
                     })
-            
+
             # Group by stock
             stock_groups = {}
             for instr in parsed_instruments:
@@ -1692,19 +1793,19 @@ class OptionChainService:
                 if stock not in stock_groups:
                     stock_groups[stock] = []
                 stock_groups[stock].append(instr)
-            
+
             # Process each stock to get the exact strikes we want
             final_instruments = []
             skipped_stocks = []
             for stock, instruments in stock_groups.items():
                 # For futures and equities, add them directly without filtering
                 futures_and_equity = [
-                    instr for instr in instruments 
+                    instr for instr in instruments
                     if instr.get('is_future', False) or instr.get('is_equity', False)
                 ]
                 for item in futures_and_equity:
                     final_instruments.append(item['row'])
-                
+
                 # Special handling for NIFTY and SENSEX
                 if stock in ["NIFTY", "SENSEX"]:
                     # Get current price for strike filtering
@@ -1713,41 +1814,41 @@ class OptionChainService:
                         skipped_stocks.append(stock)
                         print(f"Skipping {stock} options: No current price available")
                         continue  # Skip option filtering for this stock if no price is available
-                    
+
                     # Handle weekly options with strike filtering (similar to monthly options)
                     weekly_options = [
-                        instr for instr in instruments 
+                        instr for instr in instruments
                         if instr.get('is_option', True) and instr.get('is_weekly', False)
                     ]
-                    
+
                     if weekly_options:
                         print(f"Found {len(weekly_options)} weekly options for {stock}, filtering strikes...")
-                        
+
                         # Filter to options with strike price
                         valid_weekly_options = [instr for instr in weekly_options if 'strike_price' in instr]
-                        
+
                         if valid_weekly_options:
                             # Get all unique strikes for this stock's weekly options
                             weekly_strikes = sorted(set(option['strike_price'] for option in valid_weekly_options))
-                            
+
                             # Find the closest strike to current price
-                            closest_strike_idx = min(range(len(weekly_strikes)), 
+                            closest_strike_idx = min(range(len(weekly_strikes)),
                                                  key=lambda i: abs(weekly_strikes[i] - current_price))
-                            
+
                             # Get 5 strikes below, the closest, and 5 strikes above
                             start_idx = max(0, closest_strike_idx - 5)
                             end_idx = min(len(weekly_strikes) - 1, closest_strike_idx + 5)
-                            
+
                             # Select exactly 11 strikes (5 below, 1 at/near, 5 above) if possible
                             selected_weekly_strikes = weekly_strikes[start_idx:end_idx + 1]
-                            
+
                             # Ensure we have at most 11 strikes
                             if len(selected_weekly_strikes) > 11:
                                 mid_idx = len(selected_weekly_strikes) // 2
                                 selected_weekly_strikes = selected_weekly_strikes[mid_idx - 5:mid_idx + 6]
-                            
+
                             print(f"{stock} weekly options - current price: {current_price}, selected strikes: {selected_weekly_strikes}")
-                            
+
                             # Filter instruments to only those with the selected strikes
                             for instr in weekly_options:
                                 if 'strike_price' in instr and instr['strike_price'] in selected_weekly_strikes:
@@ -1756,49 +1857,49 @@ class OptionChainService:
                             # No weekly options with strike price, add all weekly options
                             for instr in weekly_options:
                                 final_instruments.append(instr['row'])
-                    
+
                 # Process monthly options for all stocks
                 monthly_options = [
-                    instr for instr in instruments 
+                    instr for instr in instruments
                     if instr.get('is_option', True) and not instr.get('is_future', False) and not instr.get('is_weekly', False)
                 ]
-                
+
                 if not monthly_options:
                     continue
-                
+
                 current_price = stock_prices.get(stock)
                 if not current_price:
                     skipped_stocks.append(stock)
                     print(f"Skipping {stock} monthly options: No current price available")
                     continue  # Skip option filtering for this stock if no price is available
-                    
+
                 # Filter options based on strike prices
                 if monthly_options:
                     # Filter to options with strike price
                     valid_options = [instr for instr in monthly_options if 'strike_price' in instr]
-                    
+
                     if valid_options:
                         # Get all unique strikes for this stock
                         all_strikes = sorted(set(option['strike_price'] for option in valid_options))
-                        
+
                         # Find the closest strike to current price
-                        closest_strike_idx = min(range(len(all_strikes)), 
+                        closest_strike_idx = min(range(len(all_strikes)),
                                              key=lambda i: abs(all_strikes[i] - current_price))
-                        
+
                         # Get 5 strikes below, the closest, and 5 strikes above
                         start_idx = max(0, closest_strike_idx - 5)
                         end_idx = min(len(all_strikes) - 1, closest_strike_idx + 5)
-                        
+
                         # Select exactly 11 strikes (5 below, 1 at/near, 5 above) if possible
                         selected_strikes = all_strikes[start_idx:end_idx + 1]
-                        
+
                         # Ensure we have at most 11 strikes
                         if len(selected_strikes) > 11:
                             mid_idx = len(selected_strikes) // 2
                             selected_strikes = selected_strikes[mid_idx - 5:mid_idx + 6]
-                        
+
                         #print(f"{stock} monthly options - current price: {current_price}, selected strikes: {selected_strikes}")
-                        
+
                         # Filter instruments to only those with the selected strikes
                         for instr in monthly_options:
                             if 'strike_price' not in instr or instr['strike_price'] in selected_strikes:
@@ -1807,13 +1908,13 @@ class OptionChainService:
                         # No options with strike price, add all options
                         for instr in monthly_options:
                             final_instruments.append(instr['row'])
-            
+
             # Log skipped stocks
             if skipped_stocks:
                 print(f"Skipped {len(skipped_stocks)} stocks without price data: {', '.join(skipped_stocks[:20])}")
                 if len(skipped_stocks) > 20:
                     print(f"...and {len(skipped_stocks) - 20} more")
-            
+
             # Convert final instruments list back to DataFrame
             if final_instruments:
                 final_df = pd.DataFrame(final_instruments)
@@ -1823,33 +1924,33 @@ class OptionChainService:
                     futures_samples = final_df[final_df['tradingsymbol'].str.endswith('FUT')]['tradingsymbol'].sample(
                         min(3, len(final_df[final_df['tradingsymbol'].str.endswith('FUT')]))
                     ).tolist() if not final_df[final_df['tradingsymbol'].str.endswith('FUT')].empty else []
-                    
+
                     # Get samples of weekly options for NIFTY and SENSEX - try both patterns
                     weekly_pattern = r'(NIFTY|SENSEX)(\d{3}|\d{4})\d{2}\d+(CE|PE)'
                     weekly_options = final_df[final_df['tradingsymbol'].str.match(weekly_pattern)]
                     weekly_samples = weekly_options['tradingsymbol'].sample(
                         min(3, len(weekly_options))
                     ).tolist() if not weekly_options.empty else []
-                    
+
                     # Get samples of monthly options
                     monthly_pattern = r'(NIFTY|SENSEX)\d{2}[A-Z]{3}\d+(CE|PE)'
                     monthly_options = final_df[
-                        ~final_df['tradingsymbol'].str.endswith('FUT') & 
+                        ~final_df['tradingsymbol'].str.endswith('FUT') &
                         final_df['tradingsymbol'].str.match(monthly_pattern)
                     ]
                     monthly_samples = monthly_options['tradingsymbol'].sample(
                         min(3, len(monthly_options))
                     ).tolist() if not monthly_options.empty else []
-                    
+
                     # Get samples of equity FNO stocks
                     equity_samples = final_df[final_df['exchange'] == 'NSE_EQ']['tradingsymbol'].sample(
                         min(3, len(final_df[final_df['exchange'] == 'NSE_EQ']))
                     ).tolist() if not final_df[final_df['exchange'] == 'NSE_EQ'].empty else []
-                    
+
             else:
                 print("No instruments matched the filtering criteria")
                 final_df = pd.DataFrame()
-            
+
             # Create a dictionary with instrument_key as the key and relevant details as values
             instrument_dict = {}
             for _, row in final_df.iterrows():
@@ -1862,9 +1963,9 @@ class OptionChainService:
                     'expiry': row['expiry'] if 'expiry' in row else None,
                     'lot_size': int(row['lot_size']) if 'lot_size' in row else 0
                 }
-            
+
             return instrument_dict
-        
+
         except Exception as e:
             print(f"Error fetching instrument data: {str(e)}")
             import traceback
@@ -1874,7 +1975,7 @@ class OptionChainService:
     def _get_current_market_prices(self) -> Dict[str, float]:
         """
         Get current market prices for stocks and indices
-        
+
         Returns:
             Dict[str, float]: Dictionary with symbol as key and price as value
         """
@@ -1891,7 +1992,7 @@ class OptionChainService:
                 for row in cur.fetchall():
                     symbol = row[0].replace('.NS', '')  # Remove .NS suffix
                     prices[symbol] = float(row[1]) if row[1] else 0
-            
+
             # Add special handling for indices
             """
             index_prices = {
@@ -1911,12 +2012,12 @@ class OptionChainService:
             """
             # Remove any stocks with zero or negative prices
             prices = {k: v for k, v in prices.items() if v > 0}
-            
+
             print(f"Loaded {len(prices)} stock/index prices for strike filtering")
-             
+
         except Exception as e:
             print(f"Error fetching current market prices: {str(e)}")
-        
+
         return prices
 
     def _get_all_weekly_expiries(self):
@@ -1932,5 +2033,6 @@ class OptionChainService:
                 expiries.append(date.strftime('%Y-%m-%d'))
 
         return expiries
+
 
 
