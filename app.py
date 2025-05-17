@@ -31,7 +31,8 @@ CORS(app, resources={r"/*": {"origins": [
     "https://swingtradingwithme.blogspot.com",
     "https://aitradinglab.blogspot.com",
     "https://www.aitradinglab.in",
-    "https://bansalshubham257.github.io"
+    "https://bansalshubham257.github.io",
+    "http://localhost:63342"
 ]}})
 
 # Initialize services
@@ -56,9 +57,19 @@ def get_all_Fno_stocks():
 
 @app.route("/analyze", methods=["GET"])
 def analyze():
-    symbol = request.args.get("symbol")
+    # Get the raw query string and extract the symbol parameter
+    query_string = request.environ.get('QUERY_STRING', '')
+    
+    # Handle the case where symbol contains ampersand
+    if query_string.startswith('symbol='):
+        symbol = query_string[7:]  # Remove 'symbol=' prefix to get the full symbol
+    else:
+        # Fallback to the regular method (for other parameters or if format changes)
+        symbol = request.args.get("symbol")
+    
     if not symbol:
         return jsonify({"error": "Stock symbol is required"}), 400
+
     return jsonify(stock_analysis_service.analyze_stock(symbol))
 
 @app.route('/get-orders', methods=['GET'])
@@ -170,6 +181,80 @@ def get_market_data():
 @app.route('/api/ipos')
 def get_ipos():
     return jsonify(market_data_service.get_ipos())
+
+@app.route("/api/latest-price", methods=["GET"])
+def get_latest_price():
+    """Get the latest price for a stock symbol"""
+    symbol = request.args.get("symbol")
+    if not symbol:
+        return jsonify({"error": "Stock symbol is required"}), 400
+
+    # Ensure symbol has .NS suffix for consistency
+    if not symbol.endswith('.NS'):
+        symbol = f"{symbol}.NS"
+
+    try:
+        with database_service._get_cursor() as cur:
+            cur.execute("""
+                SELECT close, price_change, percent_change, timestamp, last_updated
+                FROM stock_data_cache
+                WHERE symbol = %s AND interval = '1d'
+            """, (symbol,))
+
+            result = cur.fetchone()
+            if not result:
+                return jsonify({"error": "Stock data not found"}), 404
+
+            return jsonify({
+                "symbol": symbol,
+                "price": float(result[0]) if result[0] is not None else None,
+                "price_change": float(result[1]) if result[1] is not None else None,
+                "percent_change": float(result[2]) if result[2] is not None else None,
+                "timestamp": result[3].isoformat() if hasattr(result[3], 'isoformat') else str(result[3]),
+                "last_updated": result[4].isoformat() if hasattr(result[4], 'isoformat') else str(result[4])
+            })
+
+    except Exception as e:
+        logging.error(f"Error fetching latest price for {symbol}: {str(e)}")
+        return jsonify({"error": str(e)}), 500
+
+@app.route('/api/latest-option-price', methods=['GET'])
+def get_latest_option_price():
+    """Get the latest price for a specific option"""
+    symbol = request.args.get("symbol")
+    expiry = request.args.get("expiry")
+    strike = request.args.get("strike")
+    option_type = request.args.get("optionType")
+
+    if not all([symbol, expiry, strike, option_type]):
+        return jsonify({"error": "All parameters (symbol, expiry, strike, optionType) are required"}), 400
+
+    try:
+        with database_service._get_cursor() as cur:
+            cur.execute("""
+                SELECT price, display_time, pct_change
+                FROM oi_volume_history
+                WHERE symbol = %s 
+                  AND expiry_date = %s 
+                  AND strike_price = %s 
+                  AND option_type = %s
+                ORDER BY display_time DESC
+                LIMIT 1
+            """, (symbol, expiry, strike, option_type))
+
+            result = cur.fetchone()
+            if not result:
+                return jsonify({"error": "Option data not found"}), 404
+
+            return jsonify({
+                "price": float(result[0]) if result[0] else 0,
+                "timestamp": result[1].isoformat() if hasattr(result[1], 'isoformat') else str(result[1]),
+                "pct_change": float(result[2]) if result[2] else 0
+            })
+
+    except Exception as e:
+        logging.error(f"Error fetching latest option price: {str(e)}")
+        return jsonify({"error": str(e)}), 500
 
 def run_script():
     """Background worker for market hours processing"""
@@ -1373,5 +1458,8 @@ if __name__ == "__main__":
                 print(f"Connected to database: {cur.fetchone()[0]}")
         else:
             print("❌ Database connection failed")
-        app.run(host="0.0.0.0", port=port)
+        app.run(host="0.0.0.0", port=port, debug=True)
+
+
+
 
