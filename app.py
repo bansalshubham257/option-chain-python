@@ -283,7 +283,6 @@ def get_fno_analytics():
             SELECT symbol, analytics_type, category, strike, option_type,
                    price_change, oi_change, volume_change, absolute_oi, timestamp
             FROM fno_analytics
-            WHERE created_at >= NOW() - INTERVAL '1 day'
         """
         params = []
 
