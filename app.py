@@ -10,6 +10,7 @@ import pytz
 from datetime import datetime
 import threading
 import time
+from services.data_consolidation import run_consolidation_worker
 from services.option_chain import OptionChainService
 from services.market_data import MarketDataService
 from services.stock_analysis import StockAnalysisService
@@ -1376,6 +1377,15 @@ def run_background_workers():
     instrument_keys_thread = threading.Thread(target=run_instrument_keys_worker, daemon=True)
     prev_close_thread = threading.Thread(target=run_prev_close_worker, daemon=True)
 
+    consolidation_thread = threading.Thread(
+        target=lambda: run_consolidation_worker(
+            database_service,
+            consolidation_interval=1800,  # Run every 30 minutes
+            retention_minutes=15          # Keep last 15 minutes of data intact
+        ),
+        daemon=True
+    )
+    
     upstox_feed_worker = UpstoxFeedWorker(database_service)
     upstox_feed_thread = threading.Thread(
         target=lambda: asyncio.run(upstox_feed_worker.run_feed()),
@@ -1391,6 +1401,7 @@ def run_background_workers():
     db_clearing_thread.start()
     #instrument_keys_thread.start()
     #prev_close_thread.start()
+    #consolidation_thread.start()
     print("Background workers started successfully")
 
     # Keep main thread alive
