@@ -30,7 +30,7 @@ db_service = DatabaseService()
 
 def get_market_data_feed_authorize_v3():
     """Get authorization for market data feed."""
-    access_token = "eyJ0eXAiOiJKV1QiLCJrZXlfaWQiOiJza192MS4wIiwiYWxnIjoiSFMyNTYifQ.eyJzdWIiOiI2NEFLNjciLCJqdGkiOiI2ODMwNmUyNDA4ZjVkZTYxM2MyMzE2ZmMiLCJpc011bHRpQ2xpZW50IjpmYWxzZSwiaXNQbHVzUGxhbiI6ZmFsc2UsImlhdCI6MTc0ODAwNDM4OCwiaXNzIjoidWRhcGktZ2F0ZXdheS1zZXJ2aWNlIiwiZXhwIjoxNzQ4MDM3NjAwfQ.cSEIMomLxcriqNxlD6JmLPeOY00DnLH4VT3BlzIwYuE"
+    access_token = Config.ACCESS_TOKEN
     headers = {'Accept': 'application/json', 'Authorization': f'Bearer {access_token}'}
     url = 'https://api.upstox.com/v3/feed/market-data-feed/authorize'
     response = requests.get(url=url, headers=headers)
