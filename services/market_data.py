@@ -173,14 +173,14 @@ class MarketDataService:
             request_type = "combined"
 
         if self.database:
-            cached = self.database.get_market_data('fii_dii')
+            cached = self.database.get_fii_market_data('fii_dii')
             if cached:
                 return cached
         return self._get_fii_dii_data_direct()
 
     def get_ipos(self):
         if self.database:
-            cached = self.database.get_market_data('ipos')
+            cached = self.database.get_fii_market_data('ipos')
             if cached:
                 return cached
         return self._get_ipos_direct()
