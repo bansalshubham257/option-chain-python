@@ -16,6 +16,7 @@ from datetime import datetime, date
 import pytz
 from curl_cffi import requests
 import yfinance as yf
+import asyncio
 
 # Memory cache for pivot point calculation tracking
 
@@ -157,6 +158,93 @@ class DatabaseService:
                 }
                 for row in results
             ]
+
+    async def get_instrument_keys_async(self, symbol=None, instrument_type=None, limit=6000):
+        """Get instrument keys from database (async version)"""
+        loop = asyncio.get_event_loop()
+
+        def _run_query():
+            with self._get_cursor() as cur:
+                query = """
+                    SELECT symbol, instrument_key, exchange, tradingsymbol, lot_size, 
+                           instrument_type, expiry_date, strike_price, option_type, prev_close
+                    FROM instrument_keys
+                    WHERE exchange IN ('NSE_EQ', 'NSE_INDEX', 'BSE_INDEX')
+                """
+                params = []
+                conditions = []
+
+                if symbol:
+                    conditions.append("symbol = %s")
+                    params.append(symbol)
+
+                if instrument_type:
+                    conditions.append("instrument_type = %s")
+                    params.append(instrument_type)
+
+                if conditions:
+                    query += " WHERE " + " AND ".join(conditions)
+
+                query += " ORDER BY tradingsymbol LIMIT %s"
+                params.append(limit)
+
+                cur.execute(query, params)
+                results = cur.fetchall()
+
+                return [
+                    {
+                        'symbol': row[0],
+                        'instrument_key': row[1],
+                        'exchange': row[2],
+                        'tradingsymbol': row[3],
+                        'lot_size': row[4],
+                        'instrument_type': row[5],
+                        'expiry_date': row[6].isoformat() if row[6] else None,
+                        'strike_price': float(row[7]) if row[7] else None,
+                        'option_type': row[8],
+                        'prev_close': float(row[9]) if row[9] is not None else None
+                    }
+                    for row in results
+                ]
+
+        return await loop.run_in_executor(None, _run_query)
+
+    async def get_instruments_by_keys_async(self, instrument_keys):
+        """Get multiple instrument details by instrument keys (async version)."""
+        if not instrument_keys:
+            return []
+
+        loop = asyncio.get_event_loop()
+
+        def _run_query():
+            with self._get_cursor() as cur:
+                placeholders = ','.join(['%s'] * len(instrument_keys))
+                query = f"""
+                    SELECT symbol, instrument_key, exchange, tradingsymbol, lot_size,
+                           instrument_type, expiry_date, strike_price, option_type, prev_close
+                    FROM instrument_keys
+                    WHERE instrument_key IN ({placeholders})
+                """
+                cur.execute(query, instrument_keys)
+                results = cur.fetchall()
+
+                return [
+                    {
+                        'symbol': row[0],
+                        'instrument_key': row[1],
+                        'exchange': row[2],
+                        'tradingsymbol': row[3],
+                        'lot_size': row[4],
+                        'instrument_type': row[5],
+                        'expiry_date': row[6].isoformat() if row[6] else None,
+                        'strike_price': float(row[7]) if row[7] else None,
+                        'option_type': row[8],
+                        'prev_close': float(row[9]) if row[9] is not None else None
+                    }
+                    for row in results
+                ]
+
+        return await loop.run_in_executor(None, _run_query)
 
     def get_options_orders(self):
         """Get all options orders"""
@@ -1488,14 +1576,14 @@ class DatabaseService:
                         last_updated = NOW()
                 """, records, page_size=100)
 
-    def get_instrument_keys(self, symbol=None, instrument_type=None, limit=100):
+    def get_instrument_keys(self, symbol=None, instrument_type=None, limit=300):
         """Get instrument keys from database"""
         with self._get_cursor() as cur:
             query = """
                 SELECT symbol, instrument_key, exchange, tradingsymbol, lot_size, 
                        instrument_type, expiry_date, strike_price, option_type, prev_close
                 FROM instrument_keys
-                WHERE 1=1
+                WHERE exchange IN ('NSE_EQ', 'NSE_INDEX', 'BSE_INDEX')
             """
             params = []
 
@@ -2351,3 +2439,4 @@ class DatabaseService:
         except Exception as e:
             print(f"Error fetching option instrument key: {str(e)}")
             return None
+
