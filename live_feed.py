@@ -8,6 +8,8 @@ from flask import Flask, jsonify, request
 from flask_cors import CORS
 import threading
 import time
+
+from config import Config
 from services.database import DatabaseService
 
 import MarketDataFeed_pb2
@@ -31,6 +33,7 @@ db_service = DatabaseService()
 def get_market_data_feed_authorize_v3():
     """Get authorization for market data feed."""
     access_token = Config.ACCESS_TOKEN
+    print("Access Token:", access_token)  # Log the access token
     headers = {'Accept': 'application/json', 'Authorization': f'Bearer {access_token}'}
     url = 'https://api.upstox.com/v3/feed/market-data-feed/authorize'
     response = requests.get(url=url, headers=headers)
