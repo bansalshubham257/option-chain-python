@@ -655,4 +655,18 @@ CREATE INDEX IF NOT EXISTS idx_instrument_keys_instrument_key ON instrument_keys
 CREATE INDEX IF NOT EXISTS idx_instrument_keys_instrument_type ON instrument_keys(instrument_type);
 CREATE INDEX IF NOT EXISTS idx_instrument_keys_expiry_date ON instrument_keys(expiry_date);
 
+CREATE TABLE IF NOT EXISTS upstox_accounts (
+    id SERIAL PRIMARY KEY,
+    api_key VARCHAR(255) NOT NULL UNIQUE,
+    api_secret VARCHAR(255) NOT NULL,
+    totp_secret VARCHAR(255) NOT NULL,
+    redirect_uri VARCHAR(255) NOT NULL,
+    username VARCHAR(255) NOT NULL,
+    password VARCHAR(255) NOT NULL,
+    access_token TEXT,
+    created_at TIMESTAMP DEFAULT NOW()
+);
+
+-- Add index for performance
+CREATE INDEX IF NOT EXISTS idx_upstox_accounts_api_key ON upstox_accounts(api_key);
 
