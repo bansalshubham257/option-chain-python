@@ -21,3 +21,6 @@ git+https://github.com/bretsky/yfinance.git@fix/curl-cffi-cookies
 #eventlet==0.33.3
 protobuf
 websockets
+pyotp==2.9.0
+selenium==4.15.2
+webdriver-manager==4.0.1
