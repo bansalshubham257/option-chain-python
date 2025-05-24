@@ -2440,3 +2440,109 @@ class DatabaseService:
             print(f"Error fetching option instrument key: {str(e)}")
             return None
 
+    def get_upstox_accounts(self):
+        """Get all upstox accounts from the database"""
+        try:
+            with self._get_cursor() as cursor:
+                cursor.execute("""
+                    SELECT id, api_key, api_secret, totp_secret, redirect_uri, username, password, 
+                           access_token
+                    FROM upstox_accounts
+                """)
+
+                results = cursor.fetchall()
+                return [
+                    {
+                        'id': row[0],
+                        'api_key': row[1],
+                        'api_secret': row[2],
+                        'totp_secret': row[3],
+                        'redirect_uri': row[4],
+                        'username': row[5],
+                        'password': row[6],
+                        'access_token': row[7]
+                    }
+                    for row in results
+                ]
+        except Exception as e:
+            print(f"Error getting upstox accounts: {str(e)}")
+            return []
+
+    def update_upstox_token(self, api_key, token_data):
+        """Update the access token for a specific account"""
+        try:
+            access_token = token_data.get('access_token')
+
+            with self._get_cursor() as cursor:
+                cursor.execute("""
+                    UPDATE upstox_accounts
+                    SET access_token = %s
+                    WHERE api_key = %s
+                """, (access_token, api_key))
+
+                return True
+        except Exception as e:
+            print(f"Error updating upstox token: {str(e)}")
+            return False
+
+    def save_upstox_account(self, account_data):
+        """Save a new upstox account or update an existing one"""
+        try:
+            api_key = account_data.get('api_key')
+            api_secret = account_data.get('api_secret')
+            totp_secret = account_data.get('totp_secret')
+            redirect_uri = account_data.get('redirect_uri')
+            username = account_data.get('username')
+            password = account_data.get('password')
+            access_token = account_data.get('access_token')
+
+            if not api_key:
+                print("API key is required")
+                return False
+
+            with self._get_cursor() as cursor:
+                # Check if account exists
+                cursor.execute("SELECT id FROM upstox_accounts WHERE api_key = %s", (api_key,))
+                result = cursor.fetchone()
+
+                if result:
+                    # Update existing account
+                    cursor.execute("""
+                        UPDATE upstox_accounts
+                        SET api_secret = %s,
+                            totp_secret = %s,
+                            redirect_uri = %s,
+                            username = %s,
+                            password = %s,
+                            access_token = %s,
+                            created_at = NOW()
+                        WHERE api_key = %s
+                    """, (
+                        api_secret,
+                        totp_secret,
+                        redirect_uri,
+                        username,
+                        password,
+                        access_token,
+                        api_key
+                    ))
+                else:
+                    # Insert new account
+                    cursor.execute("""
+                        INSERT INTO upstox_accounts
+                        (api_key, api_secret, totp_secret, redirect_uri, username, password, access_token)
+                        VALUES (%s, %s, %s, %s, %s, %s, %s)
+                    """, (
+                        api_key,
+                        api_secret,
+                        totp_secret,
+                        redirect_uri,
+                        username,
+                        password,
+                        access_token
+                    ))
+
+                return True
+        except Exception as e:
+            print(f"Error saving upstox account: {str(e)}")
+            return False
