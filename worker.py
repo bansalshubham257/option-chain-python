@@ -42,7 +42,16 @@ db_service = DatabaseService()
 
 def get_market_data_feed_authorize_v3():
     """Get authorization for market data feed."""
-    access_token = Config.ACCESS_TOKEN
+    # Fetch access token from the database with ID=4 instead of using Config
+    access_token = db_service.get_access_token(account_id=4)
+
+    # Fallback to Config if token not found in database
+    if not access_token:
+        access_token = Config.ACCESS_TOKEN
+        print("Warning: Using fallback access token from Config")
+
+    print(f"Using access token ending with ...{access_token[-4:]} from database (ID=4)")
+
     headers = {'Accept': 'application/json', 'Authorization': f'Bearer {access_token}'}
     url = 'https://api.upstox.com/v3/feed/market-data-feed/authorize'
     response = requests.get(url=url, headers=headers)
