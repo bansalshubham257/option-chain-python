@@ -22,11 +22,11 @@ class UpstoxAuth:
     Utility class for Upstox authentication.
     Generates and manages access tokens using API key and TOTP.
     """
-    
+
     def __init__(self, api_key, secret, totp_secret, redirect_uri):
         """
         Initialize with API credentials.
-        
+
         Args:
             api_key (str): Upstox API key
             secret (str): Upstox API secret
@@ -37,37 +37,37 @@ class UpstoxAuth:
         self.secret = secret
         self.totp_secret = totp_secret
         self.redirect_uri = redirect_uri
-        self.token_file = os.path.join(os.path.dirname(os.path.dirname(__file__)), 
+        self.token_file = os.path.join(os.path.dirname(os.path.dirname(__file__)),
                                        "config", "upstox_token.json")
-        
+
     def generate_totp(self):
         """Generate TOTP code for 2FA."""
         totp = pyotp.TOTP(self.totp_secret)
         return totp.now()
-    
+
     def get_auth_url(self):
         """Get the authorization URL for user login."""
         base_url = "https://api.upstox.com/v2/login/authorization/dialog"
         auth_url = f"{base_url}?client_id={self.api_key}&redirect_uri={self.redirect_uri}&response_type=code"
         return auth_url
-    
+
     def get_access_token(self, auth_code):
         """
         Get access token using authorization code.
-        
+
         Args:
             auth_code (str): Authorization code received after user login
-            
+
         Returns:
             dict: Access token response with token and expiry
         """
         url = "https://api.upstox.com/v2/login/authorization/token"
-        
+
         headers = {
             "Content-Type": "application/x-www-form-urlencoded",
             "Accept": "application/json"
         }
-        
+
         payload = {
             "code": auth_code,
             "client_id": self.api_key,
@@ -75,18 +75,18 @@ class UpstoxAuth:
             "redirect_uri": self.redirect_uri,
             "grant_type": "authorization_code"
         }
-        
+
         response = requests.post(url, headers=headers, data=payload)
         if response.status_code == 200:
             token_data = response.json()
             # Add current timestamp for expiry tracking
             token_data['created_at'] = datetime.now().timestamp()
-            
+
             # Set default expiry if not provided (1 day)
             if 'expires_in' not in token_data:
                 token_data['expires_in'] = 86400  # 24 hours in seconds
                 print("Warning: Token expiry not provided by API, using default (24 hours)")
-            
+
             # Save token to file
             self._save_token(token_data)
             return token_data
@@ -94,35 +94,35 @@ class UpstoxAuth:
             print(f"Error getting access token: {response.status_code}")
             print(response.text)
             return None
-    
+
     def _save_token(self, token_data):
         """Save token data to file."""
         os.makedirs(os.path.dirname(self.token_file), exist_ok=True)
         with open(self.token_file, 'w') as f:
             json.dump(token_data, f, indent=4)
         print(f"Token saved to {self.token_file}")
-    
+
     def get_saved_token(self):
         """Get saved token from file."""
         if os.path.exists(self.token_file):
             with open(self.token_file, 'r') as f:
                 return json.load(f)
         return None
-    
+
     def is_token_valid(self):
         """Check if saved token is valid and not expired."""
         token_data = self.get_saved_token()
         if not token_data:
             return False
-        
+
         # Check if token has expired
         created_at = token_data.get('created_at', 0)
         expires_in = token_data.get('expires_in', 0)
         current_time = datetime.now().timestamp()
-        
+
         # Return True if token is still valid (with 5-minute buffer)
         return current_time < (created_at + expires_in - 300)
-    
+
     def get_valid_token(self):
         """Get a valid access token, either saved or refreshed."""
         if self.is_token_valid():
@@ -133,17 +133,17 @@ class UpstoxAuth:
             # In this case, a new authorization flow is needed
             print("Token expired or not found. Please generate a new token.")
             return None
-    
+
     def verify_token(self, access_token):
         """Verify if the token is valid by making a test API call."""
         headers = {
             "Accept": "application/json",
             "Authorization": f"Bearer {access_token}"
         }
-        
+
         url = "https://api.upstox.com/v2/user/profile"
         response = requests.get(url, headers=headers)
-        
+
         if response.status_code == 200:
             print("Token verification successful!")
             user_data = response.json()
@@ -321,24 +321,24 @@ def automated_auth_flow(api_key, secret, totp_secret, redirect_uri):
 def manual_auth_flow(api_key, secret, totp_secret, redirect_uri):
     """
     Run a manual authentication flow in the console.
-    
+
     Args:
         api_key (str): Upstox API key
         secret (str): Upstox API secret
         totp_secret (str): TOTP secret for 2FA
         redirect_uri (str): Redirect URI registered with Upstox
-        
+
     Returns:
         str: Access token if successful, None otherwise
     """
     auth = UpstoxAuth(api_key, secret, totp_secret, redirect_uri)
-    
+
     # Check if we already have a valid token
     if auth.is_token_valid():
         token_data = auth.get_saved_token()
         print("Using existing valid token")
         return token_data['access_token']
-    
+
     # No valid token, start new flow
     auth_url = auth.get_auth_url()
     print("\n=== Upstox Authentication Flow ===")
@@ -349,34 +349,34 @@ def manual_auth_flow(api_key, secret, totp_secret, redirect_uri):
     print("   The URL will contain a 'code' parameter")
     print(f"\nYour configured redirect URI is: {redirect_uri}")
     print("Make sure this EXACTLY matches what you registered in the Upstox Developer Dashboard")
-    
+
     auth_code = input("\nEnter the code from the redirect URL: ")
-    
+
     # Get access token
     token_data = auth.get_access_token(auth_code)
     if token_data and 'access_token' in token_data:
         print("\nAuthentication successful!")
         access_token = token_data['access_token']
-        
+
         # Verify the token
         user_data = auth.verify_token(access_token)
         if user_data:
             print(f"\nLogged in as: {user_data.get('data', {}).get('user_name', 'Unknown')}")
             print(f"Email: {user_data.get('data', {}).get('email', 'Unknown')}")
-            
+
             # Safely display expiry info
             if 'expires_in' in token_data:
                 hours = token_data['expires_in'] // 3600
                 print(f"\nToken will expire in: {hours} hours")
             else:
                 print("\nToken expiry information not available")
-                
+
             return access_token
-    
+
     return None
 
 def fully_automated_auth_flow(api_key, secret, totp_secret, redirect_uri,
-                             headless=False, username=None, password=None):
+                              headless=True, username=None, password=None):
     """
     Run a fully automated authentication flow with Selenium.
 
@@ -434,8 +434,9 @@ def fully_automated_auth_flow(api_key, secret, totp_secret, redirect_uri,
         try:
             # Initialize browser with Service object from ChromeDriverManager
             print("Launching browser...")
-            service = Service(ChromeDriverManager().install())
-            driver = webdriver.Chrome(service=service, options=options)
+            selenium_url = "standalone-chrome-production-121b.up.railway.app"
+            #service = Service(ChromeDriverManager().install())
+            driver = webdriver.Remote(command_executor=selenium_url, options=options)
         except Exception as browser_error:
             print(f"Error initializing Chrome webdriver: {str(browser_error)}")
             print("Trying alternative initialization method...")
@@ -551,16 +552,21 @@ def fully_automated_auth_flow(api_key, secret, totp_secret, redirect_uri,
                     password_field = wait.until(EC.element_to_be_clickable((By.ID, "pinCode")))
                     password_field.clear()
                     password_field.send_keys(password)
+                    time.sleep(2)
                     signin_button = wait.until(EC.element_to_be_clickable((By.ID, "pinContinueBtn")))
                     signin_button.click()
+                    print("Password entered successfully....")
 
                 except Exception as e:
                     print(f"Error entering password: {str(e)}")
                     print("Trying alternative element...")
                     try:
-                        password_field = wait.until(EC.element_to_be_clickable((By.XPATH, "//*[@id='otpNum']")))
+                        password_field = wait.until(EC.element_to_be_clickable((By.ID, "pinCode")))
                         password_field.clear()
                         password_field.send_keys(password)
+                        time.sleep(2)
+                        signin_button = wait.until(EC.element_to_be_clickable((By.ID, "pinContinueBtn")))
+                        signin_button.click()
                         print("Password entered using alternative selector")
                     except Exception as alt_e:
                         print(f"Alternative password entry also failed: {str(alt_e)}")
@@ -581,28 +587,31 @@ def fully_automated_auth_flow(api_key, secret, totp_secret, redirect_uri,
             # Wait for 30 seconds to allow manual login
             time.sleep(30)
 
-        # Small delay before looking for TOTP
-        time.sleep(3)
+        time.sleep(10)
 
 
         # Wait for auth_code to be set by the server (with timeout)
-        timeout = 120  # 2 minutes (increased for reliability)
+        timeout = 120  # 2 minutes timeout
         start_time = time.time()
+        auth_code = None
 
-        while 'auth_code' not in globals() or globals()['auth_code'] is None:
+        while time.time() - start_time < timeout:
+            current_url = driver.current_url
+            if 'code=' in current_url:
+                # Parse the code from URL
+                parsed = urlparse(current_url)
+                params = parse_qs(parsed.query)
+                auth_code = params['code'][0]
+                print(f"\nAuthorization code received: {auth_code}")
+                break
             time.sleep(1)
-            if time.time() - start_time > timeout:
-                print("Authentication timed out. Please try again.")
-                driver.save_screenshot("timeout_error.png")
-                print(f"Screenshot saved to timeout_error.png")
-                print(f"Current URL at timeout: {driver.current_url}")
-                auth.stop_auth_server(server)
-                driver.quit()
-                return None
-
-        # Get the auth code from global variable
-        auth_code = globals()['auth_code']
-        print("\nAuthorization code received automatically!")
+        else:
+            print("Authentication timed out. Please try again.")
+            driver.save_screenshot("timeout_error.png")
+            print(f"Screenshot saved to timeout_error.png")
+            print(f"Final URL: {driver.current_url}")
+            driver.quit()
+            return None
 
         # Close the browser
         driver.quit()
@@ -661,4 +670,3 @@ if __name__ == "__main__":
     except (ImportError, AttributeError):
         print("Warning: Config not found or missing credentials, using placeholders")
         api_key = "your_api_key"
-
