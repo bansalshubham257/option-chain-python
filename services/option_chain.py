@@ -298,6 +298,13 @@ class OptionChainService:
 
         return equity_data
 
+    def _get_access_token(self):
+        """Get access token from database"""
+        token = self.database.get_access_token(account_id=1)
+        if not token:
+            # Fallback to environment variable if not in database
+            token = os.getenv("ACCESS_TOKEN")
+        return token
 
     def get_fno_stocks_with_symbols(self):
         """Return F&O stocks list with proper Yahoo Finance symbols"""
@@ -473,7 +480,8 @@ class OptionChainService:
         instrument_keys = [instrument_key, stock_instrument_key]
 
         url = f"{self.UPSTOX_BASE_URL}/v2/market-quote/quotes"
-        headers = {"Authorization": f"Bearer {Config.ACCESS_TOKEN}"}
+        access_token = self._get_access_token()
+        headers = {"Authorization": f"Bearer {access_token}"}
         params = {'instrument_key': ','.join(instrument_keys)}
 
         response = requests.get(url, headers=headers, params=params)
@@ -521,7 +529,8 @@ class OptionChainService:
         all_keys.extend(stock_keys)
 
         url = f"{self.UPSTOX_BASE_URL}/v2/market-quote/quotes"
-        headers = {"Authorization": f"Bearer {os.getenv('ACCESS_TOKEN')}"}
+        access_token = self._get_access_token()
+        headers = {"Authorization": f"Bearer {access_token}"}
         params = {'instrument_key': ','.join(all_keys)}
 
         try:
@@ -572,7 +581,8 @@ class OptionChainService:
         :return: List of dictionaries with instrument_key and prev_close
         """
         url = f"{self.UPSTOX_BASE_URL}/v2/market-quote/ltp"
-        headers = {"Authorization": f"Bearer {Config.ACCESS_TOKEN}"}
+        access_token = self._get_access_token()
+        headers = {"Authorization": f"Bearer {access_token}"}
         batch_size = 500
         result = []
 
@@ -630,7 +640,7 @@ class OptionChainService:
         while True:
             now = datetime.now(IST)
             # Clear old data at market open
-            if (now.weekday() < 5 and Config.MARKET_OPEN >= now.time() <= Config.MARKET_CLOSE and
+            if (now.weekday() < 7 and Config.MARKET_OPEN >= now.time() <= Config.MARKET_CLOSE and
                     (last_clear_date is None or last_clear_date != now.date())):
                 try:
                     self.database.clear_old_data()
@@ -642,7 +652,7 @@ class OptionChainService:
             # Process during market hours
 
             # Process during market hours - removed the clearing logic
-            if now.weekday() < 5 and Config.MARKET_OPEN <= now.time() <= Config.MARKET_CLOSE:
+            if now.weekday() < 7 and Config.MARKET_OPEN <= now.time() <= Config.MARKET_CLOSE:
                 try:
                     self._fetch_and_store_orders()
                     print("fetched and stored orders completed")
@@ -1101,7 +1111,8 @@ class OptionChainService:
             for expiry_date in expiries:
                 # Fetch option chain for each expiry
                 url = 'https://api.upstox.com/v2/option/chain'
-                headers = {'Authorization': f'Bearer {os.getenv("ACCESS_TOKEN")}'}
+                access_token = self._get_access_token()
+                headers = {'Authorization': f'Bearer {access_token}'}
                 params = {'instrument_key': instrument_key, 'expiry_date': expiry_date}
 
                 response = requests.get(url, params=params, headers=headers)
@@ -1296,7 +1307,8 @@ class OptionChainService:
         """Fetch market quotes with rate limiting"""
         try:
             url = 'https://api.upstox.com/v2/market-quote/quotes'
-            headers = {'Authorization': f'Bearer {os.getenv("ACCESS_TOKEN")}'}
+            access_token = self._get_access_token()
+            headers = {'Authorization': f'Bearer {access_token}'}
             params = {'instrument_key': ','.join(instrument_keys)}
 
             response = requests.get(url, headers=headers, params=params)
