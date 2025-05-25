@@ -45,7 +45,7 @@ def get_account_details():
     redirect_uri = input("Redirect URI [http://localhost:5000/callback]: ") or "http://localhost:5000/callback"
     username = input("Upstox Username: ")
     password = getpass.getpass("Upstox Password: ")
-    
+
     return {
         'api_key': api_key,
         'api_secret': api_secret,
@@ -75,13 +75,13 @@ def generate_token_for_account(account, headless=True, manual=False):
     redirect_uri = account.get('redirect_uri')
     username = account.get('username')
     password = account.get('password')
-    
+
     if not all([api_key, api_secret, totp_secret, redirect_uri]):
         logging.error(f"Missing required credentials for account {api_key}")
         return False
-    
+
     logging.info(f"Generating token for account {api_key}")
-    
+
     # Check if using manual flow
     if manual:
         logging.info(f"Using manual flow for account {api_key}")
@@ -97,11 +97,11 @@ def generate_token_for_account(account, headless=True, manual=False):
         else:
             logging.info(f"Using semi-automated flow for account {api_key}")
             access_token = automated_auth_flow(api_key, api_secret, totp_secret, redirect_uri)
-    
+
     # Check if token generation was successful
     if access_token:
         logging.info(f"Token generation successful for account {api_key}")
-        
+
         # Create token data structure with required fields
         token_data = {
             'access_token': access_token,
@@ -116,7 +116,7 @@ def generate_token_for_account(account, headless=True, manual=False):
             logging.error(f"Failed to update token in database for account {api_key}")
     else:
         logging.error(f"Token generation failed for account {api_key}")
-    
+
     return False
 
 def main():
@@ -125,7 +125,7 @@ def main():
     parser.add_argument('--manual', action='store_true', help='Use manual flow instead of automated')
     parser.add_argument('--add-account', action='store_true', help='Add a new Upstox account to the database')
     args = parser.parse_args()
-    
+
     # Load environment variables
     load_dotenv()
 
@@ -137,25 +137,25 @@ def main():
             logging.error("Failed to add new account")
             sys.exit(1)
         return
-    
+
     # Get accounts from database
     accounts = db_service.get_upstox_accounts()
-    
+
     if not accounts:
         logging.error("No accounts found in database")
         print("No accounts found. Use --add-account to add a new account.")
         sys.exit(1)
-    
+
     # Generate tokens for each account
     success_count = 0
     for account in accounts:
         if generate_token_for_account(account, headless=not args.visible, manual=args.manual):
             success_count += 1
-    
+
     # Log summary
     logging.info(f"Token generation complete. Generated {success_count}/{len(accounts)} tokens successfully.")
     print(f"Token generation complete. Generated {success_count}/{len(accounts)} tokens successfully.")
-    
+
     # Exit with appropriate code
     sys.exit(0 if success_count == len(accounts) else 1)
 
