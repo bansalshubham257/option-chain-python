@@ -24,7 +24,13 @@ from functools import partial
 class UpstoxFeedWorker:
     def __init__(self, database_service):
         self.db = database_service
-        self.access_token = Config.ACCESS_TOKEN
+        # Fetch access token from database with ID=3 instead of using Config.ACCESS_TOKEN
+        self.access_token = self.db.get_access_token(account_id=3)
+        if not self.access_token:
+            print("Warning: Access token not found in database with ID=3, falling back to Config")
+            self.access_token = Config.ACCESS_TOKEN
+        print(f"Using access token ending with ...{self.access_token[-4:]} from database (ID=3)")
+        
         self.ssl_context = ssl.create_default_context()
         self.ssl_context.check_hostname = False
         self.ssl_context.verify_mode = ssl.CERT_NONE
@@ -767,6 +773,18 @@ class UpstoxFeedWorker:
 
     async def get_market_data_feed_authorize(self, token=None):
         """Get authorization for market data feed."""
+        # Use provided token or fetch from database if not provided
+        if not token:
+            token = self.db.get_access_token(account_id=3)
+            if not token:
+                print("Warning: Access token not found in database with ID=3, using cached token")
+                token = self.access_token
+            else:
+                # Update cached token if it changed
+                if token != self.access_token:
+                    print(f"Access token updated from database (ID=3), new token ending with ...{token[-4:]}")
+                    self.access_token = token
+        
         headers = {
             'Accept': 'application/json',
             'Authorization': f'Bearer {token}'
@@ -994,3 +1012,4 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
+
