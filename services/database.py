@@ -539,6 +539,24 @@ class DatabaseService:
             return float(value)
         return value
 
+    def get_access_token(self, account_id=1):
+        """Get access token from the database for a specific account ID"""
+        try:
+            with self._get_cursor() as cursor:
+                cursor.execute("""
+                    SELECT access_token 
+                    FROM upstox_accounts 
+                    WHERE id = %s
+                """, (account_id,))
+
+                result = cursor.fetchone()
+                if result and result[0]:
+                    return result[0]
+                return None
+        except Exception as e:
+            print(f"Error getting access token from database: {str(e)}")
+            return None
+
     def update_stock_data(self, symbol, interval, data, info_data=None):
         """Update stock data with daily recalculation of pivot points and indicators"""
         try:
@@ -2546,3 +2564,4 @@ class DatabaseService:
         except Exception as e:
             print(f"Error saving upstox account: {str(e)}")
             return False
+
