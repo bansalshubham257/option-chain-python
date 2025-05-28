@@ -1855,7 +1855,7 @@ class OptionChainService:
                             selected_weekly_strikes = weekly_strikes[start_idx:end_idx + 1]
 
                             # Ensure we have at most 11 strikes
-                            if len(selected_weekly_strikes) > 11:
+                            if len(selected_weekly_strikes) > 15:
                                 mid_idx = len(selected_weekly_strikes) // 2
                                 selected_weekly_strikes = selected_weekly_strikes[mid_idx - 7:mid_idx + 8]
 
@@ -1906,7 +1906,7 @@ class OptionChainService:
                         selected_strikes = all_strikes[start_idx:end_idx + 1]
 
                         # Ensure we have at most 11 strikes
-                        if len(selected_strikes) > 11:
+                        if len(selected_strikes) > 15:
                             mid_idx = len(selected_strikes) // 2
                             selected_strikes = selected_strikes[mid_idx - 7:mid_idx + 8]
 
