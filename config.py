@@ -10,13 +10,12 @@ class Config:
     
     # Upstox API configuration
     ACCESS_TOKEN = os.getenv('ACCESS_TOKEN', 'eyJ0eXAiOiJKV1QiLCJrZXlfaWQiOiJza192MS4wIiwiYWxnIjoiSFMyNTYifQ.eyJzdWIiOiIyWEJSUFMiLCJqdGkiOiI2N2VkZjI5OTVlMDFkYTVlZjBjY2Q5ODAiLCJpc011bHRpQ2xpZW50IjpmYWxzZSwiaWF0IjoxNzQzNjQ3Mzg1LCJpc3MiOiJ1ZGFwaS1nYXRld2F5LXNlcnZpY2UiLCJleHAiOjE3NDM3MTc2MDB9.Ra7Bclq3ysxWNmi7oJol_1mcgz1sCK7WWgFG-59ZFmM')
-
     ACCESS_TOKEN2 = os.getenv('ACCESS_TOKEN2', 'eyJ0eXAiOiJKV1QiLCJrZXlfaWQiOiJza192MS4wIiwiYWxnIjoiSFMyNTYifQ.eyJzdWIiOiIyWEJSUFMiLCJqdGkiOiI2N2VkZjI5OTVlMDFkYTVlZjBjY2Q5ODAiLCJpc011bHRpQ2xpZW50IjpmYWxzZSwiaWF0IjoxNzQzNjQ3Mzg1LCJpc3MiOiJ1ZGFwaS1nYXRld2F5LXNlcnZpY2UiLCJleHAiOjE3NDM3MTc2MDB9.Ra7Bclq3ysxWNmi7oJol_1mcgz1sCK7WWgFG-59ZFmM')
 
     # Other configurations
     EXPIRY_DATE = "2025-05-29"
     # Market hours configuration
-    MARKET_OPEN = time(9, 12)  # 09:15 AM
+    MARKET_OPEN = time(9, 9)  # 09:15 AM
     MARKET_CLOSE = time(15, 33)  # 03:30 PM
     
     # Post-market window for financial data collection (3:35 PM - 3:39 PM)
@@ -25,13 +24,15 @@ class Config:
 
     # Database clearing time window
     DB_CLEARING_START = time(9, 0)  # 09:00 AM
-    DB_CLEARING_END = time(9, 15)  # 09:15 AM
+    DB_CLEARING_END = time(9, 10)  # 09:15 AM
 
     TRADING_DAYS = {0, 1, 2, 3, 4}  # Monday to Friday
 
     SENSEX_EXPIRIES = [
         "2025-06-03",
-        "2025-06-10"
+        "2025-06-10",
+        "2025-06-17",
+        "2025-06-24"
     ]
 
     BANKEX_EXPIRIES = [
@@ -39,10 +40,13 @@ class Config:
     ]
 
     NIFTY_EXPIRIES = [
-        "2025-05-29"
+        "2025-06-05",
+        "2025-06-12",
+        "2025-06-19",
+        "2025-06-26"
     ]
 
     # These should include all relevant expiry dates for different instruments
     INSTRUMENT_EXPIRIES = [
-        "2025-05-29"
+        "2025-06-26"
     ]
