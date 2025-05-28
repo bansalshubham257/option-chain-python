@@ -1272,7 +1272,7 @@ class OptionChainService:
             prefix = f"BSE_FO:{stock_symbol}"
         else:
             prefix = f"NSE_FO:{stock_symbol}"
-        suffix = "MAYFUT"
+        suffix = "JUNFUT"
 
         pattern = re.compile(rf"{prefix}\d+{suffix}")
         fut_instrument_key = next((key for key in market_quotes if pattern.match(key)), None)
