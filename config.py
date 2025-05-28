@@ -17,7 +17,7 @@ class Config:
     EXPIRY_DATE = "2025-05-29"
     # Market hours configuration
     MARKET_OPEN = time(9, 12)  # 09:15 AM
-    MARKET_CLOSE = time(15, 30)  # 03:30 PM
+    MARKET_CLOSE = time(15, 33)  # 03:30 PM
     
     # Post-market window for financial data collection (3:35 PM - 3:39 PM)
     POST_MARKET_START = time(15, 35)
@@ -30,17 +30,15 @@ class Config:
     TRADING_DAYS = {0, 1, 2, 3, 4}  # Monday to Friday
 
     SENSEX_EXPIRIES = [
-        "2025-05-20",
-        "2025-05-27"
+        "2025-06-03",
+        "2025-06-10"
     ]
 
     BANKEX_EXPIRIES = [
-        "2025-05-27"
+        "2025-06-24"
     ]
 
     NIFTY_EXPIRIES = [
-        "2025-05-15",
-        "2025-05-22",
         "2025-05-29"
     ]
 
