@@ -9,6 +9,14 @@ CREATE TABLE IF NOT EXISTS options_orders (
     ask_qty INTEGER,
     lot_size INTEGER,
     timestamp TIMESTAMPTZ DEFAULT NOW(),
+    oi DECIMAL,
+    volume DECIMAL,
+    vega DECIMAL,
+    theta DECIMAL,
+    gamma DECIMAL,
+    delta DECIMAL,
+    iv DECIMAL,
+    pop DECIMAL,
     UNIQUE (symbol, strike_price, option_type)
 );
 
@@ -669,4 +677,22 @@ CREATE TABLE IF NOT EXISTS upstox_accounts (
 
 -- Add index for performance
 CREATE INDEX IF NOT EXISTS idx_upstox_accounts_api_key ON upstox_accounts(api_key);
+
+-- Add option greeks, OI and volume columns to options_orders table if they don't exist
+ALTER TABLE options_orders
+ADD COLUMN IF NOT EXISTS oi DECIMAL,
+ADD COLUMN IF NOT EXISTS volume DECIMAL,
+ADD COLUMN IF NOT EXISTS vega DECIMAL,
+ADD COLUMN IF NOT EXISTS theta DECIMAL,
+ADD COLUMN IF NOT EXISTS gamma DECIMAL,
+ADD COLUMN IF NOT EXISTS delta DECIMAL,
+ADD COLUMN IF NOT EXISTS iv DECIMAL,
+ADD COLUMN IF NOT EXISTS pop DECIMAL;
+
+-- Ensure timestamp is stored in IST timezone
+ALTER TABLE options_orders
+ALTER COLUMN timestamp TYPE TIMESTAMPTZ;
+
+ALTER TABLE futures_orders
+ALTER COLUMN timestamp TYPE TIMESTAMPTZ;
 
