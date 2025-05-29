@@ -2642,6 +2642,59 @@ class DatabaseService:
             print(f"Error updating upstox token: {str(e)}")
             return False
 
+    def get_full_options_orders(self):
+        """Get all options orders with instrument keys"""
+        try:
+            with self._get_cursor() as cur:
+                cur.execute("""
+                    SELECT 
+                        o.symbol, 
+                        o.strike_price, 
+                        o.option_type, 
+                        o.ltp, 
+                        o.bid_qty, 
+                        o.ask_qty, 
+                        o.lot_size, 
+                        o.timestamp,
+                        i.instrument_key,
+                        o.oi,
+                        o.volume,
+                        o.vega,
+                        o.theta,
+                        o.gamma,
+                        o.delta,
+                        o.iv,
+                        o.pop
+                    FROM options_orders o
+                    LEFT JOIN instrument_keys i ON 
+                        o.symbol = i.symbol AND 
+                        o.strike_price = i.strike_price AND 
+                        o.option_type = i.option_type
+                """)
+                results = cur.fetchall()
+                return [{
+                    'symbol': r[0],
+                    'strike_price': r[1],
+                    'option_type': r[2],
+                    'ltp': r[3],
+                    'bid_qty': r[4],
+                    'ask_qty': r[5],
+                    'lot_size': r[6],
+                    'timestamp': r[7].isoformat(),
+                    'instrument_key': r[8],
+                    'oi': r[9],
+                    'volume': r[10],
+                    'vega': r[11],
+                    'theta': r[12],
+                    'gamma': r[13],
+                    'delta': r[14],
+                    'iv': r[15],
+                    'pop': r[16]
+                } for r in results]
+        except Exception as e:
+            print(f"Error fetching options orders: {str(e)}")
+            return []
+            
     def save_upstox_account(self, account_data):
         """Save a new upstox account or update an existing one"""
         try:
@@ -2704,5 +2757,5 @@ class DatabaseService:
             print(f"Error saving upstox account: {str(e)}")
             return False
 
-
+    
 
