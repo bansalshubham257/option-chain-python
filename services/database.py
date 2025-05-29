@@ -246,6 +246,97 @@ class DatabaseService:
 
         return await loop.run_in_executor(None, _run_query)
 
+    def batch_get_instrument_keys(self, symbols):
+        """
+        Get instrument keys for multiple trading symbols in a single database query.
+
+        Args:
+            symbols (list): List of trading symbols to look up
+
+        Returns:
+            dict: Dictionary with symbol as key and instrument details as value
+        """
+        if not symbols:
+            return {}
+
+        result = {}
+        try:
+            with self._get_cursor() as cur:
+                # Format the symbols for the SQL query
+                symbol_placeholders = ','.join(['%s'] * len(symbols))
+
+                # Create a query that fetches all symbols in one go
+                query = f"""
+                    SELECT 
+                        tradingsymbol, 
+                        instrument_key, 
+                        exchange, 
+                        symbol as underlying, 
+                        lot_size, 
+                        prev_close as last_close
+                    FROM 
+                        instrument_keys 
+                    WHERE 
+                        tradingsymbol IN ({symbol_placeholders})
+                """
+
+                # Execute the query with the symbols as parameters
+                cur.execute(query, symbols)
+                rows = cur.fetchall()
+
+                # Process the results
+                for row in rows:
+                    symbol = row[0]  # tradingsymbol
+                    result[symbol] = {
+                        'instrument_key': row[1],
+                        'exchange': row[2],
+                        'symbol': row[3],
+                        'tradingsymbol': symbol,
+                        'lot_size': float(row[4]) if row[4] is not None else 1,  # Convert to float
+                        'last_close': float(row[5]) if row[5] is not None else 0  # Convert to float
+                    }
+
+                # For any symbols not found in the first query, try looking them up by underlying
+                missing_symbols = [s for s in symbols if s not in result]
+                if missing_symbols:
+                    # Try looking up by underlying and exchange
+                    symbol_placeholders = ','.join(['%s'] * len(missing_symbols))
+                    query = f"""
+                        SELECT 
+                            tradingsymbol, 
+                            instrument_key, 
+                            exchange, 
+                            symbol as underlying, 
+                            lot_size, 
+                            prev_close as last_close
+                        FROM 
+                            instrument_keys 
+                        WHERE 
+                            symbol IN ({symbol_placeholders})
+                        AND
+                            exchange = 'NSE_EQ'
+                    """
+
+                    cur.execute(query, missing_symbols)
+                    rows = cur.fetchall()
+
+                    for row in rows:
+                        symbol = row[3]  # Use underlying as the key
+                        if symbol in missing_symbols:
+                            result[symbol] = {
+                                'instrument_key': row[1],
+                                'exchange': row[2],
+                                'symbol': symbol,
+                                'tradingsymbol': row[0],
+                                'lot_size': float(row[4]) if row[4] is not None else 1,  # Convert to float
+                                'last_close': float(row[5]) if row[5] is not None else 0  # Convert to float
+                            }
+
+            return result
+        except Exception as e:
+            print(f"Error in batch_get_instrument_keys: {e}")
+            return {}
+
     def get_options_orders(self):
         """Get all options orders"""
         try:
@@ -2360,6 +2451,22 @@ class DatabaseService:
             print(f"Error fetching option stock symbols: {str(e)}")
             return []
 
+    def get_all_symbols(self):
+        """Get all unique stock symbols that have options available"""
+        try:
+            with self._get_cursor() as cur:
+                cur.execute("""
+                    SELECT DISTINCT tradingsymbol 
+                    FROM instrument_keys 
+                    ORDER BY tradingsymbol
+                    """
+                            )
+                results = cur.fetchall()
+                return [row[0] for row in results]
+        except Exception as e:
+            print(f"Error fetching option stock symbols: {str(e)}")
+            return []
+
     def get_instrument_key_by_symbol_and_exchange(self, symbol, exchange):
         """Get instrument key by symbol and exchange."""
         try:
@@ -2370,7 +2477,8 @@ class DatabaseService:
                         symbol, 
                         exchange, 
                         tradingsymbol,
-                        prev_close as last_close
+                        prev_close as last_close,
+                        lot_size
                     FROM instrument_keys
                     WHERE symbol = %s AND exchange = %s
                     LIMIT 1
@@ -2382,11 +2490,42 @@ class DatabaseService:
                         'symbol': result[1],
                         'exchange': result[2],
                         'tradingsymbol': result[3],
-                        'last_close': float(result[4]) if result[4] else 0
+                        'last_close': float(result[4]) if result[4] else 0,
+                        'lot_size': int(result[5]) if result[5] else 1  # Default lot size to 1 if not available
                     }
                 return None
         except Exception as e:
             print(f"Error fetching instrument key: {str(e)}")
+            return None
+
+    def get_instrument_key_by_trading_symbol(self, tradingsymbol):
+        """Get instrument key by trading symbol."""
+        try:
+            with self._get_cursor() as cur:
+                cur.execute("""
+                    SELECT 
+                        instrument_key, 
+                        symbol, 
+                        exchange, 
+                        prev_close as last_close,
+                        lot_size
+                    FROM instrument_keys
+                    WHERE tradingsymbol = %s
+                    LIMIT 1
+                """, (tradingsymbol,))  # Fixed: The comma is needed to make this a tuple parameter
+                result = cur.fetchone()
+                if result:
+                    return {
+                        'instrument_key': result[0],
+                        'symbol': result[1],
+                        'exchange': result[2],
+                        'tradingsymbol': tradingsymbol,
+                        'last_close': float(result[3]) if result[3] else 0,
+                        'lot_size': int(result[4]) if result[4] else 1  # Default lot size to 1 if not available
+                    }
+                return None
+        except Exception as e:
+            print(f"Error fetching instrument key for trading symbol '{tradingsymbol}': {str(e)}")
             return None
 
     def get_instrument_key_by_key(self, instrument_key):
@@ -2564,4 +2703,6 @@ class DatabaseService:
         except Exception as e:
             print(f"Error saving upstox account: {str(e)}")
             return False
+
+
 
