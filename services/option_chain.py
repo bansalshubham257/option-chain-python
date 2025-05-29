@@ -1135,7 +1135,6 @@ class OptionChainService:
             print(f"Error in fetch_option_chain for {stock_symbol}: {str(e)}")
             return None
 
-
     def _process_option_chain_data(self, data, stock_symbol, expiry_date, lot_size, result):
         """Process option chain data and populate result."""
         try:
@@ -1211,20 +1210,10 @@ class OptionChainService:
                 has_large_bid = any(bid['quantity'] >= threshold for bid in top_bids)
                 has_large_ask = any(ask['quantity'] >= threshold for ask in top_asks)
 
-                if (has_large_bid or has_large_ask) and ltp > 2:
-                    result['options_orders'].append({
-                        'stock': stock_symbol,
-                        'strike_price': strike_price,
-                        'type': option_type,
-                        'ltp': ltp,
-                        'bid_qty': max((b['quantity'] for b in top_bids), default=0),
-                        'ask_qty': max((a['quantity'] for a in top_asks), default=0),
-                        'lot_size': lot_size,
-                        'timestamp': datetime.now(pytz.timezone('Asia/Kolkata'))
-                    })
-
                 # Extract option greeks if available
                 vega = theta = gamma = delta = iv = pop = 0.0
+                oi = quote_data.get('oi', 0)
+                volume = quote_data.get('volume', 0)
 
                 # Find the matching option in the original data to get Greeks
                 for option_data in data:
@@ -1242,6 +1231,26 @@ class OptionChainService:
                             iv = greeks.get('iv', 0)
                             pop = greeks.get('pop', 0)
                         break
+
+                if (has_large_bid or has_large_ask) and ltp > 2:
+                    result['options_orders'].append({
+                        'stock': stock_symbol,
+                        'strike_price': strike_price,
+                        'type': option_type,
+                        'ltp': ltp,
+                        'bid_qty': max((b['quantity'] for b in top_bids), default=0),
+                        'ask_qty': max((a['quantity'] for a in top_asks), default=0),
+                        'lot_size': lot_size,
+                        'timestamp': datetime.now(pytz.timezone('Asia/Kolkata')),
+                        'oi': oi,
+                        'volume': volume,
+                        'vega': vega,
+                        'theta': theta,
+                        'gamma': gamma,
+                        'delta': delta,
+                        'iv': iv,
+                        'pop': pop
+                    })
 
                 # Prepare OI data with option greeks data
                 result['oi_records'].append({
@@ -2045,6 +2054,3 @@ class OptionChainService:
                 expiries.append(date.strftime('%Y-%m-%d'))
 
         return expiries
-
-
-
