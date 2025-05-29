@@ -1,8 +1,8 @@
 import asyncio
 import json
 import ssl
-import websockets
 import requests
+import websockets
 import os
 from google.protobuf.json_format import MessageToDict
 from fastapi import FastAPI, Request, HTTPException
@@ -11,6 +11,7 @@ import threading
 import time
 import uvicorn
 from typing import List, Dict, Any, Optional
+import concurrent.futures
 
 from config import Config
 from services.database import DatabaseService
@@ -27,7 +28,9 @@ app.add_middleware(
         "https://aitradinglab.blogspot.com",
         "https://www.aitradinglab.in",
         "https://bansalshubham257.github.io",
-        "http://localhost:63342"
+        "http://localhost:63342",
+        "http://localhost:10000",  # Add localhost with port 10000
+        "*"  # Allow all origins for development
     ],
     allow_credentials=True,
     allow_methods=["*"],
@@ -38,24 +41,39 @@ app.add_middleware(
 market_data: Dict[str, Dict[str, Any]] = {}
 active_subscription: List[str] = []
 
+# Keep track of the current WebSocket connection
+current_websocket = None
+websocket_lock = asyncio.Lock()
+# Track active websocket connections by token
+active_websocket_connections = {}
+
 db_service = DatabaseService()
 
 def get_market_data_feed_authorize_v3():
     """Get authorization for market data feed."""
     # Fetch access token from the database with ID=4 instead of using Config
-    access_token = db_service.get_access_token(account_id=4)
-
-    # Fallback to Config if token not found in database
-    if not access_token:
-        access_token = Config.ACCESS_TOKEN
-        print("Warning: Using fallback access token from Config")
-
+    access_token = Config.ACCESS_TOKEN
     print(f"Using access token ending with ...{access_token[-4:]} from database (ID=4)")
+
+    # Check if a connection with this token already exists and needs to be closed
+    if access_token in active_websocket_connections:
+        print(f"Found existing websocket connection with token ending ...{access_token[-4:]}")
+        # The actual closing will be handled in close_existing_websocket function
 
     headers = {'Accept': 'application/json', 'Authorization': f'Bearer {access_token}'}
     url = 'https://api.upstox.com/v3/feed/market-data-feed/authorize'
     response = requests.get(url=url, headers=headers)
-    return response.json()
+
+    # Store token with response data for tracking
+    result = response.json()
+    if 'data' in result and 'authorized_redirect_uri' in result['data']:
+        active_websocket_connections[access_token] = {
+            'uri': result['data']['authorized_redirect_uri'],
+            'websocket': None,
+            'created_at': time.time()
+        }
+
+    return result, access_token
 
 def decode_protobuf(buffer):
     """Decode protobuf message."""
@@ -63,9 +81,74 @@ def decode_protobuf(buffer):
     feed_response.ParseFromString(buffer)
     return feed_response
 
+async def close_websocket_by_token(token):
+    """Close WebSocket connection associated with a specific token."""
+    if token in active_websocket_connections:
+        conn_info = active_websocket_connections[token]
+        websocket = conn_info.get('websocket')
+
+        if websocket is not None:
+            try:
+                print(f"Closing existing WebSocket for token ending ...{token[-4:]}")
+                await websocket.close(code=1000, reason="New connection requested")
+                # Wait for connection to fully close
+                await asyncio.sleep(1)
+                print(f"Successfully closed WebSocket for token ending ...{token[-4:]}")
+            except Exception as e:
+                print(f"Error closing WebSocket for token {token[-4:]}: {e}")
+            finally:
+                # Update connection info
+                active_websocket_connections[token]['websocket'] = None
+
+async def close_existing_websocket():
+    """Close any existing WebSocket connection."""
+    global current_websocket
+    
+    async with websocket_lock:
+        if current_websocket is not None:
+            try:
+                print("Closing existing WebSocket connection...")
+                await current_websocket.close()
+                # Wait a moment to ensure the connection is fully closed
+                await asyncio.sleep(1)
+                print("Existing WebSocket connection closed successfully")
+            except Exception as e:
+                print(f"Error closing existing WebSocket: {e}")
+            finally:
+                current_websocket = None
+
+async def check_and_close_stale_connections():
+    """Check for stale connections and close them."""
+    now = time.time()
+    tokens_to_check = list(active_websocket_connections.keys())
+
+    for token in tokens_to_check:
+        conn_info = active_websocket_connections[token]
+        websocket = conn_info.get('websocket')
+        created_at = conn_info.get('created_at', 0)
+
+        # If connection is older than 6 hours
+        if now - created_at > 21600:
+            await close_websocket_by_token(token)
+            # Clean up the dictionary to prevent memory leaks
+            del active_websocket_connections[token]
+            print(f"Removed stale connection for token ending ...{token[-4:]}")
+        # Check if websocket is closed using exception-safe method
+        elif websocket is not None:
+            try:
+                # For websockets library, we can send a ping to check if it's still open
+                # If the connection is closed, this will raise an exception
+                pong_waiter = await websocket.ping()
+                await asyncio.wait_for(pong_waiter, timeout=2.0)
+            except Exception:
+                # Connection is dead, clean it up
+                await close_websocket_by_token(token)
+                del active_websocket_connections[token]
+                print(f"Removed closed connection for token ending ...{token[-4:]}")
+
 async def websocket_worker():
     """Main WebSocket connection handler."""
-    global market_data, active_subscription
+    global market_data, active_subscription, current_websocket
 
     ssl_context = ssl.create_default_context()
     ssl_context.check_hostname = False
@@ -73,23 +156,63 @@ async def websocket_worker():
 
     while True:
         try:
-            auth = get_market_data_feed_authorize_v3()
+            # Check and close any stale connections
+            await check_and_close_stale_connections()
+
+            # Close any existing WebSocket connection before creating a new one
+            await close_existing_websocket()
+            
+            # Get authorization and token
+            auth, current_token = get_market_data_feed_authorize_v3()
+
+            # Close any existing websocket with this token
+            await close_websocket_by_token(current_token)
+
             uri = auth["data"]["authorized_redirect_uri"]
 
+            print(f"Connecting to WebSocket at {uri}")
+            
             async with websockets.connect(uri, ssl=ssl_context) as websocket:
-                print("WebSocket connected")
+                async with websocket_lock:
+                    current_websocket = websocket
+                    # Store in active connections
+                    if current_token in active_websocket_connections:
+                        active_websocket_connections[current_token]['websocket'] = websocket
+                        active_websocket_connections[current_token]['created_at'] = time.time()
+
+                print("WebSocket connected successfully")
+
+                # Send a ping to make sure the connection is working
+                try:
+                    await websocket.ping()
+                    print("WebSocket ping successful")
+                except Exception as e:
+                    print(f"WebSocket ping failed: {e}")
+                    raise
+
+                # Initialize a local subscription list to track what we've already subscribed to
+                local_subscribed = []
 
                 while True:
-                    if active_subscription:
-                        await websocket.send(json.dumps({
+                    # Only send subscription if there are new instruments in active_subscription
+                    subscription_to_send = [item for item in active_subscription if item not in local_subscribed]
+                    
+                    if subscription_to_send:
+                        print(f"New subscription requested: {subscription_to_send}")
+                        subscription_data = {
                             "guid": str(time.time()),
                             "method": "sub",
                             "data": {
                                 "mode": "full",
-                                "instrumentKeys": active_subscription
+                                "instrumentKeys": subscription_to_send
                             }
-                        }).encode('utf-8'))
-                        active_subscription = []
+                        }
+                        print(f"Sending subscription request for {len(subscription_to_send)} instruments...")
+                        await websocket.send(json.dumps(subscription_data).encode('utf-8'))
+                        
+                        # Add these instruments to our local tracking
+                        local_subscribed.extend(subscription_to_send)
+                        print(f"Total subscribed instruments: {len(local_subscribed)}")
 
                     try:
                         message = await asyncio.wait_for(websocket.recv(), timeout=5)
@@ -127,10 +250,23 @@ async def websocket_worker():
                                 "askQ": askQ
                             }
                     except asyncio.TimeoutError:
-                        pass
+                        # Send a heartbeat to keep the connection alive
+                        try:
+                            await websocket.ping()
+                        except Exception as e:
+                            print(f"Heartbeat ping failed: {e}")
+                            raise  # Re-raise to trigger reconnection
+                    except Exception as e:
+                        print(f"WebSocket connection error: {e}")
+                        raise  # Re-raise to trigger reconnection
 
         except Exception as e:
             print(f"Connection error: {e}, reconnecting in 5 seconds...")
+            
+            # Make sure to clean up the current websocket reference
+            async with websocket_lock:
+                current_websocket = None
+                
             await asyncio.sleep(5)
 
 @app.get("/api/market_data")
@@ -142,9 +278,13 @@ async def get_market_data(request: Request):
     if not requested_keys:
         raise HTTPException(status_code=400, detail="No keys specified")
 
-    active_subscription = requested_keys
+    # Add new instruments to the active_subscription list
+    new_instruments = [key for key in requested_keys if key not in active_subscription]
+    if new_instruments:
+        active_subscription.extend(new_instruments)
+        print(f"Added {len(new_instruments)} new instruments to subscription: {new_instruments}")
 
-    timeout = 10
+    timeout = 30
     start_time = time.time()
     while time.time() - start_time < timeout:
         if all(key in market_data for key in requested_keys):
@@ -169,7 +309,7 @@ async def get_live_indices():
 
     active_subscription = list(static_indices.values())
 
-    timeout = 10
+    timeout = 30
     start_time = time.time()
     while time.time() - start_time < timeout:
         if all(key in market_data for key in active_subscription):
@@ -217,7 +357,7 @@ async def get_latest_price(instrument_key: str):
     active_subscription = [instrument_key]
 
     # Wait for the WebSocket to process the subscription and fetch data
-    timeout = 10  # Maximum wait time in seconds
+    timeout = 30  # Maximum wait time in seconds
     start_time = time.time()
     while time.time() - start_time < timeout:
         # Check if data for the requested key is available
@@ -263,7 +403,7 @@ async def fetch_latest_option_price(symbol: str, expiry: str, strike: str, optio
         active_subscription = [instrument_key]
 
         # Wait for the WebSocket to process the subscription and fetch data
-        timeout = 10  # Maximum wait time in seconds
+        timeout = 30  # Maximum wait time in seconds
         start_time = time.time()
         while time.time() - start_time < timeout:
             # Check if data for the requested key is available
@@ -312,7 +452,7 @@ async def fetch_live_oi_volume(symbol: str, expiry: str, strike: str, optionType
         active_subscription = [instrument_key]
 
         # Wait for the WebSocket to process the subscription and fetch data
-        timeout = 10  # Maximum wait time in seconds
+        timeout = 30  # Maximum wait time in seconds
         start_time = time.time()
         while time.time() - start_time < timeout:
             # Check if data for the requested key is available
@@ -353,6 +493,30 @@ async def get_instrument_key(symbol: str, exchange: str):
             'instrument_key': instrument['instrument_key'],
             'exchange': instrument['exchange'],
             'tradingsymbol': instrument['tradingsymbol']
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@app.get('/api/trading_instruments')
+async def get_trading_instruments_key(symbol: str):
+    """Fetch the instrument key for a specific symbol and exchange."""
+    if not symbol:
+        raise HTTPException(status_code=400, detail="Symbol parameter is required")
+
+    try:
+        instrument = db_service.get_instrument_key_by_trading_symbol(symbol)
+
+        if not instrument:
+            raise HTTPException(status_code=404,
+                                detail=f"No instrument key found for symbol: {symbol} ")
+
+        return {
+            'symbol': instrument['symbol'],
+            'instrument_key': instrument['instrument_key'],
+            'exchange': instrument['exchange'],
+            'tradingsymbol': instrument['tradingsymbol'],
+            'last_close': instrument.get('last_close', 0),
+            'lot_size': instrument.get('lot_size', 1)  # Add lot_size to the response
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -406,7 +570,7 @@ async def fetch_multiple_oi_volume(instrument_keys: str):
     active_subscription = instrument_keys_list
 
     # Wait for the WebSocket to process the subscription and fetch data
-    timeout = 10  # Maximum wait time in seconds
+    timeout = 30  # Maximum wait time in seconds
     start_time = time.time()
     while time.time() - start_time < timeout:
         # Check if data for all requested keys is available
@@ -430,17 +594,334 @@ async def fetch_multiple_oi_volume(instrument_keys: str):
 async def get_stocks():
     """Fetch all available stock symbols for which options are available."""
     try:
-        stocks = db_service.get_option_stock_symbols()
+        stocks = db_service.get_all_symbols()
         if not stocks:
             raise HTTPException(status_code=404, detail="No stocks found with option instruments")
         return stocks
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
+@app.get("/api/watchlist_data")
+async def get_watchlist_data(symbols: str):
+    """Fetch live price data for watchlist symbols."""
+    global active_subscription
+
+    if not symbols:
+        raise HTTPException(status_code=400, detail="No symbols specified")
+
+    symbol_list = symbols.split(',')
+
+    # Limit the number of symbols that can be processed in a single request
+    if len(symbol_list) > 50:
+        raise HTTPException(status_code=400, detail="Too many symbols requested. Maximum is 50 per request.")
+
+    print(f"Processing watchlist data request for {len(symbol_list)} symbols")
+
+    # Use concurrent processing for fetching instrument keys
+    instrument_keys = []
+    instrument_details = {}
+
+    # Define a function to fetch a single instrument key
+    def fetch_instrument_key(symbol):
+        try:
+            # Try with trading symbol first
+            instrument = db_service.get_instrument_key_by_trading_symbol(symbol)
+
+            if instrument:
+                return {
+                    'symbol': symbol,
+                    'found': True,
+                    'instrument_key': instrument['instrument_key'],
+                    'lot_size': instrument.get('lot_size', 1),
+                    'last_close': instrument.get('last_close', 0)
+                }
+            else:
+                # If not found by trading symbol, try by symbol and exchange
+                instrument = db_service.get_instrument_key_by_symbol_and_exchange(symbol, "NSE_EQ")
+                if instrument:
+                    return {
+                        'symbol': symbol,
+                        'found': True,
+                        'instrument_key': instrument['instrument_key'],
+                        'lot_size': instrument.get('lot_size', 1),
+                        'last_close': instrument.get('last_close', 0)
+                    }
+
+                return {
+                    'symbol': symbol,
+                    'found': False
+                }
+        except Exception as e:
+            print(f"Error getting instrument key for {symbol}: {e}")
+            return {
+                'symbol': symbol,
+                'found': False,
+                'error': str(e)
+            }
+
+    # Use batch lookup if available in db_service
+    try:
+        # First try batch lookup
+        batch_results = db_service.batch_get_instrument_keys(symbol_list)
+        if batch_results:
+            print(f"Successfully used batch lookup for {len(batch_results)} symbols")
+
+            for symbol, data in batch_results.items():
+                if data and 'instrument_key' in data:
+                    instrument_keys.append(data['instrument_key'])
+                    instrument_details[symbol] = {
+                        'instrument_key': data['instrument_key'],
+                        'lot_size': data.get('lot_size', 1),
+                        'last_close': float(data.get('last_close', 0))  # Convert Decimal to float
+                    }
+        else:
+            # Fall back to concurrent processing if batch lookup is not implemented
+            with concurrent.futures.ThreadPoolExecutor(max_workers=min(10, len(symbol_list))) as executor:
+                results = list(executor.map(fetch_instrument_key, symbol_list))
+
+                for result in results:
+                    if result['found']:
+                        symbol = result['symbol']
+                        instrument_keys.append(result['instrument_key'])
+                        instrument_details[symbol] = {
+                            'instrument_key': result['instrument_key'],
+                            'lot_size': result.get('lot_size', 1),
+                            'last_close': float(result.get('last_close', 0))  # Convert Decimal to float
+                        }
+    except AttributeError:
+        # If batch_get_instrument_keys is not implemented, use concurrent processing
+        with concurrent.futures.ThreadPoolExecutor(max_workers=min(10, len(symbol_list))) as executor:
+            results = list(executor.map(fetch_instrument_key, symbol_list))
+
+            for result in results:
+                if result['found']:
+                    symbol = result['symbol']
+                    instrument_keys.append(result['instrument_key'])
+                    instrument_details[symbol] = {
+                        'instrument_key': result['instrument_key'],
+                        'lot_size': result.get('lot_size', 1),
+                        'last_close': float(result.get('last_close', 0))  # Convert Decimal to float
+                    }
+
+    # If we don't have any valid instrument keys, return empty result
+    if not instrument_keys:
+        return {}
+
+    # Update the active subscription with all the instrument keys
+    active_subscription = instrument_keys
+    print(f"Updating active subscription with {len(instrument_keys)} instrument keys")
+
+    # Wait for data to be fetched - use a more efficient approach
+    timeout = 25  # 25 seconds timeout
+    start_time = time.time()
+
+    # Check more frequently at the beginning, then back off
+    check_intervals = [0.05, 0.1, 0.2, 0.5, 1.0, 2.0]
+    check_index = 0
+    min_wait_time = 0.05
+
+    while time.time() - start_time < timeout:
+        # Count how many instruments we have data for
+        available_count = sum(1 for key in instrument_keys if key in market_data)
+
+        # If we have data for all instruments or at least 75% of them after 5 seconds, return what we have
+        elapsed = time.time() - start_time
+        if available_count == len(instrument_keys) or (elapsed > 5 and available_count >= len(instrument_keys) * 0.75):
+            break
+
+        # Use adaptive wait times that increase over time
+        check_index = min(check_index, len(check_intervals) - 1)
+        wait_time = check_intervals[check_index]
+        check_index += 1
+
+        # Don't wait less than min_wait_time
+        await asyncio.sleep(max(min_wait_time, wait_time))
+
+    # Prepare the result data - use dictionary comprehension for efficiency
+    result = {}
+    for symbol in symbol_list:
+        details = instrument_details.get(symbol)
+        if not details:
+            continue
+
+        instrument_key = details['instrument_key']
+        lot_size = details['lot_size']
+        last_close = details['last_close']  # This is now a float
+
+        if instrument_key and instrument_key in market_data:
+            data = market_data.get(instrument_key, {})
+
+            # Calculate price_change and percent_change
+            ltp = data.get("ltp", 0) or 0
+            price_change = ltp - last_close  # No more type error
+            percent_change = (price_change / last_close * 100) if last_close != 0 else 0
+
+            result[symbol] = {
+                "ltp": ltp,
+                "last_close": last_close,
+                "price_change": price_change,
+                "percent_change": percent_change,
+                "volume": data.get("volume", 0),
+                "timestamp": time.time(),
+                "lot_size": lot_size  # Include lot_size in the response
+            }
+
+    # Print performance stats
+    processing_time = time.time() - start_time
+    found_count = sum(1 for sym_data in result.values() if sym_data.get("ltp", 0) > 0)
+    print(f"Processed watchlist data: {found_count}/{len(symbol_list)} symbols in {processing_time:.2f}s")
+
+    return result
+
+@app.get("/api/batch_trading_instruments")
+async def get_batch_trading_instruments(symbols: str):
+    """Fetch instrument keys for multiple trading symbols in a single request."""
+    if not symbols:
+        raise HTTPException(status_code=400, detail="Symbols parameter is required")
+
+    symbols_list = symbols.split(',')
+    print(f"Processing batch request for {len(symbols_list)} symbols: {symbols}")
+
+    result = {}
+    not_found = []
+
+    try:
+        # Use a more efficient batch query if available in your database service
+        for symbol in symbols_list:
+            instrument = db_service.get_instrument_key_by_trading_symbol(symbol)
+            if instrument:
+                result[symbol] = {
+                    'symbol': instrument['symbol'],
+                    'instrument_key': instrument['instrument_key'],
+                    'exchange': instrument['exchange'],
+                    'tradingsymbol': instrument['tradingsymbol'],
+                    'last_close': instrument.get('last_close', 0),
+                    'lot_size': instrument.get('lot_size', 1)
+                }
+            else:
+                not_found.append(symbol)
+
+        return {
+            "success": True,
+            "found": result,
+            "not_found": not_found
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error fetching batch instrument data: {str(e)}")
+
+# API endpoint to manually close and restart the WebSocket connection
+@app.post("/api/restart_websocket")
+async def restart_websocket():
+    """Manually close and restart the WebSocket connection."""
+    try:
+        await close_existing_websocket()
+        return {"message": "WebSocket connection closed and will be restarted automatically"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error restarting WebSocket: {str(e)}")
+
+@app.post("/api/restart_all_websockets")
+async def restart_all_websockets():
+    """Manually close all WebSocket connections and restart."""
+    try:
+        # Get all tokens
+        tokens = list(active_websocket_connections.keys())
+
+        # Close each connection
+        for token in tokens:
+            await close_websocket_by_token(token)
+
+        # Also close the current websocket
+        await close_existing_websocket()
+
+        return {"message": f"Closed {len(tokens)} WebSocket connections. New connections will be established automatically."}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error restarting WebSockets: {str(e)}")
+
+def close_all_websockets_sync():
+    """Synchronous function to close all WebSocket connections at startup."""
+    print("Closing all existing WebSocket connections at startup...")
+    
+    try:
+        # Get all tokens with active connections
+        tokens = list(active_websocket_connections.keys())
+
+        # Create an event loop if needed (for the main thread)
+        try:
+            loop = asyncio.get_event_loop()
+        except RuntimeError:
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+
+        # Close each connection
+        for token in tokens:
+            conn_info = active_websocket_connections.get(token, {})
+            websocket = conn_info.get('websocket')
+
+            if websocket is not None:
+                try:
+                    print(f"Closing existing WebSocket for token ending ...{token[-4:]}")
+                    # Use run_until_complete to run the coroutine synchronously
+                    loop.run_until_complete(websocket.close(code=1000, reason="Application startup"))
+                    print(f"Successfully closed WebSocket for token ending ...{token[-4:]}")
+                except Exception as e:
+                    print(f"Error closing WebSocket for token {token[-4:]}: {e}")
+                finally:
+                    # Update connection info
+                    active_websocket_connections[token]['websocket'] = None
+
+        # Also close the current websocket if it exists
+        global current_websocket
+        if current_websocket is not None:
+            try:
+                print("Closing current WebSocket connection...")
+                loop.run_until_complete(current_websocket.close())
+                print("Current WebSocket connection closed successfully")
+            except Exception as e:
+                print(f"Error closing current WebSocket: {e}")
+            finally:
+                current_websocket = None
+
+        # Reset the active_websocket_connections dictionary
+        active_websocket_connections.clear()
+
+        # Find and kill any orphaned WebSocket connections using socket module
+        try:
+            import socket
+            import psutil
+
+            # Get all connections for this process
+            proc = psutil.Process()
+            for conn in proc.connections():
+                if conn.status == 'ESTABLISHED' and 'upstox.com' in str(conn.raddr):
+                    try:
+                        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                        sock.connect((conn.raddr.ip, conn.raddr.port))
+                        sock.close()
+                        print(f"Closed orphaned WebSocket connection to {conn.raddr}")
+                    except Exception as e:
+                        print(f"Error closing orphaned connection: {e}")
+        except ImportError:
+            print("psutil module not available, skipping orphaned connection cleanup")
+        except Exception as e:
+            print(f"Error checking for orphaned connections: {e}")
+
+        print("All existing WebSocket connections closed")
+    except Exception as e:
+        print(f"Error in close_all_websockets_sync: {e}")
+        import traceback
+        traceback.print_exc()
+
 def run_websocket():
     asyncio.run(websocket_worker())
 
 def start_services():
+    # First, close any existing WebSocket connections
+    close_all_websockets_sync()
+    
+    # Print debug information at startup
+    print("Starting worker with empty active_subscription list")
+    print(f"Active subscription state: {active_subscription}")
+    
     # Start WebSocket in a separate thread
     threading.Thread(target=run_websocket, daemon=True).start()
 
@@ -448,4 +929,10 @@ def start_services():
     uvicorn.run(app, host="0.0.0.0", port=int(os.getenv('PORT', 8000)))
 
 if __name__ == '__main__':
+    # First close all existing WebSocket connections before starting any services
+    close_all_websockets_sync()
+    
+    # Ensure active_subscription is empty at startup
+    active_subscription = []
+    
     start_services()
