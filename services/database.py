@@ -446,14 +446,17 @@ class DatabaseService:
         with self._get_cursor() as cur:
             data = [(order['stock'], order['strike_price'], order['type'],
                      order['ltp'], order['bid_qty'], order['ask_qty'],
-                     order['lot_size'], order['timestamp']) for order in orders]
+                     order['lot_size'], order['timestamp'], order['oi'], order['volume'],
+                     order['vega'], order['theta'], order['gamma'], order['delta'],
+                     order['iv'], order['pop'] ) for order in orders]
 
             execute_batch(cur, """
                 INSERT INTO options_orders 
-                (symbol, strike_price, option_type, ltp, bid_qty, ask_qty, lot_size, timestamp)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                (symbol, strike_price, option_type, ltp, bid_qty, ask_qty, lot_size, timestamp, oi, volume, vega, theta, gamma, delta, iv, pop)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 ON CONFLICT (symbol, strike_price, option_type) DO NOTHING
             """, data, page_size=100)
+
 
     def save_futures_data(self, symbol, orders):
         """Bulk insert futures orders"""
