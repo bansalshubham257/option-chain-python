@@ -696,3 +696,8 @@ ALTER COLUMN timestamp TYPE TIMESTAMPTZ;
 ALTER TABLE futures_orders
 ALTER COLUMN timestamp TYPE TIMESTAMPTZ;
 
+ALTER TABLE options_orders ADD COLUMN IF NOT EXISTS status VARCHAR(20) DEFAULT 'Open';
+
+-- Update any existing rows without status to 'Open'
+UPDATE options_orders SET status = 'Open' WHERE status IS NULL;
+
