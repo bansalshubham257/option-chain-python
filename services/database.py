@@ -338,13 +338,18 @@ class DatabaseService:
             return {}
 
     def get_options_orders(self):
-        """Get all options orders"""
+        """Get all options orders from today only"""
         try:
             with self._get_cursor() as cur:
+                # Convert current datetime to UTC for comparison with database timestamps
+                today_utc = datetime.now(pytz.UTC).date()
+
                 cur.execute("""
                     SELECT symbol, strike_price, option_type, ltp, bid_qty, ask_qty, lot_size, timestamp
                     FROM options_orders
-                """)
+                    WHERE DATE(timestamp AT TIME ZONE 'UTC') = %s
+                """, (today_utc,))
+
                 results = cur.fetchall()
                 return [{
                     'stock': r[0], 'strike_price': r[1], 'type': r[2],
@@ -353,6 +358,110 @@ class DatabaseService:
                 } for r in results]
         except Exception as e:
             print(f"Error fetching options orders: {str(e)}")
+            return []
+
+    def get_full_options_orders(self):
+        """Get all options orders with instrument keys"""
+        try:
+            with self._get_cursor() as cur:
+                cur.execute("""
+                    WITH nearest_expiry AS (
+                        SELECT 
+                            symbol,
+                            MIN(expiry_date) as nearest_expiry
+                        FROM instrument_keys
+                        WHERE symbol IN ('NIFTY', 'SENSEX')
+                          AND expiry_date >= CURRENT_DATE
+                          AND option_type IN ('CE', 'PE')
+                        GROUP BY symbol
+                    )
+                    SELECT 
+                        o.symbol, 
+                        o.strike_price, 
+                        o.option_type, 
+                        o.ltp, 
+                        o.bid_qty, 
+                        o.ask_qty, 
+                        o.lot_size, 
+                        o.timestamp,
+                        i.instrument_key,
+                        o.oi,
+                        o.volume,
+                        o.vega,
+                        o.theta,
+                        o.gamma,
+                        o.delta,
+                        o.iv,
+                        o.pop,
+                        o.status
+                    FROM options_orders o
+                    LEFT JOIN instrument_keys i ON 
+                        o.symbol = i.symbol AND 
+                        o.strike_price = i.strike_price AND 
+                        o.option_type = i.option_type
+                    WHERE (o.symbol NOT IN ('NIFTY', 'SENSEX')) OR
+                          (o.symbol IN ('NIFTY', 'SENSEX') AND 
+                           i.expiry_date IN (SELECT nearest_expiry FROM nearest_expiry WHERE nearest_expiry.symbol = o.symbol))
+                """)
+                results = cur.fetchall()
+                return [{
+                    'symbol': r[0],
+                    'strike_price': r[1],
+                    'option_type': r[2],
+                    'ltp': r[3],
+                    'bid_qty': r[4],
+                    'ask_qty': r[5],
+                    'lot_size': r[6],
+                    'timestamp': r[7].isoformat(),
+                    'instrument_key': r[8],
+                    'oi': r[9],
+                    'volume': r[10],
+                    'vega': r[11],
+                    'theta': r[12],
+                    'gamma': r[13],
+                    'delta': r[14],
+                    'iv': r[15],
+                    'pop': r[16],
+                    'status': r[17] if r[17] else 'Open'  # Default to 'Open' if NULL
+                } for r in results]
+        except Exception as e:
+            print(f"Error fetching options orders: {str(e)}")
+            return []
+
+    def save_options_data(self, symbol, orders):
+        """Bulk insert options orders"""
+        if not orders:
+            return
+
+        with self._get_cursor() as cur:
+            data = [(order['stock'], order['strike_price'], order['type'],
+                     order['ltp'], order['bid_qty'], order['ask_qty'],
+                     order['lot_size'], order['timestamp'], order['oi'], order['volume'],
+                     order['vega'], order['theta'], order['gamma'], order['delta'],
+                     order['iv'], order['pop'], 'Open') for order in orders]  # Set initial status to 'Open'
+
+            execute_batch(cur, """
+                INSERT INTO options_orders 
+                (symbol, strike_price, option_type, ltp, bid_qty, ask_qty, lot_size, timestamp, 
+                 oi, volume, vega, theta, gamma, delta, iv, pop, status)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                ON CONFLICT (symbol, strike_price, option_type) DO NOTHING
+            """, data, page_size=100)
+
+    def update_options_orders_status(self, orders_to_update):
+        """Update status for options orders"""
+        if not orders_to_update:
+            return
+
+        with self._get_cursor() as cur:
+            data = [(order['new_status'], order['symbol'], order['strike_price'], order['option_type'])
+                    for order in orders_to_update]
+
+            execute_batch(cur, """
+                UPDATE options_orders
+                SET status = %s
+                WHERE symbol = %s AND strike_price = %s AND option_type = %s
+            """, data, page_size=100)
 
     def get_futures_orders(self):
         """Get all futures orders"""
@@ -437,25 +546,6 @@ class DatabaseService:
                 "strikes": strikes,
                 "data": option_data
             }
-
-    def save_options_data(self, symbol, orders):
-        """Bulk insert options orders"""
-        if not orders:
-            return
-
-        with self._get_cursor() as cur:
-            data = [(order['stock'], order['strike_price'], order['type'],
-                     order['ltp'], order['bid_qty'], order['ask_qty'],
-                     order['lot_size'], order['timestamp'], order['oi'], order['volume'],
-                     order['vega'], order['theta'], order['gamma'], order['delta'],
-                     order['iv'], order['pop'] ) for order in orders]
-
-            execute_batch(cur, """
-                INSERT INTO options_orders 
-                (symbol, strike_price, option_type, ltp, bid_qty, ask_qty, lot_size, timestamp, oi, volume, vega, theta, gamma, delta, iv, pop)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-                ON CONFLICT (symbol, strike_price, option_type) DO NOTHING
-            """, data, page_size=100)
 
 
     def save_futures_data(self, symbol, orders):
@@ -594,6 +684,7 @@ class DatabaseService:
         print("inside clear_old_data")
         with self._get_cursor() as cur:
             print("cur", cur)
+            cur.execute("DELETE FROM futures_orders")
             cur.execute("DELETE FROM oi_volume_history")
             cur.execute("DELETE FROM buildup_results")
             cur.execute("DELETE FROM fno_analytics")
@@ -2643,59 +2734,6 @@ class DatabaseService:
             print(f"Error updating upstox token: {str(e)}")
             return False
 
-    def get_full_options_orders(self):
-        """Get all options orders with instrument keys"""
-        try:
-            with self._get_cursor() as cur:
-                cur.execute("""
-                    SELECT 
-                        o.symbol, 
-                        o.strike_price, 
-                        o.option_type, 
-                        o.ltp, 
-                        o.bid_qty, 
-                        o.ask_qty, 
-                        o.lot_size, 
-                        o.timestamp,
-                        i.instrument_key,
-                        o.oi,
-                        o.volume,
-                        o.vega,
-                        o.theta,
-                        o.gamma,
-                        o.delta,
-                        o.iv,
-                        o.pop
-                    FROM options_orders o
-                    LEFT JOIN instrument_keys i ON 
-                        o.symbol = i.symbol AND 
-                        o.strike_price = i.strike_price AND 
-                        o.option_type = i.option_type
-                """)
-                results = cur.fetchall()
-                return [{
-                    'symbol': r[0],
-                    'strike_price': r[1],
-                    'option_type': r[2],
-                    'ltp': r[3],
-                    'bid_qty': r[4],
-                    'ask_qty': r[5],
-                    'lot_size': r[6],
-                    'timestamp': r[7].isoformat(),
-                    'instrument_key': r[8],
-                    'oi': r[9],
-                    'volume': r[10],
-                    'vega': r[11],
-                    'theta': r[12],
-                    'gamma': r[13],
-                    'delta': r[14],
-                    'iv': r[15],
-                    'pop': r[16]
-                } for r in results]
-        except Exception as e:
-            print(f"Error fetching options orders: {str(e)}")
-            return []
-            
     def save_upstox_account(self, account_data):
         """Save a new upstox account or update an existing one"""
         try:
@@ -2758,5 +2796,5 @@ class DatabaseService:
             print(f"Error saving upstox account: {str(e)}")
             return False
 
-    
+
 
