@@ -1,6 +1,8 @@
 import asyncio
 import json
 import ssl
+from datetime import datetime
+
 import requests
 import websockets
 import os
@@ -103,7 +105,7 @@ async def close_websocket_by_token(token):
 async def close_existing_websocket():
     """Close any existing WebSocket connection."""
     global current_websocket
-    
+
     async with websocket_lock:
         if current_websocket is not None:
             try:
@@ -161,7 +163,7 @@ async def websocket_worker():
 
             # Close any existing WebSocket connection before creating a new one
             await close_existing_websocket()
-            
+
             # Get authorization and token
             auth, current_token = get_market_data_feed_authorize_v3()
 
@@ -171,7 +173,7 @@ async def websocket_worker():
             uri = auth["data"]["authorized_redirect_uri"]
 
             print(f"Connecting to WebSocket at {uri}")
-            
+
             async with websockets.connect(uri, ssl=ssl_context) as websocket:
                 async with websocket_lock:
                     current_websocket = websocket
@@ -196,7 +198,7 @@ async def websocket_worker():
                 while True:
                     # Only send subscription if there are new instruments in active_subscription
                     subscription_to_send = [item for item in active_subscription if item not in local_subscribed]
-                    
+
                     if subscription_to_send:
                         print(f"New subscription requested: {subscription_to_send}")
                         subscription_data = {
@@ -209,7 +211,7 @@ async def websocket_worker():
                         }
                         print(f"Sending subscription request for {len(subscription_to_send)} instruments...")
                         await websocket.send(json.dumps(subscription_data).encode('utf-8'))
-                        
+
                         # Add these instruments to our local tracking
                         local_subscribed.extend(subscription_to_send)
                         print(f"Total subscribed instruments: {len(local_subscribed)}")
@@ -262,11 +264,11 @@ async def websocket_worker():
 
         except Exception as e:
             print(f"Connection error: {e}, reconnecting in 5 seconds...")
-            
+
             # Make sure to clean up the current websocket reference
             async with websocket_lock:
                 current_websocket = None
-                
+
             await asyncio.sleep(5)
 
 @app.get("/api/market_data")
@@ -485,8 +487,8 @@ async def get_instrument_key(symbol: str, exchange: str):
         # Fetch the instrument key for the given symbol and exchange from the database
         instrument = db_service.get_instrument_key_by_symbol_and_exchange(symbol, exchange)
         if not instrument:
-            raise HTTPException(status_code=404, 
-                              detail=f"No instrument key found for symbol: {symbol} and exchange: {exchange}")
+            raise HTTPException(status_code=404,
+                                detail=f"No instrument key found for symbol: {symbol} and exchange: {exchange}")
 
         return {
             'symbol': instrument['symbol'],
@@ -837,10 +839,178 @@ async def restart_all_websockets():
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error restarting WebSockets: {str(e)}")
 
+
+@app.get("/api/options-orders-analysis")
+async def get_options_orders_analysis():
+    """Fetch options orders with live market data."""
+    try:
+        # First get all options orders from the database
+        options_orders = db_service.get_full_options_orders()
+        if not options_orders:
+            return {"data": []}
+
+        # Get all instrument keys from the options orders
+        instrument_keys = [order['instrument_key'] for order in options_orders if order.get('instrument_key')]
+
+        # If we have instrument keys, fetch live market data for them
+        if instrument_keys:
+            # Update the active subscription
+            global active_subscription
+            active_subscription = instrument_keys
+
+            # Wait for data to be available (with timeout)
+            timeout = 30  # seconds
+            start_time = time.time()
+
+            while time.time() - start_time < timeout:
+                # Check if we have data for all requested keys
+                if all(key in market_data for key in instrument_keys):
+                    break
+                await asyncio.sleep(0.5)
+
+        # Prepare the response by combining database and live data
+        response_data = []
+        orders_to_update = []  # Track orders that need status update
+
+        for order in options_orders:
+            instrument_key = order.get('instrument_key')
+            live_data = market_data.get(instrument_key, {}) if instrument_key else {}
+
+            # Calculate days captured from timestamp
+            days_captured = 'N/A'
+            if order.get('timestamp'):
+                try:
+                    # Parse the timestamp as UTC
+                    capture_date = datetime.fromisoformat(order['timestamp'].replace('Z', '+00:00'))
+
+                    # Make sure current_date is also timezone-aware (UTC)
+                    current_date = datetime.now(capture_date.tzinfo)
+
+                    # Now both dates have timezone info, we can safely subtract
+                    days_captured = (current_date - capture_date).days
+                except Exception as e:
+                    print(f"Error calculating days captured: {e}")
+
+            # Explicitly convert values to float to avoid decimal.Decimal vs float issues
+            try:
+                stored_ltp = float(order.get('ltp', 0) or 0)
+                current_ltp = float(live_data.get('ltp', stored_ltp) or stored_ltp)
+                
+                percent_change = 0
+                if stored_ltp and stored_ltp != 0:
+                    percent_change = ((current_ltp - stored_ltp) / stored_ltp) * 100
+            except (TypeError, ValueError) as e:
+                print(f"Error calculating percent change: {e}, stored_ltp={order.get('ltp')}, current_ltp={live_data.get('ltp')}")
+                stored_ltp = 0
+                current_ltp = 0
+                percent_change = 0
+
+            # Get live OI and volume from market data
+            live_oi = float(live_data.get('oi', 0) or 0)
+            live_volume = float(live_data.get('volume', 0) or 0)
+            
+            # Get original OI and volume
+            original_oi = float(order.get('oi', 0) or 0)
+            original_volume = float(order.get('volume', 0) or 0)
+            
+            # Calculate OI and volume changes
+            oi_change = ((live_oi - original_oi) / original_oi * 100) if original_oi != 0 else 0
+            volume_change = ((live_volume - original_volume) / original_volume * 100) if original_volume != 0 else 0
+
+            # Get current and original greek values
+            original_iv = float(order.get('iv', 0) or 0)
+            original_delta = float(order.get('delta', 0) or 0)
+            original_gamma = float(order.get('gamma', 0) or 0)
+            original_theta = float(order.get('theta', 0) or 0)
+            original_vega = float(order.get('vega', 0) or 0)
+
+            # Get current greek values - these would typically come from a live options pricing API
+            # For now, we'll use the stored values
+            current_iv = float(order.get('current_iv', original_iv) or original_iv)
+            current_delta = float(order.get('current_delta', original_delta) or original_delta)
+            current_gamma = float(order.get('current_gamma', original_gamma) or original_gamma)
+            current_theta = float(order.get('current_theta', original_theta) or original_theta)
+            current_vega = float(order.get('current_vega', original_vega) or original_vega)
+
+            # Calculate greek changes
+            iv_change = ((current_iv - original_iv) / original_iv * 100) if original_iv != 0 else 0
+            delta_change = ((current_delta - original_delta) / original_delta * 100) if original_delta != 0 else 0
+            gamma_change = ((current_gamma - original_gamma) / original_gamma * 100) if original_gamma != 0 else 0
+            theta_change = ((current_theta - original_theta) / original_theta * 100) if original_theta != 0 else 0
+            vega_change = ((current_vega - original_vega) / original_vega * 100) if original_vega != 0 else 0
+
+            # Check if status should be "Done" (> 100% change)
+            current_status = order.get('status', 'Open')
+            if abs(percent_change) > 100 and current_status != 'Done':
+                # Mark for update in database
+                orders_to_update.append({
+                    'symbol': order['symbol'],
+                    'strike_price': order['strike_price'],
+                    'option_type': order['option_type'],
+                    'new_status': 'Done'
+                })
+                current_status = 'Done'  # Update for response
+
+            # Safely convert all values to appropriate types
+            response_data.append({
+                'symbol': order['symbol'],
+                'strike_price': float(order['strike_price']),
+                'option_type': order['option_type'],
+                'stored_ltp': stored_ltp,
+                'current_ltp': current_ltp,
+                'percent_change': percent_change,
+                'status': current_status,  # Use the current status (could be "Done" now)
+                'daysCaptured': days_captured,  # Added days captured
+                'oi': live_oi,  # Use live OI
+                'original_oi': original_oi,  # Original OI
+                'oi_change': oi_change,  # OI change percentage
+                'volume': live_volume,  # Use live volume
+                'original_volume': original_volume,  # Original volume
+                'volume_change': volume_change,  # Volume change percentage
+                'iv': current_iv,
+                'original_iv': original_iv,
+                'iv_change': iv_change,
+                'delta': current_delta,
+                'original_delta': original_delta,
+                'delta_change': delta_change,
+                'gamma': current_gamma,
+                'original_gamma': original_gamma,
+                'gamma_change': gamma_change,
+                'theta': current_theta,
+                'original_theta': original_theta,
+                'theta_change': theta_change,
+                'vega': current_vega,
+                'original_vega': original_vega,
+                'vega_change': vega_change,
+                'pop': float(order.get('pop', 0) or 0),
+                'bidQ': float(live_data.get('bidQ', 0) or 0),
+                'askQ': float(live_data.get('askQ', 0) or 0),
+                'instrument_key': instrument_key,
+                'timestamp': order.get('timestamp', '')
+            })
+
+        # Update status in database for orders that need it
+        if orders_to_update:
+            # Call database service to update statuses
+            db_service.update_options_orders_status(orders_to_update)
+            print(f"Updated status to 'Done' for {len(orders_to_update)} orders")
+
+        return {
+            "success": True,
+            "data": response_data,
+            "timestamp": datetime.now().isoformat()
+        }
+
+    except Exception as e:
+        print(f"Error in options orders analysis: {str(e)}")
+        import traceback
+        traceback.print_exc()  # Add traceback for better debugging
+        raise HTTPException(status_code=500, detail=str(e))
+
 def close_all_websockets_sync():
     """Synchronous function to close all WebSocket connections at startup."""
     print("Closing all existing WebSocket connections at startup...")
-    
+
     try:
         # Get all tokens with active connections
         tokens = list(active_websocket_connections.keys())
@@ -917,11 +1087,11 @@ def run_websocket():
 def start_services():
     # First, close any existing WebSocket connections
     close_all_websockets_sync()
-    
+
     # Print debug information at startup
     print("Starting worker with empty active_subscription list")
     print(f"Active subscription state: {active_subscription}")
-    
+
     # Start WebSocket in a separate thread
     threading.Thread(target=run_websocket, daemon=True).start()
 
@@ -931,8 +1101,8 @@ def start_services():
 if __name__ == '__main__':
     # First close all existing WebSocket connections before starting any services
     close_all_websockets_sync()
-    
+
     # Ensure active_subscription is empty at startup
     active_subscription = []
-    
+
     start_services()
