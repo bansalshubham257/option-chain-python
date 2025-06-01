@@ -393,7 +393,9 @@ class DatabaseService:
                         o.delta,
                         o.iv,
                         o.pop,
-                        o.status
+                        o.status,
+                        o.is_less_than_25pct,
+                        o.is_less_than_50pct
                     FROM options_orders o
                     LEFT JOIN instrument_keys i ON 
                         o.symbol = i.symbol AND 
@@ -422,7 +424,9 @@ class DatabaseService:
                     'delta': r[14],
                     'iv': r[15],
                     'pop': r[16],
-                    'status': r[17] if r[17] else 'Open'  # Default to 'Open' if NULL
+                    'status': r[17] if r[17] else 'Open',  # Default to 'Open' if NULL
+                    'is_less_than_25pct': r[18] if r[18] is not None else False,
+                    'is_less_than_50pct': r[19] if r[19] is not None else False
                 } for r in results]
         except Exception as e:
             print(f"Error fetching options orders: {str(e)}")
@@ -443,8 +447,8 @@ class DatabaseService:
             execute_batch(cur, """
                 INSERT INTO options_orders 
                 (symbol, strike_price, option_type, ltp, bid_qty, ask_qty, lot_size, timestamp, 
-                 oi, volume, vega, theta, gamma, delta, iv, pop, status)
-                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                 oi, volume, vega, theta, gamma, delta, iv, pop, status, is_less_than_25pct, is_less_than_50pct)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 ON CONFLICT (symbol, strike_price, option_type) DO NOTHING
             """, data, page_size=100)
 
@@ -454,12 +458,17 @@ class DatabaseService:
             return
 
         with self._get_cursor() as cur:
-            data = [(order['new_status'], order['symbol'], order['strike_price'], order['option_type'])
+            data = [(order['new_status'],
+                    order.get('is_less_than_25pct', False),
+                    order.get('is_less_than_50pct', False),
+                    order['symbol'], order['strike_price'], order['option_type'])
                     for order in orders_to_update]
 
             execute_batch(cur, """
                 UPDATE options_orders
-                SET status = %s
+                SET status = %s,
+                    is_less_than_25pct = %s,
+                    is_less_than_50pct = %s
                 WHERE symbol = %s AND strike_price = %s AND option_type = %s
             """, data, page_size=100)
 
