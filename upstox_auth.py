@@ -1,6 +1,5 @@
 import requests
 import pyotp
-import json
 import os
 import webbrowser
 import socket
@@ -37,8 +36,6 @@ class UpstoxAuth:
         self.secret = secret
         self.totp_secret = totp_secret
         self.redirect_uri = redirect_uri
-        self.token_file = os.path.join(os.path.dirname(os.path.dirname(__file__)),
-                                       "config", "upstox_token.json")
 
     def generate_totp(self):
         """Generate TOTP code for 2FA."""
@@ -87,51 +84,10 @@ class UpstoxAuth:
                 token_data['expires_in'] = 86400  # 24 hours in seconds
                 print("Warning: Token expiry not provided by API, using default (24 hours)")
 
-            # Save token to file
-            self._save_token(token_data)
             return token_data
         else:
             print(f"Error getting access token: {response.status_code}")
             print(response.text)
-            return None
-
-    def _save_token(self, token_data):
-        """Save token data to file."""
-        os.makedirs(os.path.dirname(self.token_file), exist_ok=True)
-        with open(self.token_file, 'w') as f:
-            json.dump(token_data, f, indent=4)
-        print(f"Token saved to {self.token_file}")
-
-    def get_saved_token(self):
-        """Get saved token from file."""
-        if os.path.exists(self.token_file):
-            with open(self.token_file, 'r') as f:
-                return json.load(f)
-        return None
-
-    def is_token_valid(self):
-        """Check if saved token is valid and not expired."""
-        token_data = self.get_saved_token()
-        if not token_data:
-            return False
-
-        # Check if token has expired
-        created_at = token_data.get('created_at', 0)
-        expires_in = token_data.get('expires_in', 0)
-        current_time = datetime.now().timestamp()
-
-        # Return True if token is still valid (with 5-minute buffer)
-        return current_time < (created_at + expires_in - 300)
-
-    def get_valid_token(self):
-        """Get a valid access token, either saved or refreshed."""
-        if self.is_token_valid():
-            token_data = self.get_saved_token()
-            return token_data['access_token']
-        else:
-            # Token is expired or doesn't exist
-            # In this case, a new authorization flow is needed
-            print("Token expired or not found. Please generate a new token.")
             return None
 
     def verify_token(self, access_token):
@@ -246,12 +202,6 @@ def automated_auth_flow(api_key, secret, totp_secret, redirect_uri):
     """
     auth = UpstoxAuth(api_key, secret, totp_secret, redirect_uri)
 
-    # Check if we already have a valid token
-    if auth.is_token_valid():
-        token_data = auth.get_saved_token()
-        print("Using existing valid token")
-        return token_data['access_token']
-
     # Start the local server to catch the redirect
     server = auth.start_auth_server()
 
@@ -333,12 +283,6 @@ def manual_auth_flow(api_key, secret, totp_secret, redirect_uri):
     """
     auth = UpstoxAuth(api_key, secret, totp_secret, redirect_uri)
 
-    # Check if we already have a valid token
-    if auth.is_token_valid():
-        token_data = auth.get_saved_token()
-        print("Using existing valid token")
-        return token_data['access_token']
-
     # No valid token, start new flow
     auth_url = auth.get_auth_url()
     print("\n=== Upstox Authentication Flow ===")
@@ -393,14 +337,6 @@ def fully_automated_auth_flow(api_key, secret, totp_secret, redirect_uri,
         str: Access token if successful, None otherwise
     """
     auth = UpstoxAuth(api_key, secret, totp_secret, redirect_uri)
-
-    # Check if we already have a valid token
-    if auth.is_token_valid():
-        token_data = auth.get_saved_token()
-        print("Using existing valid token")
-        return token_data['access_token']
-
-    # No valid token, start the automated flow
 
     # Start the local server to catch the redirect
     server = auth.start_auth_server()
