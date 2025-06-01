@@ -18,20 +18,12 @@ Options:
 import argparse
 import os
 import getpass
-import logging
 import sys
 from datetime import datetime
 from upstox_auth import automated_auth_flow, manual_auth_flow, fully_automated_auth_flow
 from dotenv import load_dotenv
 from config import Config
 from services.database import DatabaseService
-
-# Configure logging
-logging.basicConfig(
-    filename='token_generation.log',
-    level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s'
-)
 
 # Initialize database service
 db_service = DatabaseService()
@@ -77,30 +69,30 @@ def generate_token_for_account(account, headless=True, manual=False):
     password = account.get('password')
 
     if not all([api_key, api_secret, totp_secret, redirect_uri]):
-        logging.error(f"Missing required credentials for account {api_key}")
+        print(f"Missing required credentials for account {api_key}")
         return False
 
-    logging.info(f"Generating token for account {api_key}")
+    print(f"Generating token for account {api_key}")
 
     # Check if using manual flow
     if manual:
-        logging.info(f"Using manual flow for account {api_key}")
+        print(f"Using manual flow for account {api_key}")
         access_token = manual_auth_flow(api_key, api_secret, totp_secret, redirect_uri)
     else:
         # Check if we have username/password for fully automated flow
         if username and password:
-            logging.info(f"Using fully automated flow for account {api_key}")
+            print(f"Using fully automated flow for account {api_key}")
             access_token = fully_automated_auth_flow(
                 api_key, api_secret, totp_secret, redirect_uri,
                 headless=headless, username=username, password=password
             )
         else:
-            logging.info(f"Using semi-automated flow for account {api_key}")
+            print(f"Using semi-automated flow for account {api_key}")
             access_token = automated_auth_flow(api_key, api_secret, totp_secret, redirect_uri)
 
     # Check if token generation was successful
     if access_token:
-        logging.info(f"Token generation successful for account {api_key}")
+        print(f"Token generation successful for account {api_key}")
 
         # Create token data structure with required fields
         token_data = {
@@ -110,12 +102,12 @@ def generate_token_for_account(account, headless=True, manual=False):
 
         # Update token directly in database
         if db_service.update_upstox_token(api_key, token_data):
-            logging.info(f"Token updated in database for account {api_key}")
+            print(f"Token updated in database for account {api_key}")
             return True
         else:
-            logging.error(f"Failed to update token in database for account {api_key}")
+            print(f"Failed to update token in database for account {api_key}")
     else:
-        logging.error(f"Token generation failed for account {api_key}")
+        print(f"Token generation failed for account {api_key}")
 
     return False
 
@@ -132,9 +124,9 @@ def main():
     # Add account if requested
     if args.add_account:
         if add_account():
-            logging.info("New account added successfully")
+            print("New account added successfully")
         else:
-            logging.error("Failed to add new account")
+            print("Failed to add new account")
             sys.exit(1)
         return
 
@@ -142,7 +134,7 @@ def main():
     accounts = db_service.get_upstox_accounts()
 
     if not accounts:
-        logging.error("No accounts found in database")
+        print("No accounts found in database")
         print("No accounts found. Use --add-account to add a new account.")
         sys.exit(1)
 
@@ -153,7 +145,6 @@ def main():
             success_count += 1
 
     # Log summary
-    logging.info(f"Token generation complete. Generated {success_count}/{len(accounts)} tokens successfully.")
     print(f"Token generation complete. Generated {success_count}/{len(accounts)} tokens successfully.")
 
     # Exit with appropriate code
