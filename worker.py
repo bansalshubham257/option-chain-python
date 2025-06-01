@@ -839,7 +839,6 @@ async def restart_all_websockets():
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error restarting WebSockets: {str(e)}")
 
-
 @app.get("/api/options-orders-analysis")
 async def get_options_orders_analysis():
     """Fetch options orders with live market data."""
@@ -941,15 +940,43 @@ async def get_options_orders_analysis():
 
             # Check if status should be "Done" (> 100% change)
             current_status = order.get('status', 'Open')
+            
+            # Get current less than flags and initialize recovery flags
+            is_less_than_25pct = order.get('is_less_than_25pct', False)
+            is_less_than_50pct = order.get('is_less_than_50pct', False)
+            
+            # Track lowest price point
+            lowest_point = order.get('lowest_point', min(current_ltp, stored_ltp))
+            if current_ltp < lowest_point:
+                lowest_point = current_ltp
+
+            # Check conditions for updating
+            need_update = False
+            
             if abs(percent_change) > 100 and current_status != 'Done':
-                # Mark for update in database
+                current_status = 'Done'  # Update for response
+                need_update = True
+            
+            # Calculate if price is less than 25% or 50% of original price
+            if current_ltp < (stored_ltp * 0.25) and not is_less_than_25pct:
+                is_less_than_25pct = True
+                need_update = True
+                
+            if current_ltp < (stored_ltp * 0.5) and not is_less_than_50pct:
+                is_less_than_50pct = True
+                need_update = True
+                
+            # Mark for update in database if needed
+            if need_update:
                 orders_to_update.append({
                     'symbol': order['symbol'],
                     'strike_price': order['strike_price'],
                     'option_type': order['option_type'],
-                    'new_status': 'Done'
+                    'new_status': current_status,
+                    'is_less_than_25pct': is_less_than_25pct,
+                    'is_less_than_50pct': is_less_than_50pct,
+                    'lowest_point': lowest_point
                 })
-                current_status = 'Done'  # Update for response
 
             # Safely convert all values to appropriate types
             response_data.append({
@@ -986,21 +1013,24 @@ async def get_options_orders_analysis():
                 'bidQ': float(live_data.get('bidQ', 0) or 0),
                 'askQ': float(live_data.get('askQ', 0) or 0),
                 'instrument_key': instrument_key,
-                'timestamp': order.get('timestamp', '')
+                'timestamp': order.get('timestamp', ''),
+                'is_less_than_25pct': is_less_than_25pct,  # Include the flag
+                'is_less_than_50pct': is_less_than_50pct,  # Include the flag
+                'lowest_point': lowest_point,  # Include the lowest point
+                'role': order.get('role', 'Unknown')  # Include role if available
             })
 
         # Update status in database for orders that need it
         if orders_to_update:
             # Call database service to update statuses
             db_service.update_options_orders_status(orders_to_update)
-            print(f"Updated status to 'Done' for {len(orders_to_update)} orders")
+            print(f"Updated status for {len(orders_to_update)} orders")
 
         return {
             "success": True,
             "data": response_data,
             "timestamp": datetime.now().isoformat()
         }
-
     except Exception as e:
         print(f"Error in options orders analysis: {str(e)}")
         import traceback
