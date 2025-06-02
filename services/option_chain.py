@@ -1141,7 +1141,7 @@ class OptionChainService:
             # Prepare market quotes request
             spot_price = data[0].get('underlying_spot_price', 0)
             strikes = sorted(set(option['strike_price'] for option in data))
-            closest_strikes = [s for s in strikes if s <= spot_price][-5:] + [s for s in strikes if s >= spot_price][:5]
+            closest_strikes = [s for s in strikes if s <= spot_price][-4:] + [s for s in strikes if s >= spot_price][:4]
 
             instrument_keys = []
             for option in data:
