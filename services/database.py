@@ -434,9 +434,34 @@ class DatabaseService:
 
     def save_options_data(self, symbol, orders):
         """Bulk insert options orders"""
+        print("inside save_options_data")
         if not orders:
+            print("No orders to save")
             return
+        print("got orders to save", orders)
+        with self._get_cursor() as cur:
+            data = [(order['stock'], order['strike_price'], order['type'],
+                     order['ltp'], order['bid_qty'], order['ask_qty'],
+                     order['lot_size'], order['timestamp'], order['oi'], order['volume'],
+                     order['vega'], order['theta'], order['gamma'], order['delta'],
+                     order['iv'], order['pop'], 'Open') for order in orders]  # Set initial status to 'Open'
 
+            execute_batch(cur, """
+                INSERT INTO options_orders 
+                (symbol, strike_price, option_type, ltp, bid_qty, ask_qty, lot_size, timestamp, 
+                 oi, volume, vega, theta, gamma, delta, iv, pop, status)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                ON CONFLICT (symbol, strike_price, option_type) DO NOTHING
+            """, data, page_size=100)
+        print("Successfully saved options data")
+
+    def save_worker_options_data(self, symbol, orders):
+        """Bulk insert options orders"""
+        print("inside save_options_data")
+        if not orders:
+            print("No orders to save")
+            return
+        print("got orders to save", orders)
         with self._get_cursor() as cur:
             data = [(order['stock'], order['strike_price'], order['type'],
                      order['ltp'], order['bid_qty'], order['ask_qty'],
@@ -451,6 +476,8 @@ class DatabaseService:
                 VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 ON CONFLICT (symbol, strike_price, option_type) DO NOTHING
             """, data, page_size=100)
+        print("Successfully saved options data")
+
 
     def update_options_orders_status(self, orders_to_update):
         """Update status for options orders"""
