@@ -639,17 +639,6 @@ class OptionChainService:
 
         while True:
             now = datetime.now(IST)
-            # Clear old data at market open
-            if (now.weekday() < 7 and Config.MARKET_OPEN >= now.time() <= Config.MARKET_CLOSE and
-                    (last_clear_date is None or last_clear_date != now.date())):
-                try:
-                    self.database.clear_old_data()
-                    last_clear_date = now.date()
-                    print("Cleared all previous day's data")
-                except Exception as e:
-                    print(f"Failed to clear old data: {e}")
-
-            # Process during market hours
 
             # Process during market hours - removed the clearing logic
             if now.weekday() in Config.TRADING_DAYS and Config.MARKET_OPEN <= now.time() <= Config.MARKET_CLOSE:
@@ -659,9 +648,6 @@ class OptionChainService:
                     time.sleep(120)  # Run every 30 seconds
                 except Exception as e:
                     print(f"Script error: {e}")
-                    time.sleep(60)
-            else:
-                time.sleep(300)  # 5 min sleep outside market hours
 
     def detect_buildups(self, lookback_minutes=30):
         """Detect long/short buildups in F&O stocks"""
@@ -1048,7 +1034,6 @@ class OptionChainService:
             "FINNIFTY": 65
         }
         fno_stocks_with_indices = {**self.fno_stocks, **indices}
-        #fno_stocks_with_indices = {**indices}
 
         for stock, lot_size in fno_stocks_with_indices.items():
             try:
