@@ -1010,6 +1010,8 @@ async def get_options_orders_analysis():
                 'original_vega': original_vega,
                 'vega_change': vega_change,
                 'pop': float(order.get('pop', 0) or 0),
+                'stored_bidq': float(order.get('bid_qty', 0) or 0),
+                'stored_askq': float(order.get('ask_qty', 0) or 0),
                 'bidQ': float(live_data.get('bidQ', 0) or 0),
                 'askQ': float(live_data.get('askQ', 0) or 0),
                 'instrument_key': instrument_key,
