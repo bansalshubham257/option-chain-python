@@ -652,7 +652,7 @@ class OptionChainService:
             # Process during market hours
 
             # Process during market hours - removed the clearing logic
-            if now.weekday() < 7 and Config.MARKET_OPEN <= now.time() <= Config.MARKET_CLOSE:
+            if now.weekday() in Config.TRADING_DAYS and Config.MARKET_OPEN <= now.time() <= Config.MARKET_CLOSE:
                 try:
                     self._fetch_and_store_orders()
                     print("fetched and stored orders completed")
@@ -721,31 +721,40 @@ class OptionChainService:
         """Parallel implementation of analytics worker"""
         while True:
             try:
-                start_time = time.time()
+                # Check if it's currently market hours (weekday and time within market hours)
+                now = datetime.now(pytz.timezone('Asia/Kolkata'))
+                is_weekday = now.weekday() in Config.TRADING_DAYS
+                is_market_hours = Config.MARKET_OPEN <= now.time() <= Config.MARKET_CLOSE
 
-                # Run all analytics in parallel
-                with ThreadPoolExecutor(max_workers=5) as executor:
-                    buildups_future = executor.submit(self.detect_buildups)
-                    oi_extremes_future = executor.submit(self.detect_oi_extremes)
+                if is_weekday and is_market_hours:
+                    start_time = time.time()
 
-                    # Wait for both to complete
-                    buildups = buildups_future.result()
-                    oi_analytics = oi_extremes_future.result()
+                    # Run all analytics in parallel
+                    with ThreadPoolExecutor(max_workers=5) as executor:
+                        buildups_future = executor.submit(self.detect_buildups)
+                        oi_extremes_future = executor.submit(self.detect_oi_extremes)
 
-                # Store results
-                self.database.save_buildup_results({
-                    'futures_long_buildup': buildups['futures_long_buildup'],
-                    'futures_short_buildup': buildups['futures_short_buildup'],
-                    'options_long_buildup': buildups['options_long_buildup'],
-                    'options_short_buildup': buildups['options_short_buildup'],
-                    'oi_gainers': oi_analytics['oi_gainers'],
-                    'oi_losers': oi_analytics['oi_losers']
-                })
+                        # Wait for both to complete
+                        buildups = buildups_future.result()
+                        oi_analytics = oi_extremes_future.result()
 
-                elapsed = time.time() - start_time
-                print(f"Analytics completed in {elapsed:.2f} seconds")
+                    # Store results
+                    self.database.save_buildup_results({
+                        'futures_long_buildup': buildups['futures_long_buildup'],
+                        'futures_short_buildup': buildups['futures_short_buildup'],
+                        'options_long_buildup': buildups['options_long_buildup'],
+                        'options_short_buildup': buildups['options_short_buildup'],
+                        'oi_gainers': oi_analytics['oi_gainers'],
+                        'oi_losers': oi_analytics['oi_losers']
+                    })
 
-                time.sleep(300 - elapsed if elapsed < 300 else 60)  # Maintain ~5 minute interval
+                    elapsed = time.time() - start_time
+                    print(f"Analytics completed in {elapsed:.2f} seconds")
+
+                    time.sleep(300 - elapsed if elapsed < 300 else 60)  # Maintain ~5 minute interval
+                else:
+                    print(f"Outside market hours (Weekday: {is_weekday}, Market hours: {is_market_hours}). Sleeping...")
+                    time.sleep(300)  # Sleep for 5 minutes outside market hours
 
             except Exception as e:
                 print(f"Error in analytics worker: {e}")
