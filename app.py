@@ -816,14 +816,6 @@ def run_stock_data_updater():
                 
                 print(f"✅ FNO stocks completed: {success_count} stocks in {total_time:.2f}s")
                 print(f"{now}: 1d interval stock data update completed")
-                
-                # Wait longer between updates since we're only processing 1d data
-                time.sleep(30)  # 30 minutes between updates
-                market_data_service.update_all_market_data()
-                time.sleep(30)  # 30 minutes between updates
-            else:
-                # Sleep when market is closed
-                time.sleep(1800)  # 30 minutes
 
         except Exception as e:
             print(f"Error in stock data updater: {e}")
@@ -1087,12 +1079,7 @@ def run_financials_worker():
                 print(f"Failed to process {stats['failed_count']} stocks")
 
                 scanner_service.run_hourly_scanner()
-
-                # Sleep for the remainder of the post-market window plus additional time
-                time.sleep(3600)  # Sleep for 1 hour after running
-            else:
-                # During market hours or outside trading days, check every 5 minutes
-                time.sleep(300)
+                market_data_service.update_all_market_data()
 
         except Exception as e:
             print(f"Error in financials worker: {e}")
