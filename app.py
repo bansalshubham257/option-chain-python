@@ -580,16 +580,11 @@ def run_instrument_keys_worker():
             
             # Sleep for 6 hours before next check
             run_prev_close_worker()
-            sleep_time = 6 * 3600
-            print(f"Instrument keys worker sleeping for {sleep_time//3600} hours")
-            time.sleep(sleep_time)
-            
+
         except Exception as e:
             print(f"Error in instrument keys worker: {e}")
             import traceback
             traceback.print_exc()
-            # Shorter sleep on error
-            time.sleep(1800)  # 30 minutes
 
 def run_prev_close_worker():
     """Background worker to fetch previous close prices for all instrument keys and update the database."""
@@ -600,7 +595,6 @@ def run_prev_close_worker():
             instrument_keys = database_service.get_all_instrument_keys()
             if not instrument_keys:
                 print("No instrument keys found.")
-                time.sleep(3600)  # Sleep for 1 hour if no keys are found
                 continue
 
             # Fetch previous close prices
@@ -613,11 +607,8 @@ def run_prev_close_worker():
             else:
                 print("No previous close data fetched.")
 
-            # Sleep for 6 hours before the next run
-            time.sleep(6 * 3600)
         except Exception as e:
             print(f"Error in prev close worker: {e}")
-            time.sleep(1800)  # Retry after 30 minutes on error
 
 # Helper function to extract strike price from trading symbol
 def get_strike_price(trading_symbol):
@@ -1076,35 +1067,38 @@ def run_financials_worker():
     """Background worker to fetch and store quarterly financial data with optimized performance."""
     while True:
         try:
-            print("Starting financial data collection worker")
-            start_time = time.time()
-            
-            # Execute the optimized batch collection process
-            stats = stock_analysis_service.fetch_and_store_financials()
-            
-            elapsed_time = time.time() - start_time
-            print(f"Financial data collection completed in {elapsed_time/60:.1f} minutes")
-            print(f"Successfully processed {stats['success_count']} stocks with financial data")
-            print(f"Processed {stats['skipped_count']} stocks with only earnings dates")
-            print(f"Failed to process {stats['failed_count']} stocks")
-            
-            # Calculate next run time - wait longer if we had good coverage
-            coverage_ratio = (stats['success_count'] + stats['skipped_count']) / stats['total_stocks']
-            if coverage_ratio > 0.8:
-                # If we got good coverage, wait longer
-                wait_time = 4 * 3600  # 4 hours
+            # Check if current time is within post-market hours
+            ist = pytz.timezone('Asia/Kolkata')
+            now = datetime.now(ist)
+            current_time = now.time()
+
+            # Only run during post-market hours on trading days
+            if now.weekday() in Config.TRADING_DAYS and Config.POST_MARKET_START <= current_time <= Config.POST_MARKET_END:
+                print(f"{now}: Starting financial data collection worker (post-market)")
+                start_time = time.time()
+
+                # Execute the optimized batch collection process
+                stats = stock_analysis_service.fetch_and_store_financials()
+
+                elapsed_time = time.time() - start_time
+                print(f"Financial data collection completed in {elapsed_time/60:.1f} minutes")
+                print(f"Successfully processed {stats['success_count']} stocks with financial data")
+                print(f"Processed {stats['skipped_count']} stocks with only earnings dates")
+                print(f"Failed to process {stats['failed_count']} stocks")
+
+                scanner_service.run_hourly_scanner()
+
+                # Sleep for the remainder of the post-market window plus additional time
+                time.sleep(3600)  # Sleep for 1 hour after running
             else:
-                # If coverage was poor, try again sooner
-                wait_time = 2 * 3600  # 2 hours
-            scanner_service.run_hourly_scanner()
-            print(f"Sleeping for {wait_time/3600:.1f} hours before next run")
-            time.sleep(wait_time)
-            
+                # During market hours or outside trading days, check every 5 minutes
+                time.sleep(300)
+
         except Exception as e:
             print(f"Error in financials worker: {e}")
             import traceback
             traceback.print_exc()
-            time.sleep(1800)  # Retry after 30 minutes on error
+
 
 @app.route('/api/stock-data', methods=['GET'])
 def get_stock_data():
@@ -1348,21 +1342,8 @@ def run_db_clearing_worker():
                 last_clear_date = current_date
                 run_instrument_keys_worker()
                 print(f"{now}: Database cleared successfully")
-
-                # Sleep until next day after successful clearing
-                sleep_seconds = (
-                    (24 - now.hour - 1) * 3600 +
-                    (60 - now.minute - 1) * 60 +
-                    (60 - now.second)
-                )
-                time.sleep(sleep_seconds)
-            else:
-                # Outside clearing window, check every minute
-                time.sleep(300)
         except Exception as e:
             print(f"Error in DB clearing worker: {e}")
-            time.sleep(300)  # Sleep for 5 minutes on error before retrying
-
 
 def run_background_workers():
     """Run all background workers in separate threads"""
@@ -1397,7 +1378,7 @@ def run_background_workers():
     option_chain_thread.start()
     oi_buildup_thread.start()
     stock_data_thread.start()
-    #financials_thread.start()
+    financials_thread.start()
     db_clearing_thread.start()
     #instrument_keys_thread.start()
     #prev_close_thread.start()
@@ -1441,16 +1422,11 @@ if __name__ == "__main__":
         if is_weekday and (Config.MARKET_OPEN <= current_time <= Config.MARKET_CLOSE):
             print("Market is open, starting background workers...")
             run_background_workers()
-        elif is_weekday and (Config.POST_MARKET_START <= current_time <= Config.POST_MARKET_END):
-            # Run financial data worker only during the post-market window
-            print(f"Post-market window ({Config.POST_MARKET_START.strftime('%H:%M')}-{Config.POST_MARKET_END.strftime('%H:%M')}): Running financial data worker only...")
-            run_financials_worker()
         else:
             if not is_weekday:
                 print("Market closed (weekend)")
             else:
                 print(f"Market closed (current time: {current_time})")
-
             # Sleep until next market open
             sleep_seconds = market_data_service.get_seconds_until_next_open()
             print(f"Sleeping for {sleep_seconds//3600}h {(sleep_seconds%3600)//60}m until next market open")
@@ -1469,7 +1445,3 @@ if __name__ == "__main__":
         else:
             print("❌ Database connection failed")
         app.run(host="0.0.0.0", port=port)
-
-
-
-
