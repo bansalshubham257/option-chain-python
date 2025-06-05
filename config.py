@@ -15,22 +15,20 @@ class Config:
     # Other configurations
     EXPIRY_DATE = "2025-06-26"
     # Market hours configuration
-    MARKET_OPEN = time(9, 9)  # 09:15 AM
+    MARKET_OPEN = time(9, 12)  # 09:15 AM
     MARKET_CLOSE = time(15, 33)  # 03:30 PM
     
     # Post-market window for financial data collection (3:35 PM - 3:39 PM)
     POST_MARKET_START = time(15, 35)
-    POST_MARKET_END = time(15, 40)
+    POST_MARKET_END = time(15, 42)
 
     # Database clearing time window
-    DB_CLEARING_START = time(8, 55)  # 09:00 AM
-    DB_CLEARING_END = time(9, 0)  # 09:15 AM
-
+    DB_CLEARING_START = time(9, 05)  # 09:00 AM
+    DB_CLEARING_END = time(9, 10)  # 09:15 AM
 
     TRADING_DAYS = {0, 1, 2, 3, 4}  # Monday to Friday
 
     SENSEX_EXPIRIES = [
-        "2025-06-03",
         "2025-06-10",
         "2025-06-17",
         "2025-06-24"
@@ -41,7 +39,6 @@ class Config:
     ]
 
     NIFTY_EXPIRIES = [
-        "2025-06-05",
         "2025-06-12",
         "2025-06-19",
         "2025-06-26"
