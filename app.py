@@ -1401,27 +1401,23 @@ def get_instrument_keys():
 
 if __name__ == "__main__":
     if os.getenv('BACKGROUND_WORKER', 'false').lower() == 'true':
-        while True:  # Add a loop to keep checking until we can start workers
-            ist = pytz.timezone('Asia/Kolkata')
-            now = datetime.now(ist)
-            current_time = now.time()
-            is_weekday = now.weekday() in Config.TRADING_DAYS
-
-            if is_weekday and (Config.MARKET_OPEN <= current_time <= Config.MARKET_CLOSE):
-                print(f"Market is open at {now.strftime('%Y-%m-%d %H:%M:%S')}, starting background workers...")
-                run_background_workers()
-                break  # Exit loop once workers are started
+        ist = pytz.timezone('Asia/Kolkata')
+        now = datetime.now(ist)
+        current_time = now.time()
+        is_weekday = now.weekday() in Config.TRADING_DAYS
+        
+        if is_weekday and (Config.MARKET_OPEN <= current_time <= Config.MARKET_CLOSE):
+            print("Market is open, starting background workers...")
+            run_background_workers()
+        else:
+            if not is_weekday:
+                print("Market closed (weekend)")
             else:
-                if not is_weekday:
-                    print(f"Market closed (weekend) at {now.strftime('%Y-%m-%d %H:%M:%S')}")
-                else:
-                    print(f"Market closed (current time: {current_time}) at {now.strftime('%Y-%m-%d %H:%M:%S')}")
-
-                # Sleep until next market open or for a fixed period
-                sleep_seconds = min(market_data_service.get_seconds_until_next_open(), 600)  # Max 10 minutes
-                print(f"Sleeping for {sleep_seconds//3600}h {(sleep_seconds%3600)//60}m {sleep_seconds%60}s until checking again")
-                time.sleep(sleep_seconds)
-                print(f"Woke up at {datetime.now(ist).strftime('%Y-%m-%d %H:%M:%S')}, checking market status again...")
+                print(f"Market closed (current time: {current_time})")
+            # Sleep until next market open
+            sleep_seconds = market_data_service.get_seconds_until_next_open()
+            print(f"Sleeping for {sleep_seconds//3600}h {(sleep_seconds%3600)//60}m until next market open")
+            time.sleep(sleep_seconds)
     else:
         print("Starting web service ONLY")
         port = int(os.environ.get("PORT", 10000))
