@@ -23,7 +23,7 @@ class Config:
     POST_MARKET_END = time(15, 42)
 
     # Database clearing time window
-    DB_CLEARING_START = time(9, 05)  # 09:00 AM
+    DB_CLEARING_START = time(9, 5)  # 09:00 AM
     DB_CLEARING_END = time(9, 10)  # 09:15 AM
 
     TRADING_DAYS = {0, 1, 2, 3, 4}  # Monday to Friday
