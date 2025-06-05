@@ -1014,6 +1014,7 @@ async def get_options_orders_analysis():
                 'stored_askq': float(order.get('ask_qty', 0) or 0),
                 'bidQ': float(live_data.get('bidQ', 0) or 0),
                 'askQ': float(live_data.get('askQ', 0) or 0),
+                'lot_size': float(order.get('lot_size', 1) or 1),
                 'instrument_key': instrument_key,
                 'timestamp': order.get('timestamp', ''),
                 'is_less_than_25pct': is_less_than_25pct,  # Include the flag
