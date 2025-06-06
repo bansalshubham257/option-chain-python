@@ -203,8 +203,8 @@ class OptionChainService:
                     duplicate = False
                     for existing_option in stock_data[symbol]["options"]:
                         if (existing_option["expiry"] == option["expiry"] and
-                            existing_option["strike_price"] == option["strike_price"] and
-                            existing_option["option_type"] == option["option_type"]):
+                                existing_option["strike_price"] == option["strike_price"] and
+                                existing_option["option_type"] == option["option_type"]):
                             duplicate = True
                             break
 
@@ -639,6 +639,17 @@ class OptionChainService:
 
         while True:
             now = datetime.now(IST)
+            # Clear old data at market open
+            if (now.weekday() < 7 and Config.MARKET_OPEN >= now.time() <= Config.MARKET_CLOSE and
+                    (last_clear_date is None or last_clear_date != now.date())):
+                try:
+                    self.database.clear_old_data()
+                    last_clear_date = now.date()
+                    print("Cleared all previous day's data")
+                except Exception as e:
+                    print(f"Failed to clear old data: {e}")
+
+            # Process during market hours
 
             # Process during market hours - removed the clearing logic
             if now.weekday() in Config.TRADING_DAYS and Config.MARKET_OPEN <= now.time() <= Config.MARKET_CLOSE:
@@ -648,6 +659,9 @@ class OptionChainService:
                     time.sleep(120)  # Run every 30 seconds
                 except Exception as e:
                     print(f"Script error: {e}")
+                    time.sleep(60)
+            else:
+                time.sleep(300)  # 5 min sleep outside market hours
 
     def detect_buildups(self, lookback_minutes=30):
         """Detect long/short buildups in F&O stocks"""
@@ -1034,6 +1048,7 @@ class OptionChainService:
             "FINNIFTY": 65
         }
         fno_stocks_with_indices = {**self.fno_stocks, **indices}
+        #fno_stocks_with_indices = {**indices}
 
         for stock, lot_size in fno_stocks_with_indices.items():
             try:
@@ -1135,7 +1150,7 @@ class OptionChainService:
             # Prepare market quotes request
             spot_price = data[0].get('underlying_spot_price', 0)
             strikes = sorted(set(option['strike_price'] for option in data))
-            closest_strikes = [s for s in strikes if s <= spot_price][-4:] + [s for s in strikes if s >= spot_price][:4]
+            closest_strikes = [s for s in strikes if s <= spot_price][-3:] + [s for s in strikes if s >= spot_price][:3]
 
             instrument_keys = []
             for option in data:
@@ -1551,7 +1566,7 @@ class OptionChainService:
             filtered_df = df[
                 (df['instrument_type'].isin(instrument_types)) &
                 (df['exchange'].isin(exchanges))
-            ]
+                ]
 
             print(f"Filtered by type/exchange: {len(filtered_df)} instruments")
 
@@ -1562,7 +1577,7 @@ class OptionChainService:
             equity_df = df[
                 (df['exchange'] == 'NSE_EQ') &
                 (df['tradingsymbol'].isin(fno_stock_names))
-            ]
+                ]
             print(f"Found {len(equity_df)} NSE_EQ instruments for FNO stocks")
 
             # Separate futures and options
@@ -1570,14 +1585,14 @@ class OptionChainService:
             futures_df = filtered_df[
                 (filtered_df['tradingsymbol'].str.contains(current_month)) &
                 (filtered_df['tradingsymbol'].str.endswith('FUT'))
-            ]
+                ]
             print(f"Found {len(futures_df)} futures contracts for {current_month}")
 
             # For monthly options, filter by trading symbols containing current month abbreviation
             monthly_options_df = filtered_df[
                 (filtered_df['tradingsymbol'].str.contains(current_month)) &
                 ~(filtered_df['tradingsymbol'].str.endswith('FUT'))  # Exclude futures
-            ]
+                ]
 
             print(f"Found {len(monthly_options_df)} monthly option contracts for {current_month}")
 
@@ -1704,7 +1719,7 @@ class OptionChainService:
                         filtered_df['tradingsymbol'].str.startswith(base_pattern) &
                         (filtered_df['tradingsymbol'].str.endswith('CE') | filtered_df['tradingsymbol'].str.endswith('PE')) &
                         ~filtered_df['tradingsymbol'].str.contains(current_month)  # Exclude monthly options
-                    ]
+                        ]
 
                     # Manually check for current month in both formats
                     valid_matches = []
@@ -1848,7 +1863,7 @@ class OptionChainService:
 
                             # Find the closest strike to current price
                             closest_strike_idx = min(range(len(weekly_strikes)),
-                                                 key=lambda i: abs(weekly_strikes[i] - current_price))
+                                                     key=lambda i: abs(weekly_strikes[i] - current_price))
 
                             # Get 5 strikes below, the closest, and 5 strikes above
                             start_idx = max(0, closest_strike_idx - 7)
@@ -1899,7 +1914,7 @@ class OptionChainService:
 
                         # Find the closest strike to current price
                         closest_strike_idx = min(range(len(all_strikes)),
-                                             key=lambda i: abs(all_strikes[i] - current_price))
+                                                 key=lambda i: abs(all_strikes[i] - current_price))
 
                         # Get 5 strikes below, the closest, and 5 strikes above
                         start_idx = max(0, closest_strike_idx - 7)
@@ -1952,7 +1967,7 @@ class OptionChainService:
                     monthly_options = final_df[
                         ~final_df['tradingsymbol'].str.endswith('FUT') &
                         final_df['tradingsymbol'].str.match(monthly_pattern)
-                    ]
+                        ]
                     monthly_samples = monthly_options['tradingsymbol'].sample(
                         min(3, len(monthly_options))
                     ).tolist() if not monthly_options.empty else []
