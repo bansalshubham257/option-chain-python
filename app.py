@@ -1,4 +1,6 @@
 import asyncio
+
+import asyncioMore actions
 import concurrent
 import logging
 from functools import lru_cache
@@ -60,14 +62,14 @@ def get_all_Fno_stocks():
 def analyze():
     # Get the raw query string and extract the symbol parameter
     query_string = request.environ.get('QUERY_STRING', '')
-    
+
     # Handle the case where symbol contains ampersand
     if query_string.startswith('symbol='):
         symbol = query_string[7:]  # Remove 'symbol=' prefix to get the full symbol
     else:
         # Fallback to the regular method (for other parameters or if format changes)
         symbol = request.args.get("symbol")
-    
+
     if not symbol:
         return jsonify({"error": "Stock symbol is required"}), 400
 
@@ -104,14 +106,14 @@ def get_fno_data_bulk():
     expiry = request.args.get('expiry')
     strikes = request.args.get('strikes')
     option_types = request.args.get('option_types')
-    
+
     if not all([stock, expiry, strikes, option_types]):
         return jsonify({"error": "Missing required parameters", "data": []})
-    
+
     try:
         strikes_list = strikes.split(',')
         option_types_list = option_types.split(',')
-        
+
         with database_service._get_cursor() as cur:
             query = """
                 SELECT display_time, oi, volume, price, strike_price, option_type
@@ -121,24 +123,24 @@ def get_fno_data_bulk():
                   AND strike_price IN ({})
                   AND option_type IN ({})
                 ORDER BY display_time
-            """.format(','.join(['%s'] * len(strikes_list)), 
+            """.format(','.join(['%s'] * len(strikes_list)),
                        ','.join(['%s'] * len(option_types_list)))
-            
+
             params = [stock, expiry] + strikes_list + option_types_list
             cur.execute(query, params)
-            
+
             results = cur.fetchall()
             data = [{
-                'time': r[0], 
+                'time': r[0],
                 'oi': float(r[1]) if r[1] else 0,
-                'volume': float(r[2]) if r[2] else 0, 
+                'volume': float(r[2]) if r[2] else 0,
                 'price': float(r[3]) if r[3] else 0,
-                'strike': str(r[4]), 
+                'strike': str(r[4]),
                 'optionType': r[5]
             } for r in results]
-            
+
             return jsonify({"status": "success", "data": data})
-    
+
     except Exception as e:
         print(f"Error in bulk fetch: {str(e)}")
         return jsonify({"status": "error", "message": str(e), "data": []})
@@ -519,27 +521,27 @@ def run_option_chain_worker():
 def run_instrument_keys_worker():
     """Background worker to periodically fetch and store instrument keys in the database."""
     print(f"Starting instrument keys worker at {datetime.now()}")
-    
+
     last_update_date = None
-    
+
     while True:
         try:
             current_date = datetime.now().date()
-            
+
             # Update instrument keys once per day or on first run
             if last_update_date is None or last_update_date != current_date:
                 print(f"Fetching instrument keys at {datetime.now()}")
-                
+
                 # Fetch instrument data from Upstox with strike filtering
                 instrument_dict = option_chain_service.fetch_instrument_keys()
-                
+
                 if instrument_dict:
                     print(f"Successfully fetched {len(instrument_dict)} filtered instruments")
-                    
+
                     # Save to database
                     batch_size = 500
                     filtered_instruments = []
-                    
+
                     # Extract strike prices for better filtering
                     for key, details in instrument_dict.items():
                         # Add instrument details including strike price from trading symbol
@@ -552,7 +554,7 @@ def run_instrument_keys_worker():
                             'expiry': details.get('expiry'),
                             'lot_size': details.get('lot_size', 0)
                         }
-                        
+
                         # Parse the trading symbol to get strike price
                         if 'trading_symbol' in details:
                             parsed = option_chain_service._parse_option_symbol(details['trading_symbol'])
@@ -561,30 +563,35 @@ def run_instrument_keys_worker():
                             else:
                                 # For non-options like futures
                                 instrument_data['strike_price'] = None
-                        
+
                         filtered_instruments.append(instrument_data)
-                    
+
                     # Save to database in batches
                     total_instruments = len(filtered_instruments)
                     print(f"Preparing to save {total_instruments} instruments to database")
-                    
+
                     for i in range(0, total_instruments, batch_size):
                         batch = filtered_instruments[i:i+batch_size]
                         database_service.save_instrument_keys(batch)
                         print(f"Saved batch {i//batch_size + 1}/{(total_instruments-1)//batch_size + 1} ({len(batch)} instruments)")
-                    
+
                     last_update_date = current_date
                     print(f"Successfully updated instrument keys at {datetime.now()}")
                 else:
                     print("No instrument data available")
-            
+
             # Sleep for 6 hours before next check
             run_prev_close_worker()
+            sleep_time = 6 * 3600
+            print(f"Instrument keys worker sleeping for {sleep_time//3600} hours")
+            time.sleep(sleep_time)
 
         except Exception as e:
             print(f"Error in instrument keys worker: {e}")
             import traceback
             traceback.print_exc()
+            # Shorter sleep on error
+            time.sleep(1800)  # 30 minutes
 
 def run_prev_close_worker():
     """Background worker to fetch previous close prices for all instrument keys and update the database."""
@@ -595,6 +602,7 @@ def run_prev_close_worker():
             instrument_keys = database_service.get_all_instrument_keys()
             if not instrument_keys:
                 print("No instrument keys found.")
+                time.sleep(3600)  # Sleep for 1 hour if no keys are found
                 continue
 
             # Fetch previous close prices
@@ -607,15 +615,18 @@ def run_prev_close_worker():
             else:
                 print("No previous close data fetched.")
 
+            # Sleep for 6 hours before the next run
+            time.sleep(6 * 3600)
         except Exception as e:
             print(f"Error in prev close worker: {e}")
+            time.sleep(1800)  # Retry after 30 minutes on error
 
 # Helper function to extract strike price from trading symbol
 def get_strike_price(trading_symbol):
     """Extract strike price from trading symbol if it's an option"""
     if not trading_symbol:
         return None
-    
+
     try:
         # Try to match patterns like "RELIANCE24APR4000CE" or "NIFTY24APR24000CE"
         import re
@@ -736,10 +747,10 @@ def get_most_active_strikes():
 def run_stock_data_updater():
     """Optimized stock data updater that only processes 1d interval"""
     last_cache_clear_date = None
-    
+
     # Only process 1d interval
     interval = '1d'
-    
+
     # Configuration for batch processing
     stocks_per_worker = 20
     max_workers = 20  # Increase workers since we're only handling one interval
@@ -753,7 +764,7 @@ def run_stock_data_updater():
         "^BSESN",     # SENSEX
         "BSE-BANK.BO"    # BANKEX
     ]
-    
+
     # Define mapping from Yahoo symbols to our internal names for consistency
     index_mapping = {
         "^NSEI": "NIFTY.NS",
@@ -779,17 +790,17 @@ def run_stock_data_updater():
             # Check market hours
             if now.weekday() in Config.TRADING_DAYS and Config.MARKET_OPEN <= now.time() <= Config.MARKET_CLOSE:
                 print(f"{now}: Running stock data update for 1d interval only...")
-                
+
                 # Get FNO stocks
                 fno_stocks = option_chain_service.get_fno_stocks_with_symbols()
-                
+
                 # First update the main indices as they are more important
                 print(f"{now}: Updating main indices data...")
                 start_time = time.time()
-                
+
                 # Create a Tickers object for all indices together
                 indices_tickers = yf.Tickers(" ".join(main_indices), session=session)
-                
+
                 for yahoo_symbol, local_name in index_mapping.items():
                     try:
                         # Get data from the batch request
@@ -804,18 +815,26 @@ def run_stock_data_updater():
                                 print(f"❌ Failed to update {local_name} index data")
                     except Exception as e:
                         print(f"Error updating {local_name} ({yahoo_symbol}) index: {e}")
-                
+
                 indices_time = time.time() - start_time
                 print(f"✅ Indices update completed in {indices_time:.2f}s")
-                
+
                 # Then update the regular FNO stocks
                 print(f"{now}: Updating FNO stocks data...")
                 start_time = time.time()
                 success_count = update_stocks_for_interval(fno_stocks, interval, stocks_per_worker, max_workers)
                 total_time = time.time() - start_time
-                
+
                 print(f"✅ FNO stocks completed: {success_count} stocks in {total_time:.2f}s")
                 print(f"{now}: 1d interval stock data update completed")
+
+                # Wait longer between updates since we're only processing 1d data
+                time.sleep(30)  # 30 minutes between updates
+                market_data_service.update_all_market_data()
+                time.sleep(30)  # 30 minutes between updates
+            else:
+                # Sleep when market is closed
+                time.sleep(1800)  # 30 minutes
 
         except Exception as e:
             print(f"Error in stock data updater: {e}")
@@ -831,7 +850,7 @@ def update_stocks_for_interval(stocks, interval, stocks_per_worker, max_workers)
 
     # Filter out any empty symbols first
     valid_stocks = [stock for stock in stocks if stock and stock.strip()]
-    
+
     if not valid_stocks:
         print(f"No valid stocks to process for {interval} interval")
         return 0, 0
@@ -878,14 +897,14 @@ def process_stock_chunk(stock_chunk, interval, chunk_idx, total_chunks):
         '5m': ('5d', '5m')
     }
     period, interval_str = period_map.get(interval, ('1mo', interval))
-    
+
     # Filter out any empty symbols that might have slipped through
     valid_stocks = [stock for stock in stock_chunk if stock and stock.strip()]
-    
+
     if not valid_stocks:
         print(f"No valid stocks in chunk {chunk_idx+1}/{total_chunks} for {interval} interval")
         return 0
-        
+
     # Optimize by creating a single YFinance session
     yf_session = yf.Tickers(" ".join(valid_stocks), session=session)
 
@@ -894,13 +913,13 @@ def process_stock_chunk(stock_chunk, interval, chunk_idx, total_chunks):
         try:
             # Get data using the shared session
             data = yf_session.tickers[stock].history(period=period, interval=interval_str)
-  
+
             # Fetch company info data
             info_data = yf_session.tickers[stock].info
 
             # The 52-week high/low data will be calculated inside the update_stock_data method
             # Only for daily interval data (to avoid redundant calculations)
-            
+
             if not data.empty:
                 # Process the data
                 success = database_service.update_stock_data(stock, interval, data, info_data)
@@ -1054,38 +1073,46 @@ def get_financial_results():
     except Exception as e:
         logging.error(f"Error fetching financial results: {str(e)}")
         return jsonify({"status": "error", "message": str(e)}), 500
-        
+
 def run_financials_worker():
     """Background worker to fetch and store quarterly financial data with optimized performance."""
     while True:
         try:
-            # Check if current time is within post-market hours
-            ist = pytz.timezone('Asia/Kolkata')
-            now = datetime.now(ist)
-            current_time = now.time()
+            print("Starting financial data collection worker")
+            start_time = time.time()
 
-            # Only run during post-market hours on trading days
-            if now.weekday() in Config.TRADING_DAYS and Config.POST_MARKET_START <= current_time <= Config.POST_MARKET_END:
-                print(f"{now}: Starting financial data collection worker (post-market)")
-                start_time = time.time()
+            # Execute the optimized batch collection process
+            stats = stock_analysis_service.fetch_and_store_financials()
 
-                # Execute the optimized batch collection process
-                stats = stock_analysis_service.fetch_and_store_financials()
+            elapsed_time = time.time() - start_time
+            print(f"Financial data collection completed in {elapsed_time/60:.1f} minutes")
+            print(f"Successfully processed {stats['success_count']} stocks with financial data")
+            print(f"Processed {stats['skipped_count']} stocks with only earnings dates")
+            print(f"Failed to process {stats['failed_count']} stocks")
 
-                elapsed_time = time.time() - start_time
-                print(f"Financial data collection completed in {elapsed_time/60:.1f} minutes")
-                print(f"Successfully processed {stats['success_count']} stocks with financial data")
-                print(f"Processed {stats['skipped_count']} stocks with only earnings dates")
-                print(f"Failed to process {stats['failed_count']} stocks")
+            # Calculate next run time - wait longer if we had good coverage
+            coverage_ratio = (stats['success_count'] + stats['skipped_count']) / stats['total_stocks']
+            if coverage_ratio > 0.8:
+                # If we got good coverage, wait longer
+                wait_time = 4 * 3600  # 4 hours
 
-                scanner_service.run_hourly_scanner()
-                market_data_service.update_all_market_data()
+
+
+
+
+
+            else:
+                # If coverage was poor, try again sooner
+                wait_time = 2 * 3600  # 2 hours
+            scanner_service.run_hourly_scanner()
+            print(f"Sleeping for {wait_time/3600:.1f} hours before next run")
+            time.sleep(wait_time)
 
         except Exception as e:
             print(f"Error in financials worker: {e}")
             import traceback
             traceback.print_exc()
-
+            time.sleep(1800)  # Retry after 30 minutes on error
 
 @app.route('/api/stock-data', methods=['GET'])
 def get_stock_data():
@@ -1148,7 +1175,7 @@ def get_option_metadata():
                 ORDER BY symbol
             """)
             symbols = [row[0] for row in cur.fetchall()]
-            
+
             # Then get all symbol-expiry combinations
             cur.execute("""
                 SELECT DISTINCT symbol, expiry_date 
@@ -1159,12 +1186,12 @@ def get_option_metadata():
             for row in cur.fetchall():
                 symbol = row[0]
                 expiry_date = row[1].strftime('%Y-%m-%d')
-                
+
                 if symbol not in expiry_map:
                     expiry_map[symbol] = []
-                
+
                 expiry_map[symbol].append(expiry_date)
-            
+
             # Finally get all symbol-expiry-strike combinations
             cur.execute("""
                 SELECT DISTINCT symbol, expiry_date, strike_price
@@ -1176,13 +1203,13 @@ def get_option_metadata():
                 symbol = row[0]
                 expiry_date = row[1].strftime('%Y-%m-%d')
                 strike = float(row[2])
-                
+
                 key = f"{symbol}|{expiry_date}"
                 if key not in strike_map:
                     strike_map[key] = []
-                
+
                 strike_map[key].append(strike)
-            
+
             return jsonify({
                 "status": "success",
                 "data": {
@@ -1191,7 +1218,7 @@ def get_option_metadata():
                     "strike_map": strike_map
                 }
             })
-            
+
     except Exception as e:
         logging.error(f"Error fetching option metadata: {str(e)}")
         return jsonify({"status": "error", "message": str(e)}), 500
@@ -1321,16 +1348,29 @@ def run_db_clearing_worker():
 
             # Check if current time is within the DB clearing window and we haven't cleared today
             if (now.weekday() in Config.TRADING_DAYS and
-                Config.DB_CLEARING_START <= current_time <= Config.DB_CLEARING_END and
-                last_clear_date != current_date):
+                    Config.DB_CLEARING_START <= current_time <= Config.DB_CLEARING_END and
+                    last_clear_date != current_date):
 
                 print(f"{now}: Running database clearing operations...")
                 database_service.clear_old_data()
                 last_clear_date = current_date
                 run_instrument_keys_worker()
                 print(f"{now}: Database cleared successfully")
+
+                # Sleep until next day after successful clearing
+                sleep_seconds = (
+                        (24 - now.hour - 1) * 3600 +
+                        (60 - now.minute - 1) * 60 +
+                        (60 - now.second)
+                )
+                time.sleep(sleep_seconds)
+            else:
+                # Outside clearing window, check every minute
+                time.sleep(300)
         except Exception as e:
             print(f"Error in DB clearing worker: {e}")
+            time.sleep(300)  # Sleep for 5 minutes on error before retrying
+
 
 def run_background_workers():
     """Run all background workers in separate threads"""
@@ -1353,7 +1393,7 @@ def run_background_workers():
         ),
         daemon=True
     )
-    
+
     upstox_feed_worker = UpstoxFeedWorker(database_service)
     upstox_feed_thread = threading.Thread(
         target=lambda: asyncio.run(upstox_feed_worker.run_feed()),
@@ -1365,7 +1405,7 @@ def run_background_workers():
     option_chain_thread.start()
     oi_buildup_thread.start()
     stock_data_thread.start()
-    financials_thread.start()
+    #financials_thread.start()
     db_clearing_thread.start()
     #instrument_keys_thread.start()
     #prev_close_thread.start()
@@ -1383,13 +1423,13 @@ def get_instrument_keys():
         symbol = request.args.get('symbol')
         instrument_type = request.args.get('type')
         limit = int(request.args.get('limit', 100))
-        
+
         result = database_service.get_instrument_keys(symbol, instrument_type)
-        
+
         # Apply limit after fetching
         if len(result) > limit:
             result = result[:limit]
-        
+
         return jsonify({
             "status": "success",
             "count": len(result),
@@ -1405,15 +1445,20 @@ if __name__ == "__main__":
         now = datetime.now(ist)
         current_time = now.time()
         is_weekday = now.weekday() in Config.TRADING_DAYS
-        
+
         if is_weekday and (Config.MARKET_OPEN <= current_time <= Config.MARKET_CLOSE):
             print("Market is open, starting background workers...")
             run_background_workers()
+        elif is_weekday and (Config.POST_MARKET_START <= current_time <= Config.POST_MARKET_END):
+            # Run financial data worker only during the post-market window
+            print(f"Post-market window ({Config.POST_MARKET_START.strftime('%H:%M')}-{Config.POST_MARKET_END.strftime('%H:%M')}): Running financial data worker only...")
+            run_financials_worker()
         else:
             if not is_weekday:
                 print("Market closed (weekend)")
             else:
                 print(f"Market closed (current time: {current_time})")
+
             # Sleep until next market open
             sleep_seconds = market_data_service.get_seconds_until_next_open()
             print(f"Sleeping for {sleep_seconds//3600}h {(sleep_seconds%3600)//60}m until next market open")
