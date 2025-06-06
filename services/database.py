@@ -169,7 +169,7 @@ class DatabaseService:
                     SELECT symbol, instrument_key, exchange, tradingsymbol, lot_size, 
                            instrument_type, expiry_date, strike_price, option_type, prev_close
                     FROM instrument_keys
-                    WHERE exchange IN ('NSE_EQ', 'NSE_INDEX', 'BSE_INDEX')
+                    WHERE exchange IN ('NSE_EQ', 'NSE_INDEX', 'BSE_INDEX', 'NSE_FO', 'BSE_FO')
                 """
                 params = []
                 conditions = []
