@@ -24,25 +24,37 @@ from functools import partial
 class UpstoxFeedWorker:
     def __init__(self, database_service):
         self.db = database_service
-        # Fetch access token from database with ID=3 instead of using Config.ACCESS_TOKEN
-        self.access_token = self.db.get_access_token(account_id=3)
-        if not self.access_token:
-            print("Warning: Access token not found in database with ID=3, falling back to Config")
-            self.access_token = Config.ACCESS_TOKEN
-        print(f"Using access token ending with ...{self.access_token[-4:]} from database (ID=3)")
+        # Fetch access tokens from database with different IDs
+        self.access_tokens = []
+        self.access_token_1 = self.db.get_access_token(account_id=1)  # Get first token with ID=1
+        self.access_token_3 = self.db.get_access_token(account_id=3)  # Get second token with ID=3
+
+        if self.access_token_1:
+            print(f"Using first access token ending with ...{self.access_token_1[-4:]} from database (ID=1)")
+            self.access_tokens.append(self.access_token_1)
+
+        if self.access_token_3:
+            print(f"Using second access token ending with ...{self.access_token_3[-4:]} from database (ID=3)")
+            self.access_tokens.append(self.access_token_3)
+
+        if not self.access_tokens:
+            print("Warning: No access tokens found in database, falling back to Config")
+            self.access_tokens.append(Config.ACCESS_TOKEN)
         
         self.ssl_context = ssl.create_default_context()
         self.ssl_context.check_hostname = False
         self.ssl_context.verify_mode = ssl.CERT_NONE
         self.running = False
 
-        # Connection settings - Updated for single connection
-        self.MAX_CONNECTIONS = 1  # Only one connection
-        self.MAX_KEYS_PER_CONNECTION = 300  # Maximum of 300 keys per connection
+        # Connection settings - Updated for multiple connections
+        self.MAX_CONNECTIONS = 2  # Two connections to handle 6000 instruments
+        self.MAX_KEYS_PER_CONNECTION = 3000  # Maximum of 3000 keys per connection
         self.RECONNECT_DELAY = 1  # seconds
+        self.CONNECTION_DELAY = 2  # seconds between connections
 
-        # Keep track of connection
-        self.connection_active = False
+        # Keep track of connections
+        self.connections = []
+        self.connection_tasks = []
 
         # Processing thresholds
         self.OPTIONS_THRESHOLD = 87
@@ -62,7 +74,6 @@ class UpstoxFeedWorker:
         # Data processing pipeline
         self.data_queue = asyncio.Queue(maxsize=10000)
         self.processing_task = None
-        self.connection_task = None
         self.refresh_request_queue = asyncio.Queue(maxsize=1)
 
         # Database distribution queue
@@ -73,7 +84,8 @@ class UpstoxFeedWorker:
         self.instrument_cache = {}
         self.cache_refresh_time = 0
         self.CACHE_TTL = 3600  # 1 hour cache
-        self.instrument_keys = []  # Store instrument keys here
+        self.instrument_keys = []  # Store all instrument keys here
+        self.connection_key_batches = []  # Store key batches for each connection
 
         # Performance monitoring
         self.last_processed_time = time.time()
@@ -184,15 +196,16 @@ class UpstoxFeedWorker:
 
     async def stop_connections(self):
         """Stop all feed connections but keep the worker running."""
-        # Cancel connection task if active
-        if self.connection_task and not self.connection_task.done():
-            self.connection_task.cancel()
-            
+        # Cancel all connection tasks if active
+        for task in self.connection_tasks:
+            if task and not task.done():
+                task.cancel()
+
         # Reset connection state
-        self.connection_active = False
-        self.connection_task = None
-            
-        print("Feed connection has been stopped")
+        self.connections = []
+        self.connection_tasks = []
+
+        print("All feed connections have been stopped")
 
     def _setup_db_workers(self):
         """Setup multiple database worker threads for parallel processing."""
@@ -326,7 +339,7 @@ class UpstoxFeedWorker:
 
                 # Execute database operation based on task type
                 if task_type == 'oi_volume':
-                    self.db.save_oi_volume_batch_feed(data)
+                    #self.db.save_oi_volume_batch_feed(data)
                     records_count = len(data)
                 elif task_type == 'stock_prices':
                     self.db.update_stock_prices_batch(data)
@@ -404,19 +417,18 @@ class UpstoxFeedWorker:
             except asyncio.CancelledError:
                 pass
 
-        # Cancel connection task
-        if self.connection_task and not self.connection_task.done():
-            self.connection_task.cancel()
+        # Cancel all connection tasks
+        await self.stop_connections()
 
         print("Feed worker stopped")
 
     async def fetch_instrument_keys(self):
-        """Fetch instrument keys once."""
+        """Fetch up to 6000 instrument keys."""
         try:
             # Set a timeout for fetching keys to prevent long delays
             instruments = await asyncio.wait_for(
-                self.db.get_instrument_keys_async(limit=300),  # Limit to 300 instruments
-                timeout=10  # 10 second timeout for database query
+                self.db.get_instrument_keys_async(limit=6000),  # Increased to 6000 instruments
+                timeout=20  # 20 second timeout for database query
             )
 
             if not instruments:
@@ -435,12 +447,16 @@ class UpstoxFeedWorker:
 
             self.cache_refresh_time = time.time()
 
-            # Ensure we don't exceed MAX_KEYS_PER_CONNECTION
-            if len(self.instrument_keys) > self.MAX_KEYS_PER_CONNECTION:
-                print(f"Limiting instruments from {len(self.instrument_keys)} to {self.MAX_KEYS_PER_CONNECTION}")
-                self.instrument_keys = self.instrument_keys[:self.MAX_KEYS_PER_CONNECTION]
+            # Ensure we don't exceed total capacity (MAX_CONNECTIONS * MAX_KEYS_PER_CONNECTION)
+            max_total_keys = self.MAX_CONNECTIONS * self.MAX_KEYS_PER_CONNECTION
+            if len(self.instrument_keys) > max_total_keys:
+                print(f"Limiting instruments from {len(self.instrument_keys)} to {max_total_keys}")
+                self.instrument_keys = self.instrument_keys[:max_total_keys]
 
-            print(f"Prepared {len(self.instrument_keys)} instruments for connection")
+            # Split keys into batches for each connection
+            self.connection_key_batches = self._split_keys_for_connections(self.instrument_keys)
+
+            print(f"Prepared {len(self.instrument_keys)} instruments across {len(self.connection_key_batches)} connections")
             return True
 
         except asyncio.TimeoutError:
@@ -450,8 +466,28 @@ class UpstoxFeedWorker:
             print(f"Error fetching instrument keys: {e}")
             return False
 
+    def _split_keys_for_connections(self, keys):
+        """Split instrument keys into batches for each connection."""
+        if not keys:
+            return []
+
+        # Calculate how many connections we need
+        num_connections = min(self.MAX_CONNECTIONS,
+                             (len(keys) + self.MAX_KEYS_PER_CONNECTION - 1) // self.MAX_KEYS_PER_CONNECTION)
+
+        # Split keys into roughly equal batches
+        batches = []
+        for i in range(num_connections):
+            start_idx = i * self.MAX_KEYS_PER_CONNECTION
+            end_idx = min(start_idx + self.MAX_KEYS_PER_CONNECTION, len(keys))
+            batch = keys[start_idx:end_idx]
+            if batch:  # Only add non-empty batches
+                batches.append(batch)
+
+        return batches
+
     async def run_feed(self):
-        """Main feed running loop with a single connection."""
+        """Main feed running loop with multiple connections."""
         while self.running:
             try:
                 # Check if market is open before trying to connect
@@ -459,68 +495,72 @@ class UpstoxFeedWorker:
                     await asyncio.sleep(1)
                     continue
 
-                # If a connection is already active, just check its status
-                if self.connection_task and not self.connection_task.done():
-                    await asyncio.sleep(0.5)
-                    continue
-                
-                print("Starting feed connection with cached instrument keys")
-
-                # Reset connection state
-                self.connection_active = False
-
-                # If we don't have any instrument keys yet, retry fetch
-                if not self.instrument_keys:
-                    print("No instrument keys available, retrying fetch")
+                # If no connection batches available, try to fetch them
+                if not self.connection_key_batches:
+                    print("No instrument key batches available, retrying fetch")
                     success = await asyncio.wait_for(
                         self.fetch_instrument_keys(),
-                        timeout=5
+                        timeout=10
                     )
                     if not success:
                         await asyncio.sleep(0.5)
                         continue
 
-                # Create a single connection task
-                print(f"Creating connection with token ending ...{self.access_token[-4:]}")
-                
-                self.connection_task = asyncio.create_task(
-                    self.persistent_connection_manager(self.instrument_keys, self.access_token)
-                )
-                
-                # Monitor the connection with timeout
-                try:
-                    await asyncio.wait_for(
-                        asyncio.shield(self.connection_task),
-                        timeout=30  # 30 second timeout for initial connection
-                    )
-                except asyncio.TimeoutError:
-                    print("Connection timed out, will retry")
-                    if self.connection_task and not self.connection_task.done():
-                        self.connection_task.cancel()
-                    self.connection_active = False
-                except Exception as e:
-                    print(f"Connection error: {e}")
-                    self.connection_active = False
+                # Calculate how many active connections we have
+                active_connections = sum(1 for task in self.connection_tasks if task and not task.done())
 
-                # Short delay before retrying
+                # If we have all the connections we need, just monitor them
+                if active_connections >= len(self.connection_key_batches):
+                    await asyncio.sleep(0.5)
+                    continue
+                
+                # Start connections for any missing batches
+                for i, key_batch in enumerate(self.connection_key_batches):
+                    # Skip if we already have a connection for this batch
+                    if i < len(self.connection_tasks) and self.connection_tasks[i] and not self.connection_tasks[i].done():
+                        continue
+
+                    # Select the appropriate token for this connection
+                    # For even connection indices, use the first token; for odd, use the second token
+                    token_index = min(i % len(self.access_tokens), len(self.access_tokens) - 1)
+                    token = self.access_tokens[token_index]
+                    token_id = 1 if token == self.access_token_1 else 3
+
+                    print(f"Starting feed connection {i+1}/{len(self.connection_key_batches)} with {len(key_batch)} instruments using token from ID={token_id}")
+
+                    # Create a new connection task
+                    connection_task = asyncio.create_task(
+                        self.persistent_connection_manager(key_batch, token, i)
+                    )
+
+                    # Add to our list of tasks
+                    if i < len(self.connection_tasks):
+                        self.connection_tasks[i] = connection_task
+                    else:
+                        self.connection_tasks.append(connection_task)
+
+                    # Wait between starting connections to avoid overwhelming the server
+                    await asyncio.sleep(self.CONNECTION_DELAY)
+
+                # Sleep before checking connections again
                 await asyncio.sleep(0.5)
 
             except Exception as e:
                 print(f"Main feed loop error: {e}")
                 await asyncio.sleep(0.5)
 
-    async def persistent_connection_manager(self, key_batch, token):
+    async def persistent_connection_manager(self, key_batch, token, connection_id):
         """Manage a persistent connection with automatic reconnection."""
         retry_count = 0
         max_retries = 5
 
         while self.running and retry_count < max_retries:
             try:
-                print(f"Connection: Attempting to establish (attempt {retry_count + 1}) with token ...{token[-4:]}")
+                print(f"Connection {connection_id}: Attempting to establish (attempt {retry_count + 1}) with token ...{token[-4:]}")
 
                 # Use timeouts to prevent hanging
                 await asyncio.wait_for(
-                    self.manage_connection(key_batch, token),
+                    self.manage_connection(key_batch, token, connection_id),
                     timeout=25  # 25 second timeout
                 )
 
@@ -528,19 +568,17 @@ class UpstoxFeedWorker:
             except asyncio.TimeoutError:
                 retry_count += 1
                 delay = min(0.5 * retry_count, 1)  # Cap delay at 1s, start with 0.5s
-                print(f"Connection: Timed out (attempt {retry_count}). Retrying in {delay}s")
+                print(f"Connection {connection_id}: Timed out (attempt {retry_count}). Retrying in {delay}s")
                 await asyncio.sleep(delay)
             except Exception as e:
                 retry_count += 1
                 delay = min(0.5 * retry_count, 1)
-                print(f"Connection: Error (attempt {retry_count}): {e}. Retrying in {delay}s")
+                print(f"Connection {connection_id}: Error (attempt {retry_count}): {e}. Retrying in {delay}s")
                 await asyncio.sleep(delay)
 
-        # When we exit this loop, update the connection status
-        self.connection_active = False
-        print(f"Connection with token ...{token[-4:]} terminated")
+        print(f"Connection {connection_id} with token ...{token[-4:]} terminated")
 
-    async def manage_connection(self, key_batch, token):
+    async def manage_connection(self, key_batch, token, connection_id):
         """Manage a single websocket connection."""
         # Set a timeout for authorization to prevent hanging
         auth_response = await asyncio.wait_for(
@@ -549,10 +587,10 @@ class UpstoxFeedWorker:
         )
 
         if not auth_response.get('data', {}).get('authorized_redirect_uri'):
-            print(f"Connection: Authorization failed for token ...{token[-4:]}")
+            print(f"Connection {connection_id}: Authorization failed for token ...{token[-4:]}")
             raise ConnectionError("Failed to authorize feed")
 
-        print(f"Connection: Establishing WebSocket connection with token ...{token[-4:]}")
+        print(f"Connection {connection_id}: Establishing WebSocket connection with token ...{token[-4:]}")
 
         # Reduced timeouts
         connect_kwargs = {
@@ -572,21 +610,20 @@ class UpstoxFeedWorker:
                 timeout=5  # 5 second timeout for connection
             )
         except asyncio.TimeoutError:
-            print(f"Connection: WebSocket connection timed out")
+            print(f"Connection {connection_id}: WebSocket connection timed out")
             raise
 
-        print(f'Connection: WebSocket connected, subscribing to {len(key_batch)} instruments')
-        self.connection_active = True
+        print(f'Connection {connection_id}: WebSocket connected, subscribing to {len(key_batch)} instruments')
 
         async with websocket:
             # Start subscription immediately to reduce wait time
             subscription_task = asyncio.create_task(
-                self._subscription_manager(websocket, key_batch)
+                self._subscription_manager(websocket, key_batch, connection_id)
             )
 
             # Start reader task after subscription is sent
             reader_task = asyncio.create_task(
-                self._websocket_reader(websocket, key_batch)
+                self._websocket_reader(websocket, key_batch, connection_id)
             )
 
             # Wait for first task to complete with a timeout
@@ -606,10 +643,10 @@ class UpstoxFeedWorker:
             except:
                 pass
 
-    async def _websocket_reader(self, websocket, key_batch):
+    async def _websocket_reader(self, websocket, key_batch, connection_id):
         """Dedicated task for reading from websocket."""
         try:
-            while self.running and self.connection_active:
+            while self.running:
                 try:
                     # Reduced timeout for faster detection of connection issues
                     message = await asyncio.wait_for(websocket.recv(), timeout=0.5)
@@ -625,15 +662,15 @@ class UpstoxFeedWorker:
                         pong_waiter = await websocket.ping()
                         await asyncio.wait_for(pong_waiter, timeout=0.5)
                     except:
-                        print(f"Connection: Ping failed, reconnecting")
+                        print(f"Connection {connection_id}: Ping failed, reconnecting")
                         break
                 except Exception as e:
-                    print(f"Connection: Reader error: {e}")
+                    print(f"Connection {connection_id}: Reader error: {e}")
                     break
         except Exception as e:
-            print(f"Connection: Reader task error: {e}")
+            print(f"Connection {connection_id}: Reader task error: {e}")
 
-    async def _subscription_manager(self, websocket, key_batch):
+    async def _subscription_manager(self, websocket, key_batch, connection_id):
         """Dedicated task for handling subscriptions."""
         last_subscription_time = time.time()
         subscription_interval = 30  # Refresh subscription every 30 seconds
@@ -641,30 +678,30 @@ class UpstoxFeedWorker:
         # Initial subscription with a timeout
         try:
             await asyncio.wait_for(
-                self.send_subscription(websocket, key_batch),
+                self.send_subscription(websocket, key_batch, connection_id),
                 timeout=5  # 5 second timeout for subscription
             )
         except asyncio.TimeoutError:
-            print(f"Connection: Initial subscription timed out")
+            print(f"Connection {connection_id}: Initial subscription timed out")
             return
         except Exception as e:
-            print(f"Connection: Initial subscription error: {e}")
+            print(f"Connection {connection_id}: Initial subscription error: {e}")
             return
 
         try:
-            while self.running and self.connection_active:
+            while self.running:
                 current_time = time.time()
 
                 # Handle periodic subscription refresh
                 if current_time - last_subscription_time > subscription_interval:
                     try:
                         await asyncio.wait_for(
-                            self.send_subscription(websocket, key_batch, refresh=True),
+                            self.send_subscription(websocket, key_batch, connection_id, refresh=True),
                             timeout=5  # 5 second timeout for refresh
                         )
                         last_subscription_time = current_time
                     except Exception as e:
-                        print(f"Connection: Refresh subscription error: {e}")
+                        print(f"Connection {connection_id}: Refresh subscription error: {e}")
                         break
 
                 # Check for refresh requests (with non-blocking check)
@@ -672,17 +709,17 @@ class UpstoxFeedWorker:
                     try:
                         await self.refresh_request_queue.get()
                         await asyncio.wait_for(
-                            self.send_subscription(websocket, key_batch, refresh=True),
+                            self.send_subscription(websocket, key_batch, connection_id, refresh=True),
                             timeout=3
                         )
                         self.refresh_request_queue.task_done()
                         last_subscription_time = current_time
                     except Exception as e:
-                        print(f"Connection: Requested refresh error: {e}")
+                        print(f"Connection {connection_id}: Requested refresh error: {e}")
 
                 await asyncio.sleep(0.5)  # Check more frequently
         except Exception as e:
-            print(f"Connection: Subscription manager error: {e}")
+            print(f"Connection {connection_id}: Subscription manager error: {e}")
 
     async def _process_queue_continuously(self):
         """Continuously process data from the queue."""
@@ -773,17 +810,13 @@ class UpstoxFeedWorker:
 
     async def get_market_data_feed_authorize(self, token=None):
         """Get authorization for market data feed."""
-        # Use provided token or fetch from database if not provided
         if not token:
-            token = self.db.get_access_token(account_id=3)
-            if not token:
-                print("Warning: Access token not found in database with ID=3, using cached token")
-                token = self.access_token
+            # If no token provided, use the first available token
+            if self.access_tokens:
+                token = self.access_tokens[0]
             else:
-                # Update cached token if it changed
-                if token != self.access_token:
-                    print(f"Access token updated from database (ID=3), new token ending with ...{token[-4:]}")
-                    self.access_token = token
+                print("Warning: No access tokens available")
+                return None
         
         headers = {
             'Accept': 'application/json',
@@ -884,7 +917,15 @@ class UpstoxFeedWorker:
                                 'bid_qty': bid_qty,
                                 'ask_qty': ask_qty,
                                 'lot_size': lot_size,
-                                'timestamp': current_time
+                                'timestamp': current_time,
+                                'oi': oi,
+                                'volume': volume,
+                                'vega': greeks.get('vega'),
+                                'theta': greeks.get('theta'),
+                                'gamma': greeks.get('gamma'),
+                                'delta': greeks.get('delta'),
+                                'iv': iv,
+                                'pop': greeks.get('pop', 0)
                             }
 
                         # Always record OI data for options
@@ -964,10 +1005,10 @@ class UpstoxFeedWorker:
             print(f"Error processing instrument {instrument_key}: {e}")
             return None, None, None, None
 
-    async def send_subscription(self, websocket, key_batch, refresh=False):
+    async def send_subscription(self, websocket, key_batch, connection_id, refresh=False):
         """Send subscription message to websocket."""
         # Split large batches to reduce subscription time
-        max_batch_size = 300  # Adjusted to handle 300 keys max
+        max_batch_size = 300  # Process in smaller batches of 300 keys
         sub_batches = [key_batch[i:i+max_batch_size] for i in range(0, len(key_batch), max_batch_size)]
 
         if refresh:
@@ -984,10 +1025,10 @@ class UpstoxFeedWorker:
                     await websocket.send(json.dumps(unsubscribe_msg).encode('utf-8'))
                     await asyncio.sleep(0.05)  # Reduced from 0.1
             except Exception as e:
-                print(f"Error during unsubscribe: {e}")
+                print(f"Error during unsubscribe for connection {connection_id}: {e}")
 
         # Subscribe in smaller batches
-        for sub_batch in sub_batches:
+        for i, sub_batch in enumerate(sub_batches):
             subscribe_msg = {
                 "guid": str(uuid.uuid4()),
                 "method": "sub",
@@ -997,6 +1038,7 @@ class UpstoxFeedWorker:
                 }
             }
             await websocket.send(json.dumps(subscribe_msg).encode('utf-8'))
+            print(f"Connection {connection_id}: Subscribed to batch {i+1}/{len(sub_batches)} ({len(sub_batch)} instruments)")
             await asyncio.sleep(0.05)  # Small delay between batches
 
 async def main():
@@ -1012,4 +1054,3 @@ async def main():
 
 if __name__ == "__main__":
     asyncio.run(main())
-
