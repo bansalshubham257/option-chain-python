@@ -339,6 +339,56 @@ class UpstoxFeedWorker:
 
                 # Execute database operation based on task type
                 if task_type == 'oi_volume':
+                    # Aggregate call and put OI data by symbol
+                    symbol_oi_data = {}
+
+                    # Create time bucket (rounded to nearest 5 minutes for consistent aggregation)
+                    current_time = datetime.now(pytz.timezone('Asia/Kolkata'))
+                    current_minute = current_time.minute
+                    rounded_minute = 5 * (current_minute // 5)  # Round to nearest 5 minutes
+                    display_time = f"{current_time.hour:02d}:{rounded_minute:02d}"
+
+                    # Process all records to aggregate total call and put OI by symbol
+                    for record in data:
+                        symbol = record.get('symbol')
+                        option_type = record.get('option_type')
+                        oi = float(record.get('oi', 0) or 0)
+
+                        if not symbol or not option_type or option_type not in ['CE', 'PE']:
+                            continue
+
+                        if symbol not in symbol_oi_data:
+                            symbol_oi_data[symbol] = {'call_oi': 0, 'put_oi': 0}
+
+                        if option_type == 'CE':
+                            symbol_oi_data[symbol]['call_oi'] += oi
+                        elif option_type == 'PE':
+                            symbol_oi_data[symbol]['put_oi'] += oi
+
+                    # Save aggregated OI data to total_oi_history table
+                    if symbol_oi_data:
+                        total_oi_records = []
+                        for symbol, oi_data in symbol_oi_data.items():
+                            call_oi = oi_data['call_oi']
+                            put_oi = oi_data['put_oi']
+                            call_put_ratio = call_oi / put_oi if put_oi > 0 else 0
+
+                            total_oi_records.append({
+                                'symbol': symbol,
+                                'display_time': display_time,
+                                'call_oi': call_oi,
+                                'put_oi': put_oi,
+                                'call_put_ratio': call_put_ratio,
+                                'timestamp': current_time
+                            })
+
+                        # Save to database with upsert logic to handle 5-minute intervals
+                        try:
+                            self.db.save_total_oi_data(total_oi_records)
+                        except Exception as e:
+                            print(f"Error saving total OI data: {e}")
+
+                    # Continue processing individual OI records
                     #self.db.save_oi_volume_batch_feed(data)
                     records_count = len(data)
                 elif task_type == 'stock_prices':
