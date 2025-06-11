@@ -944,6 +944,9 @@ async def get_options_orders_analysis():
             # Get current less than flags and initialize recovery flags
             is_less_than_25pct = order.get('is_less_than_25pct', False)
             is_less_than_50pct = order.get('is_less_than_50pct', False)
+            is_greater_than_25pct = order.get('is_greater_than_25pct', False)
+            is_greater_than_50pct = order.get('is_greater_than_50pct', False)
+            is_greater_than_75pct = order.get('is_greater_than_75pct', False)
             
             # Track lowest price point
             lowest_point = order.get('lowest_point', min(current_ltp, stored_ltp))
@@ -965,6 +968,18 @@ async def get_options_orders_analysis():
             if current_ltp < (stored_ltp * 0.5) and not is_less_than_50pct:
                 is_less_than_50pct = True
                 need_update = True
+
+            if current_ltp > (stored_ltp * 1.25) and not is_greater_than_25pct:
+                is_greater_than_25pct = True
+                need_update = True
+
+            if current_ltp > (stored_ltp * 1.50) and not is_greater_than_50pct:
+                is_greater_than_50pct = True
+                need_update = True
+
+            if current_ltp > (stored_ltp * 1.75) and not is_greater_than_75pct:
+                is_greater_than_75pct = True
+                need_update = True
                 
             # Mark for update in database if needed
             if need_update:
@@ -975,6 +990,9 @@ async def get_options_orders_analysis():
                     'new_status': current_status,
                     'is_less_than_25pct': is_less_than_25pct,
                     'is_less_than_50pct': is_less_than_50pct,
+                    'is_greater_than_25pct': is_greater_than_25pct,
+                    'is_greater_than_50pct': is_greater_than_50pct,
+                    'is_greater_than_75pct': is_greater_than_75pct,
                     'lowest_point': lowest_point
                 })
 
@@ -1019,6 +1037,9 @@ async def get_options_orders_analysis():
                 'timestamp': order.get('timestamp', ''),
                 'is_less_than_25pct': is_less_than_25pct,  # Include the flag
                 'is_less_than_50pct': is_less_than_50pct,  # Include the flag
+                'is_greater_than_25pct': is_greater_than_25pct,  # Include the flag
+                'is_greater_than_50pct': is_greater_than_50pct,  # Include the flag
+                'is_greater_than_75pct': is_greater_than_75pct,  # Include the flag
                 'lowest_point': lowest_point,  # Include the lowest point
                 'role': order.get('role', 'Unknown')  # Include role if available
             })
