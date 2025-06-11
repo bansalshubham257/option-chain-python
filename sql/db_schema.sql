@@ -701,3 +701,15 @@ ALTER TABLE options_orders ADD COLUMN IF NOT EXISTS status VARCHAR(20) DEFAULT '
 -- Update any existing rows without status to 'Open'
 UPDATE options_orders SET status = 'Open' WHERE status IS NULL;
 
+CREATE TABLE IF NOT EXISTS total_oi_history (
+    id SERIAL PRIMARY KEY,
+    symbol VARCHAR(20) NOT NULL,
+    display_time VARCHAR(5) NOT NULL,
+    call_oi DECIMAL NOT NULL,
+    put_oi DECIMAL NOT NULL,
+    call_put_ratio DECIMAL,
+    timestamp TIMESTAMP,
+    last_updated TIMESTAMP DEFAULT NOW(),
+    UNIQUE (symbol, display_time)
+);
+
