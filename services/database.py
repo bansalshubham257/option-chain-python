@@ -440,11 +440,10 @@ class DatabaseService:
 
     def save_options_data(self, symbol, orders):
         """Bulk insert options orders"""
-        print("inside save_options_data")
+
         if not orders:
             print("No orders to save")
             return
-        print("got orders to save", orders)
         with self._get_cursor() as cur:
             data = [(order['stock'], order['strike_price'], order['type'],
                      order['ltp'], order['bid_qty'], order['ask_qty'],
@@ -459,15 +458,11 @@ class DatabaseService:
                 VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 ON CONFLICT (symbol, strike_price, option_type) DO NOTHING
             """, data, page_size=100)
-        print("Successfully saved options data")
 
     def save_worker_options_data(self, symbol, orders):
         """Bulk insert options orders"""
-        print("inside save_options_data")
         if not orders:
-            print("No orders to save")
             return
-        print("got orders to save", orders)
         with self._get_cursor() as cur:
             data = [(order['stock'], order['strike_price'], order['type'],
                      order['ltp'], order['bid_qty'], order['ask_qty'],
@@ -482,7 +477,6 @@ class DatabaseService:
                 VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                 ON CONFLICT (symbol, strike_price, option_type) DO NOTHING
             """, data, page_size=100)
-        print("Successfully saved options data")
 
 
     def update_options_orders_status(self, orders_to_update):
@@ -676,6 +670,73 @@ class DatabaseService:
             print(f"Database error in save_oi_volume_batch: {e}")
             import traceback
             traceback.print_exc()
+
+    def save_total_oi_data(self, records):
+        """Save total call/put OI data for each symbol.
+
+        Args:
+            records: List of dictionaries containing aggregated OI data
+                    with keys: symbol, display_time, call_oi, put_oi, call_put_ratio, timestamp
+        """
+        if not records:
+            return
+
+        try:
+            with self._get_cursor() as cur:
+                for record in records:
+                    # Check if a record already exists for this symbol and time
+                    cur.execute("""
+                        SELECT call_oi, put_oi 
+                        FROM total_oi_history 
+                        WHERE symbol = %s AND display_time = %s
+                    """, (record['symbol'], record['display_time']))
+
+                    existing = cur.fetchone()
+
+                    if existing:
+                        # Only update if OI values have changed by at least 1%
+                        # When fetching data from the database
+                        existing_call_oi = float(existing[0]) if existing[0] is not None else 0
+                        existing_put_oi = float(existing[1]) if existing[1] is not None else 0
+
+                        call_oi_change_pct = abs((record['call_oi'] - existing_call_oi) / existing_call_oi * 100) if existing_call_oi > 0 else 100
+                        put_oi_change_pct = abs((record['put_oi'] - existing_put_oi) / existing_put_oi * 100) if existing_put_oi > 0 else 100
+
+                        # Update if significant change in either call or put OI
+                        if call_oi_change_pct >= 1 or put_oi_change_pct >= 1:
+                            cur.execute("""
+                                UPDATE total_oi_history
+                                SET call_oi = %s, put_oi = %s, call_put_ratio = %s, timestamp = %s, last_updated = NOW()
+                                WHERE symbol = %s AND display_time = %s
+                            """, (
+                                record['call_oi'],
+                                record['put_oi'],
+                                record['call_put_ratio'],
+                                record['timestamp'],
+                                record['symbol'],
+                                record['display_time']
+                            ))
+                    else:
+                        # Insert new record
+                        cur.execute("""
+                            INSERT INTO total_oi_history
+                            (symbol, display_time, call_oi, put_oi, call_put_ratio, timestamp)
+                            VALUES (%s, %s, %s, %s, %s, %s)
+                        """, (
+                            record['symbol'],
+                            record['display_time'],
+                            record['call_oi'],
+                            record['put_oi'],
+                            record['call_put_ratio'],
+                            record['timestamp']
+                        ))
+
+            return True
+        except Exception as e:
+            print(f"Error saving total OI data: {e}")
+            import traceback
+            traceback.print_exc()
+            return False
 
 
     def save_oi_volume_batch(self, records):
@@ -2843,3 +2904,6 @@ class DatabaseService:
         except Exception as e:
             print(f"Error saving upstox account: {str(e)}")
             return False
+
+
+
