@@ -592,6 +592,18 @@ async def fetch_multiple_oi_volume(instrument_keys: str):
 
     return result
 
+
+@app.get("/api/fno_stocks")
+async def get_fno_stocks():
+    """Fetch all available stock symbols for which options are available."""
+    try:
+        stocks = db_service.get_option_stock_symbols()
+        if not stocks:
+            raise HTTPException(status_code=404, detail="No stocks found with option instruments")
+        return stocks
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 @app.get("/api/stocks")
 async def get_stocks():
     """Fetch all available stock symbols for which options are available."""
@@ -1134,6 +1146,126 @@ def close_all_websockets_sync():
         print(f"Error in close_all_websockets_sync: {e}")
         import traceback
         traceback.print_exc()
+
+from datetime import datetime
+
+def aggregate_oi_data_by_interval(data, interval):
+    """Aggregate OI data by time interval."""
+    if not data:
+        return []
+
+    data.sort(key=lambda x: x["time"])
+    aggregated_data = {}
+    interval_minutes = {
+        "5m": 5,
+        "15m": 15,
+        "1h": 60
+    }.get(interval, 5)
+
+    for item in data:
+        try:
+            # Try parsing with full datetime, fallback to time only
+            try:
+                dt = datetime.strptime(item["time"], '%Y-%m-%d %H:%M:%S')
+            except ValueError:
+                # If only time is provided, use today's date
+                today = datetime.now().strftime('%Y-%m-%d')
+                dt = datetime.strptime(f"{today} {item['time']}", '%Y-%m-%d %H:%M')
+
+            minutes = dt.minute
+            normalized_minutes = (minutes // interval_minutes) * interval_minutes
+            interval_key = dt.replace(minute=normalized_minutes, second=0).strftime('%Y-%m-%d %H:%M:%S')
+
+            if interval_key not in aggregated_data:
+                aggregated_data[interval_key] = {
+                    "time": interval_key,
+                    "call_oi": item["call_oi"],
+                    "put_oi": item["put_oi"],
+                    "call_put_ratio": item["call_put_ratio"],
+                    "timestamp": item["timestamp"],
+                    "count": 1
+                }
+            else:
+                current = aggregated_data[interval_key]
+                current["call_oi"] = max(current["call_oi"], item["call_oi"])
+                current["put_oi"] = max(current["put_oi"], item["put_oi"])
+                current["call_put_ratio"] = (current["call_put_ratio"] * current["count"] + item["call_put_ratio"]) / (current["count"] + 1)
+                current["count"] += 1
+        except Exception as e:
+            print(f"Error processing data point: {item}, error: {str(e)}")
+            continue
+
+    result = list(aggregated_data.values())
+    result.sort(key=lambda x: x["time"])
+    for item in result:
+        if "count" in item:
+            del item["count"]
+    return result
+
+@app.get("/api/total-oi-history")
+async def get_total_oi_history(symbol: str, time_interval: str = "5m", limit: int = 100):
+    try:
+        with db_service._get_cursor() as cur:
+            # Get the total OI history data from the database
+            query = """
+                    SELECT display_time, call_oi, put_oi, call_put_ratio, timestamp
+                    FROM total_oi_history
+                    WHERE symbol = %s
+                    ORDER BY display_time DESC
+                    LIMIT %s
+                """
+            cur.execute(query, (symbol, limit))
+            rows = cur.fetchall()
+
+            if not rows:
+                return {"success": False, "message": "No data found for the symbol", "data": []}
+
+            # Process the data based on time interval
+            data = []
+            for row in rows:
+                if isinstance(row[0], str):
+                    display_time = row[0]
+                else:
+                    display_time = row[0].strftime('%Y-%m-%d %H:%M:%S') if row[0] else None
+
+                if isinstance(row[4], str):
+                    timestamp = row[4]
+                else:
+                    timestamp = row[4].strftime('%Y-%m-%d %H:%M:%S') if row[4] else None
+
+                data.append({
+                    "time": display_time,
+                    "call_oi": float(row[1]) if row[1] is not None else 0,
+                    "put_oi": float(row[2]) if row[2] is not None else 0,
+                    "call_put_ratio": float(row[3]) if row[3] is not None else 0,
+                    "timestamp": timestamp
+                })
+
+            # Group by time interval if necessary
+            if time_interval != "raw":
+                data = aggregate_oi_data_by_interval(data, time_interval)
+
+            # Calculate OI change for each interval
+            if len(data) > 1:
+                for i in range(1, len(data)):
+                    data[i]["call_oi_change"] = data[i]["call_oi"] - data[i-1]["call_oi"]
+                    data[i]["put_oi_change"] = data[i]["put_oi"] - data[i-1]["put_oi"]
+
+                # Set first interval changes to 0
+                data[0]["call_oi_change"] = 0
+                data[0]["put_oi_change"] = 0
+
+            return {
+                "success": True,
+                "data": data,
+                "symbol": symbol,
+                "time_interval": time_interval
+            }
+    except Exception as e:
+        print(f"Error fetching total OI history: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
 
 def run_websocket():
     asyncio.run(websocket_worker())
