@@ -241,8 +241,8 @@ async def websocket_worker():
                                 volume = int(market_ff.get("vtt", 0))
 
                             bid_ask_quote = market_ff.get("marketLevel", {}).get("bidAskQuote", [{}])
-                            bidQ = bid_ask_quote[0].get("bidQ", 0) if bid_ask_quote else 0
-                            askQ = bid_ask_quote[0].get("askQ", 0) if bid_ask_quote else 0
+                            bidQ = max([int(quote.get("bidQ", 0) or 0) for quote in bid_ask_quote[:5]]) if bid_ask_quote else 0
+                            askQ = max([int(quote.get("askQ", 0) or 0) for quote in bid_ask_quote[:5]]) if bid_ask_quote else 0
 
                             market_data[instrument] = {
                                 "ltp": ltpc.get("ltp"),
