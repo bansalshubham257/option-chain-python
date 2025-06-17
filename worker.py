@@ -968,7 +968,7 @@ async def get_options_orders_analysis():
             # Check conditions for updating
             need_update = False
             
-            if abs(percent_change) > 98 and current_status != 'Done':
+            if abs(percent_change) > 95 and current_status != 'Done':
                 current_status = 'Done'  # Update for response
                 need_update = True
             
