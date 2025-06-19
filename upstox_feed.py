@@ -956,7 +956,7 @@ class UpstoxFeedWorker:
                         bid_qty, ask_qty = 0, 0
 
                     # Only process if price is valid and quantities meet threshold
-                    if ltp and ltp >= 1 and (bid_qty > 0 or ask_qty > 0):
+                    if ltp and ltp >= 2.5 and (bid_qty > 0 or ask_qty > 0):
                         threshold = self.OPTIONS_THRESHOLD * lot_size
                         if bid_qty >= threshold or ask_qty >= threshold:
                             option_order = {
