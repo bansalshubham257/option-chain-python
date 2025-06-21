@@ -693,9 +693,9 @@ color: #495057;
                 <th>Role</th>
                 <th>Days Captured</th>
                 <th>Original LTP</th>
-                <th>Lowest Point</th>
                 <th>Current LTP</th>
                 <th>Current Change %</th>
+                <th>Lowest Milestone</th>  <!-- Add this line -->
                 <th>Status</th>
                 <th>Live Bid</th>
                 <th>Live Ask</th>
@@ -1949,34 +1949,35 @@ function renderHighlightedOptionsTable() {
   }
 
   // Helper function to apply current sort to data
-  function applySort(data) {
-      if (!currentSort.column) return data;
+  // Helper function to apply current sort to data
+function applySort(data) {
+    if (!currentSort.column) return data;
 
-      return [...data].sort((a, b) => {
-          let aValue, bValue;
+    return [...data].sort((a, b) => {
+        let aValue, bValue;
 
-          if (currentSort.column === 'milestone') {
-              // Custom logic for milestone sorting
-              aValue = getMilestoneValue(a.percent_change);
-              bValue = getMilestoneValue(b.percent_change);
-          } else {
-              aValue = a[currentSort.column] === null ? 0 : a[currentSort.column];
-              bValue = b[currentSort.column] === null ? 0 : b[currentSort.column];
-          }
+        if (currentSort.column === 'milestone') {
+            // Custom logic for milestone sorting - pass the entire order object
+            aValue = getMilestoneValue(a.percent_change, a);
+            bValue = getMilestoneValue(b.percent_change, b);
+        } else {
+            aValue = a[currentSort.column] === null ? 0 : a[currentSort.column];
+            bValue = b[currentSort.column] === null ? 0 : b[currentSort.column];
+        }
 
-          if (currentSort.column === 'symbol') {
-              aValue = String(aValue);
-              bValue = String(bValue);
-              return currentSort.direction === 'asc'
-                  ? aValue.localeCompare(bValue)
-                  : bValue.localeCompare(aValue);
-          }
+        if (currentSort.column === 'symbol') {
+            aValue = String(aValue);
+            bValue = String(bValue);
+            return currentSort.direction === 'asc'
+                ? aValue.localeCompare(bValue)
+                : bValue.localeCompare(aValue);
+        }
 
-          return currentSort.direction === 'asc'
-              ? aValue - bValue
-              : bValue - aValue;
-      });
-  }
+        return currentSort.direction === 'asc'
+            ? aValue - bValue
+            : bValue - aValue;
+    });
+}
 
   // Helper function to convert percent change to milestone numeric value for sorting
   function getMilestoneValue(percentChange) {
@@ -2172,6 +2173,16 @@ function renderHighlightedOptionsTable() {
           // Display symbol without any special highlighting
           const symbolDisplay = order.symbol;
 
+          // Determine the lowest milestone hit
+          let lowestMilestone = "";
+          if (order.is_less_than_25pct === true) {
+              lowestMilestone = "<span class='badge bg-danger'>Below 25%</span>";
+          } else if (order.is_less_than_50pct === true) {
+              lowestMilestone = "<span class='badge bg-warning text-dark'>Below 50%</span>";
+          } else {
+              lowestMilestone = "<span class='badge bg-secondary'>Safe</span>";
+          }
+
           row.innerHTML = `
               <td>${symbolDisplay}</td>
               <td>${order.strike_price}</td>
@@ -2179,10 +2190,9 @@ function renderHighlightedOptionsTable() {
               <td>${order.role || 'Unknown'}</td>
               <td>${daysCaptured}</td>
               <td>${storedLtp.toFixed(2)}</td>
-              <td>${lowestPoint.toFixed(2)}</td>
-              <td>${currentLtp.toFixed(2)}</td>
               <td class="live-data">${liveLtp.toFixed(2)}</td>
               <td class="profit">+${recoveryFromOriginal.toFixed(2)}% (↑${recoveryFromLowest.toFixed(2)}% from low)</td>
+              <td>${lowestMilestone}</td>
               <td>${statusDisplay}</td>
               <td class="live-data ${bidQtyClass}">${bidQtyDisplay}</td>
               <td class="live-data ${askQtyClass}">${askQtyDisplay}</td>
