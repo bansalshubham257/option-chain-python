@@ -713,3 +713,68 @@ CREATE TABLE IF NOT EXISTS total_oi_history (
     UNIQUE (symbol, display_time)
 );
 
+CREATE TABLE IF NOT EXISTS strategy_orders (
+    id SERIAL PRIMARY KEY,
+    symbol VARCHAR(20) NOT NULL,
+    strike_price DECIMAL NOT NULL,
+    option_type CHAR(2) CHECK (option_type IN ('CE', 'PE')),
+    entry_price DECIMAL NOT NULL,
+    current_price DECIMAL,
+    target_price DECIMAL NOT NULL,
+    stop_loss DECIMAL NOT NULL,
+    lot_size INTEGER NOT NULL,
+    quantity INTEGER NOT NULL,
+    entry_time TIMESTAMPTZ NOT NULL,
+    exit_time TIMESTAMPTZ,
+    status VARCHAR(20) NOT NULL CHECK (status IN ('OPEN', 'PROFIT', 'LOSS', 'EXPIRED')),
+    exit_price DECIMAL,
+    pnl DECIMAL,
+    pnl_percentage DECIMAL,
+    strategy_name VARCHAR(50) NOT NULL,
+    expiry_date DATE NOT NULL,
+    instrument_key VARCHAR(100),
+    notes TEXT,
+    UNIQUE(symbol, strike_price, option_type, entry_time, strategy_name)
+);
+
+CREATE TABLE IF NOT EXISTS strategy_monthly_performance (
+    id SERIAL PRIMARY KEY,
+    month INTEGER NOT NULL,
+    year INTEGER NOT NULL,
+    strategy_name VARCHAR(50) NOT NULL,
+    total_orders INTEGER NOT NULL DEFAULT 0,
+    profit_orders INTEGER NOT NULL DEFAULT 0,
+    loss_orders INTEGER NOT NULL DEFAULT 0,
+    expired_orders INTEGER NOT NULL DEFAULT 0,
+    total_pnl DECIMAL NOT NULL DEFAULT 0,
+    win_rate DECIMAL,
+    avg_profit_percentage DECIMAL,
+    avg_loss_percentage DECIMAL,
+    max_drawdown DECIMAL,
+    max_capital_required DECIMAL,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE(month, year, strategy_name)
+);
+
+CREATE TABLE IF NOT EXISTS strategy_daily_capital (
+    id SERIAL PRIMARY KEY,
+    strategy_name VARCHAR(50) NOT NULL,
+    date DATE NOT NULL,
+    open_positions INTEGER NOT NULL DEFAULT 0,
+    capital_deployed DECIMAL NOT NULL DEFAULT 0,
+    unrealized_pnl DECIMAL NOT NULL DEFAULT 0,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
+    UNIQUE(strategy_name, date)
+);
+
+-- Indexes for performance
+CREATE INDEX idx_strategy_orders_symbol ON strategy_orders(symbol, option_type);
+CREATE INDEX idx_strategy_orders_status ON strategy_orders(status);
+CREATE INDEX idx_strategy_orders_entry_time ON strategy_orders(entry_time);
+CREATE INDEX idx_strategy_orders_strategy ON strategy_orders(strategy_name);
+CREATE INDEX idx_strategy_performance_month_year ON strategy_monthly_performance(month, year);
+CREATE INDEX idx_strategy_capital_date ON strategy_daily_capital(date);
+
+
