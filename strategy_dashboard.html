@@ -1,0 +1,812 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Strategy Performance Dashboard</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/css/bootstrap.min.css" rel="stylesheet">
+  <style>
+    /* Critical full-width overrides */
+    html, body {
+        width: 100% !important;
+        max-width: 100% !important;
+        overflow-x: hidden !important;
+        margin: 0 !important;
+        padding: 0 !important;
+    }
+
+    /* Override any Bootstrap constraints */
+    .container-fluid {
+        width: 100% !important;
+        max-width: 100% !important;
+        padding-left: 15px !important;
+        padding-right: 15px !important;
+        margin-left: 0 !important;
+        margin-right: 0 !important;
+    }
+
+    /* Force table to use full width */
+    .table-responsive {
+        width: 100% !important;
+        max-width: 100% !important;
+        margin: 0 !important;
+        padding: 0 !important;
+    }
+
+    /* Colors for P&L */
+    .profit {
+        color: green;
+        font-weight: bold;
+    }
+    .loss {
+        color: red;
+        font-weight: bold;
+    }
+
+    /* Order status styles */
+    .status-open {
+        color: blue;
+        font-weight: bold;
+    }
+    .status-profit {
+        color: green;
+        font-weight: bold;
+    }
+    .status-loss {
+        color: red;
+        font-weight: bold;
+    }
+    .status-expired {
+        color: purple;
+        font-weight: bold;
+    }
+
+    /* Highlight for active trades */
+    .active-trade {
+        background-color: rgba(255, 255, 0, 0.2);
+    }
+
+    /* Metric card styles */
+    .metric-card {
+        border-radius: 8px;
+        padding: 16px;
+        margin-bottom: 15px;
+        box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+    }
+
+    .metric-value {
+        font-size: 1.8rem;
+        font-weight: bold;
+    }
+
+    .metric-label {
+        font-size: 0.9rem;
+        color: #6c757d;
+    }
+
+    .total-capital {
+        background-color: #f8f9fa;
+        border-left: 4px solid #0d6efd;
+    }
+
+    .profit-card {
+        background-color: #f0fff4;
+        border-left: 4px solid #28a745;
+    }
+
+    .loss-card {
+        background-color: #fff5f5;
+        border-left: 4px solid #dc3545;
+    }
+
+    .orders-card {
+        background-color: #f0f4ff;
+        border-left: 4px solid #6610f2;
+    }
+
+    /* Historical performance chart */
+    .chart-container {
+        height: 300px;
+        margin-bottom: 20px;
+    }
+
+    /* Monthly performance table */
+    .monthly-performance th {
+        position: sticky;
+        top: 0;
+        background-color: #f8f9fa;
+    }
+  </style>
+</head>
+<body>
+<div class="container-fluid">
+  <h1 class="text-center mb-3">Strategy Performance Dashboard</h1>
+
+  <!-- Controls Row -->
+  <div class="row mb-3">
+    <div class="col-md-4">
+      <div class="d-flex align-items-center">
+        <button id="refreshBtn" class="btn btn-primary me-2">Refresh Data</button>
+        <span class="text-muted">Last updated: <span id="lastUpdated">Never</span></span>
+      </div>
+    </div>
+    <div class="col-md-4 text-center">
+      <div class="form-group">
+        <label for="strategySelector" class="me-2">Strategy:</label>
+        <select id="strategySelector" class="form-select form-select-sm d-inline-block" style="width: auto;">
+          <option value="all">All Strategies</option>
+          <option value="percent_change_tracker">Conservative (5% Entry, 15% SL)</option>
+          <option value="aggressive_tracker">Aggressive (10% Entry, 30% SL)</option>
+        </select>
+      </div>
+    </div>
+    <div class="col-md-4 text-end">
+      <div class="btn-group" role="group">
+        <button type="button" class="btn btn-outline-primary filter-btn active" data-filter="all">All Orders</button>
+        <button type="button" class="btn btn-outline-success filter-btn" data-filter="profit">Profit</button>
+        <button type="button" class="btn btn-outline-danger filter-btn" data-filter="loss">Loss</button>
+        <button type="button" class="btn btn-outline-primary filter-btn" data-filter="open">Open</button>
+        <button type="button" class="btn btn-outline-secondary filter-btn" data-filter="expired">Expired</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Key Metrics Cards -->
+  <div class="row mb-4">
+    <div class="col-md-3">
+      <div class="metric-card total-capital">
+        <div class="metric-value" id="totalCapital">₹0</div>
+        <div class="metric-label">Total Capital Deployed</div>
+      </div>
+    </div>
+    <div class="col-md-3">
+      <div class="metric-card profit-card">
+        <div class="metric-value profit" id="totalProfit">₹0</div>
+        <div class="metric-label">Total Profit</div>
+      </div>
+    </div>
+    <div class="col-md-3">
+      <div class="metric-card loss-card">
+        <div class="metric-value loss" id="totalLoss">₹0</div>
+        <div class="metric-label">Total Loss</div>
+      </div>
+    </div>
+    <div class="col-md-3">
+      <div class="metric-card orders-card">
+        <div class="metric-value" id="orderStats">0 / 0</div>
+        <div class="metric-label">Orders (Open / Total)</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Strategy Comparison Section -->
+  <div class="row mb-4" id="strategyComparisonSection">
+    <div class="col-12">
+      <div class="card">
+        <div class="card-header bg-primary text-white">
+          <h4>Strategy Comparison</h4>
+        </div>
+        <div class="card-body">
+          <div class="table-responsive">
+            <table class="table table-striped table-bordered">
+              <thead>
+                <tr>
+                  <th>Strategy</th>
+                  <th>Total Orders</th>
+                  <th>Win Rate</th>
+                  <th>Avg Profit %</th>
+                  <th>Avg Loss %</th>
+                  <th>Total P&L</th>
+                  <th>Max Capital</th>
+                  <th>ROI</th>
+                </tr>
+              </thead>
+              <tbody id="strategyComparisonTableBody">
+                <!-- Strategy comparison will be dynamically added here -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Performance Chart -->
+  <div class="row mb-4">
+    <div class="col-12">
+      <div class="card">
+        <div class="card-header bg-primary text-white">
+          <h4>Performance Over Time</h4>
+        </div>
+        <div class="card-body">
+          <div class="chart-container">
+            <canvas id="performanceChart"></canvas>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Live Open Orders -->
+  <div class="row mb-4">
+    <div class="col-12">
+      <div class="card">
+        <div class="card-header bg-primary text-white">
+          <h4>Active Orders</h4>
+          <p class="mb-0">Currently open positions with live P&L tracking</p>
+        </div>
+        <div class="card-body">
+          <div class="table-responsive">
+            <table class="table table-striped table-hover">
+              <thead>
+                <tr>
+                  <th>Symbol</th>
+                  <th>Strike</th>
+                  <th>Type</th>
+                  <th>Entry Price</th>
+                  <th>Current Price</th>
+                  <th>Target</th>
+                  <th>Stop Loss</th>
+                  <th>Qty</th>
+                  <th>Entry Time</th>
+                  <th>Days Open</th>
+                  <th>Unrealized P&L</th>
+                  <th>P&L %</th>
+                </tr>
+              </thead>
+              <tbody id="activeOrdersTableBody">
+                <!-- Active orders will be dynamically added here -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Closed Orders -->
+  <div class="row mb-4">
+    <div class="col-12">
+      <div class="card">
+        <div class="card-header bg-success text-white">
+          <h4>Closed Orders</h4>
+          <p class="mb-0">Historical orders with performance metrics</p>
+        </div>
+        <div class="card-body">
+          <div class="table-responsive">
+            <table class="table table-striped table-hover">
+              <thead>
+                <tr>
+                  <th>Symbol</th>
+                  <th>Strike</th>
+                  <th>Type</th>
+                  <th>Entry Price</th>
+                  <th>Exit Price</th>
+                  <th>Qty</th>
+                  <th>Entry Time</th>
+                  <th>Exit Time</th>
+                  <th>Status</th>
+                  <th>P&L</th>
+                  <th>P&L %</th>
+                </tr>
+              </thead>
+              <tbody id="closedOrdersTableBody">
+                <!-- Closed orders will be dynamically added here -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Monthly Performance -->
+  <div class="row mb-4">
+    <div class="col-12">
+      <div class="card">
+        <div class="card-header bg-info text-white">
+          <h4>Monthly Performance</h4>
+        </div>
+        <div class="card-body">
+          <div class="table-responsive">
+            <table class="table table-striped table-hover monthly-performance">
+              <thead>
+                <tr>
+                  <th>Month</th>
+                  <th>Total Orders</th>
+                  <th>Profit Orders</th>
+                  <th>Loss Orders</th>
+                  <th>Win Rate</th>
+                  <th>Total P&L</th>
+                  <th>Avg Profit %</th>
+                  <th>Avg Loss %</th>
+                  <th>Max Capital</th>
+                </tr>
+              </thead>
+              <tbody id="monthlyPerformanceTableBody">
+                <!-- Monthly performance will be dynamically added here -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0-alpha1/dist/js/bootstrap.bundle.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<script>
+  // Global variables
+  let activeOrders = [];
+  let closedOrders = [];
+  let monthlyPerformance = [];
+  let performanceChart = null;
+  let currentFilter = 'all';
+
+  // API endpoint - configure this to match your backend
+  const apiBaseUrl = 'http://127.0.0.1:8050';
+
+  // Initialize the page
+  document.addEventListener('DOMContentLoaded', function() {
+    // Set up refresh button
+    document.getElementById('refreshBtn').addEventListener('click', fetchData);
+
+    // Set up filter buttons
+    document.querySelectorAll('.filter-btn').forEach(btn => {
+      btn.addEventListener('click', function() {
+        const filter = this.dataset.filter;
+        document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+        this.classList.add('active');
+        currentFilter = filter;
+        applyFilters();
+      });
+    });
+
+    // Set up strategy selector
+    document.getElementById('strategySelector').addEventListener('change', function() {
+      const selectedStrategy = this.value;
+      fetchData(); // Refetch data with the new strategy
+    });
+
+    // Initial data load
+    fetchData();
+
+    // Set up auto-refresh every 30 seconds
+    setInterval(fetchData, 30000);
+  });
+
+  async function fetchData() {
+    try {
+      // Get the currently selected strategy
+      const selectedStrategy = document.getElementById('strategySelector').value;
+      const strategyParam = selectedStrategy !== 'all' ? `?strategy=${selectedStrategy}` : '';
+
+      // Fetch active orders
+      const activeOrdersResponse = await fetch(`${apiBaseUrl}/api/strategy/active-orders${strategyParam}`);
+      const activeOrdersData = await activeOrdersResponse.json();
+      activeOrders = activeOrdersData.orders || [];
+
+      // Fetch closed orders
+      const closedOrdersResponse = await fetch(`${apiBaseUrl}/api/strategy/closed-orders${strategyParam}`);
+      const closedOrdersData = await closedOrdersResponse.json();
+      closedOrders = closedOrdersData.orders || [];
+
+      // Fetch monthly performance
+      const monthlyResponse = await fetch(`${apiBaseUrl}/api/strategy/monthly-performance${strategyParam}`);
+      const monthlyData = await monthlyResponse.json();
+      monthlyPerformance = monthlyData.performance || [];
+
+      // Fetch summary metrics (with strategy filter if not "all")
+      const summaryUrl = selectedStrategy !== 'all'
+        ? `${apiBaseUrl}/api/strategy/summary?strategy=${selectedStrategy}`
+        : `${apiBaseUrl}/api/strategy/summary`;
+      const summaryResponse = await fetch(summaryUrl);
+      const summaryData = await summaryResponse.json();
+
+      // Always fetch comparison data (showing both strategies)
+      const comparisonResponse = await fetch(`${apiBaseUrl}/api/strategy/comparison`);
+      const comparisonData = await comparisonResponse.json();
+
+      // Update the UI
+      updateMetrics(summaryData);
+      renderActiveOrders(activeOrders);
+      renderClosedOrders(closedOrders);
+      renderMonthlyPerformance(monthlyPerformance);
+      updatePerformanceChart();
+
+      // Only hide the comparison section if a specific strategy is selected
+      const comparisonSection = document.getElementById('strategyComparisonSection');
+      if (selectedStrategy !== 'all') {
+        comparisonSection.style.display = 'none';
+      } else {
+        comparisonSection.style.display = 'block';
+        // Use the dedicated comparison endpoint data if available
+        if (comparisonData && comparisonData.comparison) {
+          renderStrategyComparisonFromAPI(comparisonData.comparison);
+        } else {
+          // Fall back to calculating from orders if needed
+          renderStrategyComparison(closedOrders);
+        }
+      }
+
+      document.getElementById('lastUpdated').textContent = new Date().toLocaleString();
+    } catch (error) {
+      console.error('Error fetching data:', error);
+    }
+  }
+
+  function updateMetrics(summaryData) {
+    document.getElementById('totalCapital').textContent = `₹${formatNumber(summaryData.totalCapital || 0)}`;
+    document.getElementById('totalProfit').textContent = `₹${formatNumber(summaryData.totalProfit || 0)}`;
+    document.getElementById('totalLoss').textContent = `₹${formatNumber(summaryData.totalLoss || 0)}`;
+    document.getElementById('orderStats').textContent = `${summaryData.openOrders || 0} / ${summaryData.totalOrders || 0}`;
+  }
+
+  function renderActiveOrders(orders) {
+    const tableBody = document.getElementById('activeOrdersTableBody');
+    tableBody.innerHTML = '';
+
+    if (orders.length === 0) {
+      const emptyRow = document.createElement('tr');
+      emptyRow.innerHTML = `<td colspan="12" class="text-center">No active orders</td>`;
+      tableBody.appendChild(emptyRow);
+      return;
+    }
+
+    orders.forEach(order => {
+      const row = document.createElement('tr');
+      row.classList.add('active-trade');
+
+      // Calculate unrealized P&L
+      const pnl = (order.current_price - order.entry_price) * order.quantity;
+      const pnlPercent = ((order.current_price - order.entry_price) / order.entry_price) * 100;
+      const pnlClass = pnl >= 0 ? 'profit' : 'loss';
+
+      // Calculate days open
+      const entryDate = new Date(order.entry_time);
+      const today = new Date();
+      const daysOpen = Math.floor((today - entryDate) / (1000 * 60 * 60 * 24));
+
+      row.innerHTML = `
+        <td>${order.symbol}</td>
+        <td>${order.strike_price}</td>
+        <td>${order.option_type}</td>
+        <td>${order.entry_price.toFixed(2)}</td>
+        <td>${order.current_price.toFixed(2)}</td>
+        <td>${order.target_price.toFixed(2)}</td>
+        <td>${order.stop_loss.toFixed(2)}</td>
+        <td>${order.quantity}</td>
+        <td>${new Date(order.entry_time).toLocaleString()}</td>
+        <td>${daysOpen}</td>
+        <td class="${pnlClass}">₹${pnl.toFixed(2)}</td>
+        <td class="${pnlClass}">${pnlPercent.toFixed(2)}%</td>
+      `;
+      tableBody.appendChild(row);
+    });
+  }
+
+  function renderClosedOrders(orders) {
+    const tableBody = document.getElementById('closedOrdersTableBody');
+    tableBody.innerHTML = '';
+
+    if (orders.length === 0) {
+      const emptyRow = document.createElement('tr');
+      emptyRow.innerHTML = `<td colspan="11" class="text-center">No closed orders</td>`;
+      tableBody.appendChild(emptyRow);
+      return;
+    }
+
+    // Apply filter
+    const filteredOrders = applyOrderFilters(orders);
+
+    filteredOrders.forEach(order => {
+      const row = document.createElement('tr');
+
+      // Format status and P&L
+      const statusClass = `status-${order.status.toLowerCase()}`;
+      const pnlClass = order.pnl >= 0 ? 'profit' : 'loss';
+
+      row.innerHTML = `
+        <td>${order.symbol}</td>
+        <td>${order.strike_price}</td>
+        <td>${order.option_type}</td>
+        <td>${order.entry_price.toFixed(2)}</td>
+        <td>${order.exit_price.toFixed(2)}</td>
+        <td>${order.quantity}</td>
+        <td>${new Date(order.entry_time).toLocaleString()}</td>
+        <td>${new Date(order.exit_time).toLocaleString()}</td>
+        <td class="${statusClass}">${order.status}</td>
+        <td class="${pnlClass}">₹${order.pnl.toFixed(2)}</td>
+        <td class="${pnlClass}">${order.pnl_percentage.toFixed(2)}%</td>
+      `;
+      tableBody.appendChild(row);
+    });
+  }
+
+  function renderMonthlyPerformance(performance) {
+    const tableBody = document.getElementById('monthlyPerformanceTableBody');
+    tableBody.innerHTML = '';
+
+    if (performance.length === 0) {
+      const emptyRow = document.createElement('tr');
+      emptyRow.innerHTML = `<td colspan="9" class="text-center">No monthly performance data yet</td>`;
+      tableBody.appendChild(emptyRow);
+      return;
+    }
+
+    performance.forEach(month => {
+      const row = document.createElement('tr');
+
+      // Format month and year
+      const monthNames = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+      const monthDisplay = `${monthNames[month.month - 1]} ${month.year}`;
+
+      // P&L formatting
+      const pnlClass = month.total_pnl >= 0 ? 'profit' : 'loss';
+
+      row.innerHTML = `
+        <td>${monthDisplay}</td>
+        <td>${month.total_orders}</td>
+        <td>${month.profit_orders}</td>
+        <td>${month.loss_orders}</td>
+        <td>${month.win_rate.toFixed(2)}%</td>
+        <td class="${pnlClass}">₹${month.total_pnl.toFixed(2)}</td>
+        <td class="profit">${month.avg_profit_percentage.toFixed(2)}%</td>
+        <td class="loss">${month.avg_loss_percentage.toFixed(2)}%</td>
+        <td>₹${month.max_capital_required.toFixed(2)}</td>
+      `;
+      tableBody.appendChild(row);
+    });
+  }
+
+  function renderStrategyComparison(orders) {
+    const tableBody = document.getElementById('strategyComparisonTableBody');
+    tableBody.innerHTML = '';
+
+    // Extract strategy performance data
+    const strategyData = {
+      percent_change_tracker: {
+        displayName: 'Conservative (5% Entry, 15% SL)',
+        totalOrders: 0,
+        winRate: 0,
+        profitCount: 0,
+        avgProfitPercent: 0,
+        avgLossPercent: 0,
+        totalPnl: 0,
+        maxCapital: 0,
+        roi: 0
+      },
+      aggressive_tracker: {
+        displayName: 'Aggressive (10% Entry, 30% SL)',
+        totalOrders: 0,
+        winRate: 0,
+        profitCount: 0,
+        avgProfitPercent: 0,
+        avgLossPercent: 0,
+        totalPnl: 0,
+        maxCapital: 0,
+        roi: 0
+      }
+    };
+
+    orders.forEach(order => {
+      // Skip if strategy_name is missing
+      if (!order.strategy_name) return;
+
+      const strategyKey = order.strategy_name;
+
+      // Skip if this is an unknown strategy
+      if (!strategyData[strategyKey]) return;
+
+      strategyData[strategyKey].totalOrders++;
+      strategyData[strategyKey].totalPnl += order.pnl;
+
+      if (order.pnl >= 0) {
+        strategyData[strategyKey].profitCount++;
+        strategyData[strategyKey].avgProfitPercent += order.pnl_percentage;
+      } else {
+        strategyData[strategyKey].avgLossPercent += order.pnl_percentage;
+      }
+
+      // Max capital is the highest quantity * entry_price for the strategy
+      const capital = order.quantity * order.entry_price;
+      if (capital > strategyData[strategyKey].maxCapital) {
+        strategyData[strategyKey].maxCapital = capital;
+      }
+    });
+
+    // Calculate averages and ROI
+    for (const key in strategyData) {
+      if (strategyData[key].totalOrders > 0) {
+        strategyData[key].winRate = (strategyData[key].profitCount / strategyData[key].totalOrders) * 100;
+        strategyData[key].avgProfitPercent = strategyData[key].profitCount > 0 ?
+          (strategyData[key].avgProfitPercent / strategyData[key].profitCount) : 0;
+
+        const lossCount = strategyData[key].totalOrders - strategyData[key].profitCount;
+        strategyData[key].avgLossPercent = lossCount > 0 ?
+          (strategyData[key].avgLossPercent / lossCount) : 0;
+
+        strategyData[key].roi = strategyData[key].maxCapital > 0 ?
+          (strategyData[key].totalPnl / strategyData[key].maxCapital) * 100 : 0;
+      }
+    }
+
+    // Render table rows
+    for (const key in strategyData) {
+      const data = strategyData[key];
+
+      // Skip if no orders for this strategy
+      if (data.totalOrders === 0) continue;
+
+      const row = document.createElement('tr');
+
+      row.innerHTML = `
+        <td>${data.displayName}</td>
+        <td>${data.totalOrders}</td>
+        <td>${data.winRate.toFixed(2)}%</td>
+        <td class="profit">${data.avgProfitPercent.toFixed(2)}%</td>
+        <td class="loss">${data.avgLossPercent.toFixed(2)}%</td>
+        <td class="${data.totalPnl >= 0 ? 'profit' : 'loss'}">₹${data.totalPnl.toFixed(2)}</td>
+        <td>₹${data.maxCapital.toFixed(2)}</td>
+        <td class="${data.roi >= 0 ? 'profit' : 'loss'}">${data.roi.toFixed(2)}%</td>
+      `;
+      tableBody.appendChild(row);
+    }
+  }
+
+  function renderStrategyComparisonFromAPI(comparisonData) {
+    const tableBody = document.getElementById('strategyComparisonTableBody');
+    tableBody.innerHTML = '';
+
+    if (!comparisonData || comparisonData.length === 0) {
+      const emptyRow = document.createElement('tr');
+      emptyRow.innerHTML = `<td colspan="8" class="text-center">No comparison data available</td>`;
+      tableBody.appendChild(emptyRow);
+      return;
+    }
+
+    comparisonData.forEach(strategy => {
+      const row = document.createElement('tr');
+      const displayName = strategy.strategy_name === 'percent_change_tracker'
+        ? 'Conservative (5% Entry, 15% SL)'
+        : 'Aggressive (10% Entry, 30% SL)';
+
+      row.innerHTML = `
+        <td>${displayName}</td>
+        <td>${strategy.total_orders}</td>
+        <td>${strategy.win_rate.toFixed(2)}%</td>
+        <td class="profit">${strategy.avg_profit_percentage.toFixed(2)}%</td>
+        <td class="loss">${strategy.avg_loss_percentage.toFixed(2)}%</td>
+        <td class="${strategy.net_pnl >= 0 ? 'profit' : 'loss'}">₹${strategy.net_pnl.toFixed(2)}</td>
+        <td>₹${strategy.max_capital.toFixed(2)}</td>
+        <td class="${strategy.roi >= 0 ? 'profit' : 'loss'}">${strategy.roi.toFixed(2)}%</td>
+      `;
+      tableBody.appendChild(row);
+    });
+  }
+
+  function updatePerformanceChart() {
+    // Get the canvas element
+    const ctx = document.getElementById('performanceChart').getContext('2d');
+
+    // Prepare data for the chart
+    const performanceData = prepareStrategyChartData();
+
+    // If chart already exists, destroy it first
+    if (performanceChart) {
+      performanceChart.destroy();
+    }
+
+    // Create new chart with separate datasets for each strategy
+    performanceChart = new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels: performanceData.labels,
+        datasets: [
+          {
+            label: 'Conservative Strategy P&L',
+            data: performanceData.conservativePnl,
+            backgroundColor: 'rgba(75, 192, 192, 0.2)',
+            borderColor: 'rgba(75, 192, 192, 1)',
+            borderWidth: 2,
+            tension: 0.1
+          },
+          {
+            label: 'Aggressive Strategy P&L',
+            data: performanceData.aggressivePnl,
+            backgroundColor: 'rgba(255, 99, 132, 0.2)',
+            borderColor: 'rgba(255, 99, 132, 1)',
+            borderWidth: 2,
+            tension: 0.1
+          }
+        ]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        scales: {
+          y: {
+            beginAtZero: false
+          }
+        }
+      }
+    });
+  }
+
+  function prepareStrategyChartData() {
+    // Sort closed orders by exit time
+    const sortedOrders = [...closedOrders].sort((a, b) => new Date(a.exit_time) - new Date(b.exit_time));
+
+    // Prepare data points
+    const labels = [];
+    const conservativePnl = [];
+    const aggressivePnl = [];
+    let conservativeSum = 0;
+    let aggressiveSum = 0;
+
+    // Group orders by day and strategy
+    const dailyData = {};
+
+    sortedOrders.forEach(order => {
+      const exitDate = new Date(order.exit_time).toLocaleDateString();
+      if (!dailyData[exitDate]) {
+        dailyData[exitDate] = {
+          conservative: 0,
+          aggressive: 0
+        };
+      }
+
+      // Add to the appropriate strategy bucket
+      if (order.strategy_name === 'percent_change_tracker') {
+        dailyData[exitDate].conservative += order.pnl;
+      } else if (order.strategy_name === 'aggressive_tracker') {
+        dailyData[exitDate].aggressive += order.pnl;
+      }
+    });
+
+    // Convert to arrays for the chart
+    Object.keys(dailyData).sort((a, b) => new Date(a) - new Date(b)).forEach(date => {
+      labels.push(date);
+
+      // Update cumulative values
+      conservativeSum += dailyData[date].conservative;
+      aggressiveSum += dailyData[date].aggressive;
+
+      // Add to series
+      conservativePnl.push(conservativeSum);
+      aggressivePnl.push(aggressiveSum);
+    });
+
+    return { labels, conservativePnl, aggressivePnl };
+  }
+
+  function applyFilters() {
+    renderClosedOrders(closedOrders);
+  }
+
+  function applyOrderFilters(orders) {
+    // Apply filter based on current selection
+    switch (currentFilter) {
+      case 'profit':
+        return orders.filter(order => order.status === 'PROFIT');
+      case 'loss':
+        return orders.filter(order => order.status === 'LOSS');
+      case 'open':
+        return orders.filter(order => order.status === 'OPEN');
+      case 'expired':
+        return orders.filter(order => order.status === 'EXPIRED');
+      default:
+        return orders;
+    }
+  }
+
+  function formatNumber(number) {
+    return new Intl.NumberFormat('en-IN', {
+      maximumFractionDigits: 2,
+      minimumFractionDigits: 2
+    }).format(number);
+  }
+</script>
+</body>
+</html>
