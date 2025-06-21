@@ -229,11 +229,11 @@ class StrategyTracker:
         now = datetime.now(self.tz)
 
         # Market is open Monday to Friday, 9:15 AM to 3:30 PM
-        if now.weekday() >= 7:  # Saturday or Sunday
+        if now.weekday() >= 5:  # Saturday or Sunday
             return False
 
-        market_open = now.replace(hour=9, minute=15, second=0, microsecond=0)
-        market_close = now.replace(hour=23, minute=30, second=0, microsecond=0)
+        market_open = now.replace(hour=9, minute=14, second=0, microsecond=0)
+        market_close = now.replace(hour=15, minute=32, second=0, microsecond=0)
 
         return market_open <= now <= market_close
 
