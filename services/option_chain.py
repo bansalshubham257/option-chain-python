@@ -1,7 +1,9 @@
+import asyncio
 import os
 import re
 import gzip
 import time
+from http.cookiejar import logger
 
 import pandas as pd
 import requests
@@ -463,6 +465,63 @@ class OptionChainService:
         }
         return {**self.fno_stocks, **indices}
 
+    async def _get_live_prices(self, instrument_keys):
+        """Get current prices for a list of instrument keys using OptionChainService"""
+        if not instrument_keys:
+            return {}
+
+        # First check cache for recent prices
+        current_time = time.time()
+        cached_prices = {}
+        missing_keys = []
+
+        for key in instrument_keys:
+            if key in self.price_cache and current_time - self.cache_time.get(key, 0) < self.cache_ttl:
+                cached_prices[key] = self.price_cache[key]
+            else:
+                missing_keys.append(key)
+
+        # If all prices are in cache, return immediately
+        if not missing_keys:
+            return cached_prices
+
+        # Use OptionChainService to fetch prices that are not in cache
+        prices = {}
+
+        # Process in smaller batches if necessary (to avoid API rate limits)
+        batch_size = 10
+        for i in range(0, len(missing_keys), batch_size):
+            batch_keys = missing_keys[i:i+batch_size]
+
+            for instrument_key in batch_keys:
+                try:
+                    # Use OptionChainService's fetch_price method
+                    price_data = self.option_chain_service.fetch_bulk_prices(instrument_key)
+
+                    if not isinstance(price_data, dict) or "error" in price_data:
+                        logger.warning(f"Error fetching price for {instrument_key}: {price_data}")
+                        continue
+
+                    # Extract the option price and create a response in the expected format
+                    ltp = price_data.get("option_price")
+                    if ltp and ltp != "N/A":
+                        prices[instrument_key] = {"ltp": float(ltp)}
+                except Exception as e:
+                    logger.error(f"Error fetching price for {instrument_key}: {str(e)}")
+                    continue
+
+            # Brief pause between batches to avoid rate limits
+            if i + batch_size < len(missing_keys):
+                await asyncio.sleep(0.2)
+
+        # Update cache with new prices
+        for key, value in prices.items():
+            self.price_cache[key] = value
+            self.cache_time[key] = current_time
+
+        # Combine cached and new prices
+        return {**cached_prices, **prices}
+
     def fetch_price(self, instrument_key):
         if not instrument_key:
             return {"error": "Instrument key is required"}
@@ -511,6 +570,8 @@ class OptionChainService:
     def fetch_bulk_prices(self, instrument_keys):
         if not instrument_keys:
             return {"error": "Instrument keys are required"}
+        else:
+            print("inside bulk prices fetch for: ", len(instrument_keys))
 
         all_keys = []
         stock_keys = set()
@@ -569,7 +630,7 @@ class OptionChainService:
                             "option_price": float(option_price) if option_price else 0,
                             "stock_price": float(stock_price) if stock_price else 0
                         }
-
+            print("retrieved bulk prices for instruments: -> ", instrument_keys)
             return result
         except Exception as e:
             return {"error": str(e)}
@@ -630,6 +691,87 @@ class OptionChainService:
             time.sleep(2)
 
         return result
+
+    def fetch_ltp(self, instrument_keys):
+        """
+        Fetch last traded prices for a list of instrument keys using the lightweight LTP API
+
+        Args:
+            instrument_keys: List of instrument keys to fetch prices for
+
+        Returns:
+            Dictionary with instrument_key as key and LTP as value
+        """
+        if not instrument_keys:
+            return {}
+
+        # Filter only NSE_FO instruments if needed
+        # Comment this line if you want all instruments including indices
+        instrument_keys = [key for key in instrument_keys if 'NSE_FO|' in key]
+
+        if not instrument_keys:
+            return {}
+
+        # Remove duplicates while preserving order
+        unique_keys = list(dict.fromkeys(instrument_keys))
+
+        # Handle batch size limits (API typically has a limit)
+        batch_size = 500  # Maximum number of instruments per request
+        all_results = {}
+
+        for i in range(0, len(unique_keys), batch_size):
+            batch_keys = unique_keys[i:i+batch_size]
+
+            url = f"{self.UPSTOX_BASE_URL}/v2/market-quote/ltp"
+            access_token = self._get_access_token()
+            headers = {"Authorization": f"Bearer {access_token}"}
+            params = {'instrument_key': ','.join(batch_keys)}
+
+            try:
+                response = requests.get(url, headers=headers, params=params)
+                if response.status_code != 200:
+                    print(f"Error fetching LTP: Status code {response.status_code}")
+                    continue
+
+                data = response.json().get("data", {})
+
+                # Debug output
+
+                if data:
+
+                    sample_keys = list(data.keys())[:2]
+
+                    sample_values = [data[k] for k in sample_keys] if sample_keys else []
+
+                else:
+                    print("Response contains no data")
+
+
+                # Create a mapping from instrument_token to our input keys for easier lookup
+                # This maps the response format (NSE_FO|123456) back to our input keys
+                token_to_key = {key: key for key in batch_keys}
+
+                # Process each item in the response
+                for _, item_data in data.items():
+                    # Get the instrument_token from the response (e.g., 'NSE_FO|40021')
+                    instrument_token = item_data.get("instrument_token")
+
+                    # Skip if no instrument token
+                    if not instrument_token:
+                        continue
+
+                    # Find the matching key in our input
+                    if instrument_token in token_to_key:
+                        # Store the price using our original key
+                        key = token_to_key[instrument_token]
+                        all_results[key] = item_data.get("last_price", 0)
+
+                print(f"Retrieved LTP for {len(all_results)} instruments in this batch")
+
+            except Exception as e:
+                print(f"Error fetching LTP batch {i//batch_size + 1}: {str(e)}")
+
+        return all_results
 
 
     def run_market_processing(self):
@@ -1620,7 +1762,7 @@ class OptionChainService:
                 filtered_df['tradingsymbol'].str.match(weekly_options_pattern_double)
             ]
 
-            if len(double_digit_matches) > 0:
+            if len(double_digit_matches) >  0:
                 weekly_options_dfs.append(double_digit_matches)
                 print(f"Found {len(double_digit_matches)} weekly option contracts with double-digit month pattern")
 
