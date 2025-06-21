@@ -27,3 +27,4 @@ websockets
 pyotp==2.9.0
 selenium==4.15.2
 webdriver-manager==4.0.1
+psutil
