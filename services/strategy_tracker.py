@@ -371,13 +371,15 @@ class StrategyTracker:
             strike = option['strike_price']
             option_type = option['option_type']
             current_price = option['current_price']
+            stored_price = option['stored_price']  # Get the stored LTP price
             instrument_key = option['instrument_key']
             lot_size = option['lot_size']
             expiry_date = option['expiry_date']
 
             # Calculate target and stop loss
-            target_price = current_price * (1 + self.profit_target / 100)
-            stop_loss_price = current_price * (1 + self.stop_loss / 100)
+            # Target price is now based on stored price instead of current price
+            target_price = stored_price * (1 + self.profit_target / 100)
+            stop_loss_price = stored_price * (1 + self.stop_loss / 100)
 
             # Determine quantity based on lot size
             quantity = lot_size * self.lot_size_multiplier
