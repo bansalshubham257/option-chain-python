@@ -348,17 +348,58 @@ class StrategyTracker:
     async def _check_for_previous_order(self, symbol, strike, option_type) -> bool:
         """Check if we already processed this option in this expiry cycle"""
         try:
+            # First check for any open order with these parameters
             with self.db._get_cursor() as cur:
                 cur.execute("""
                     SELECT COUNT(*) 
                     FROM strategy_orders
                     WHERE symbol = %s AND strike_price = %s AND option_type = %s
                     AND strategy_name = %s
-                    AND entry_time > (CURRENT_DATE - INTERVAL '30 days')
+                    AND status = 'OPEN'
                 """, (symbol, strike, option_type, self.strategy_name))
 
-                count = cur.fetchone()[0]
-                return count > 0
+                open_count = cur.fetchone()[0]
+                if open_count > 0:
+                    logger.info(f"Found existing OPEN order for {symbol} {strike} {option_type}")
+                    return True
+
+                # Check if there was a recent closed order (stop loss hit)
+                cur.execute("""
+                    SELECT exit_time, status 
+                    FROM strategy_orders
+                    WHERE symbol = %s AND strike_price = %s AND option_type = %s
+                    AND strategy_name = %s
+                    AND status != 'OPEN'
+                    ORDER BY exit_time DESC
+                    LIMIT 1
+                """, (symbol, strike, option_type, self.strategy_name))
+
+                row = cur.fetchone()
+                if row:
+                    exit_time = row[0]
+                    status = row[1]
+
+                    # For orders closed due to stop loss or expiry, require a cooldown period
+                    # before creating a new order for the same option
+                    if status in ('LOSS', 'EXPIRED'):
+                        cooldown_period = timedelta(days=3)  # 3-day cooldown for loss/expired
+                        can_reenter_after = exit_time + cooldown_period
+
+                        if datetime.now() < can_reenter_after:
+                            logger.info(f"Skipping {symbol} {strike} {option_type} - in cooldown period after {status} until {can_reenter_after}")
+                            return True
+
+                    # If the order was closed with profit, don't reenter for a longer period
+                    elif status == 'PROFIT':
+                        cooldown_period = timedelta(days=7)  # 7-day cooldown for profit orders
+                        can_reenter_after = exit_time + cooldown_period
+
+                        if datetime.now() < can_reenter_after:
+                            logger.info(f"Skipping {symbol} {strike} {option_type} - in cooldown period after PROFIT until {can_reenter_after}")
+                            return True
+
+                # No conflicts found, can proceed with order
+                return False
 
         except Exception as e:
             logger.error(f"Error checking for previous order: {str(e)}")
@@ -686,6 +727,13 @@ class StrategyTracker:
                         pnl_percentage = %s
                     WHERE id = %s
                 """, (exit_price, status, pnl, pnl_percentage, order_id))
+
+                # Immediately update daily capital after closing an order
+                # to ensure capital deployed is current
+                await self._update_daily_capital()
+
+                # Log capital change
+                logger.info(f"Order {order_id} closed with status {status}. Capital deployed updated.")
 
         except Exception as e:
             logger.error(f"Error closing order: {str(e)}")
@@ -1031,199 +1079,62 @@ class StrategyTracker:
     def _check_for_previous_order_sync(self, symbol, strike, option_type) -> bool:
         """Synchronous version of _check_for_previous_order"""
         try:
+            # First check for any open order with these parameters
             with self.db._get_cursor() as cur:
                 cur.execute("""
                     SELECT COUNT(*) 
                     FROM strategy_orders
                     WHERE symbol = %s AND strike_price = %s AND option_type = %s
                     AND strategy_name = %s
-                    AND entry_time > (CURRENT_DATE - INTERVAL '30 days')
+                    AND status = 'OPEN'
                 """, (symbol, strike, option_type, self.strategy_name))
 
-                count = cur.fetchone()[0]
-                return count > 0
+                open_count = cur.fetchone()[0]
+                if open_count > 0:
+                    logger.info(f"Found existing OPEN order for {symbol} {strike} {option_type}")
+                    return True
+
+                # Check if there was a recent closed order (stop loss hit)
+                cur.execute("""
+                    SELECT exit_time, status 
+                    FROM strategy_orders
+                    WHERE symbol = %s AND strike_price = %s AND option_type = %s
+                    AND strategy_name = %s
+                    AND status != 'OPEN'
+                    ORDER BY exit_time DESC
+                    LIMIT 1
+                """, (symbol, strike, option_type, self.strategy_name))
+
+                row = cur.fetchone()
+                if row:
+                    exit_time = row[0]
+                    status = row[1]
+
+                    # For orders closed due to stop loss or expiry, require a cooldown period
+                    # before creating a new order for the same option
+                    if status in ('LOSS', 'EXPIRED'):
+                        cooldown_period = timedelta(days=3)  # 3-day cooldown for loss/expired
+                        can_reenter_after = exit_time + cooldown_period
+
+                        if datetime.now() < can_reenter_after:
+                            logger.info(f"Skipping {symbol} {strike} {option_type} - in cooldown period after {status} until {can_reenter_after}")
+                            return True
+
+                    # If the order was closed with profit, don't reenter for a longer period
+                    elif status == 'PROFIT':
+                        cooldown_period = timedelta(days=7)  # 7-day cooldown for profit orders
+                        can_reenter_after = exit_time + cooldown_period
+
+                        if datetime.now() < can_reenter_after:
+                            logger.info(f"Skipping {symbol} {strike} {option_type} - in cooldown period after PROFIT until {can_reenter_after}")
+                            return True
+
+                # No conflicts found, can proceed with order
+                return False
 
         except Exception as e:
             logger.error(f"Error checking for previous order: {str(e)}")
             return False
-
-    def _update_active_orders_sync(self) -> List[str]:
-        """Synchronous version of _update_active_orders for use with ThreadPoolExecutor"""
-        if not self.active_orders:
-            return []
-
-        start_time = time.time()
-        orders_to_remove = []
-
-        # Get current prices for all active orders
-        instrument_keys = [order['instrument_key'] for order in self.active_orders.values() if order['instrument_key']]
-        if not instrument_keys:
-            return []
-
-        # Get live prices directly using the option chain service
-        ltp_data = self.option_chain_service.fetch_ltp(instrument_keys)
-        live_prices = {}
-        for instrument_key, ltp in ltp_data.items():
-            live_prices[instrument_key] = {"ltp": float(ltp)}
-
-            # Update cache at the same time
-            self.price_cache[instrument_key] = {"ltp": float(ltp)}
-            self.cache_time[instrument_key] = time.time()
-
-        logger.info(f"Fetched live prices for {len(live_prices)} active orders in {time.time() - start_time:.2f}s")
-
-        # Process each active order
-        for key, order in self.active_orders.items():
-            try:
-                instrument_key = order['instrument_key']
-
-                # Skip if no instrument key
-                if not instrument_key:
-                    continue
-
-                # Get current price from live data
-                current_price = self._get_price_from_live_data(instrument_key, live_prices)
-                if current_price <= 0:
-                    continue
-
-                entry_price = order['entry_price']
-                target_price = order['target_price']
-                stop_loss_price = order['stop_loss']
-
-                # Calculate percent change
-                percent_change = ((current_price - entry_price) / entry_price) * 100
-
-                # Update current price in database
-                self._update_order_price_sync(order['id'], current_price)
-
-                # Check if target or stop loss hit
-                if current_price >= target_price:
-                    # Take profit - exit at target
-                    self._close_order_sync(order['id'], current_price, 'PROFIT', percent_change)
-                    orders_to_remove.append(key)
-                    logger.info(f"Target hit: {order['symbol']} {order['strike_price']} {order['option_type']} at {current_price} ({percent_change:.2f}%)")
-
-                elif current_price <= stop_loss_price:
-                    # Stop loss hit - exit to limit loss
-                    self._close_order_sync(order['id'], current_price, 'LOSS', percent_change)
-                    orders_to_remove.append(key)
-                    logger.info(f"Stop loss hit: {order['symbol']} {order['strike_price']} {order['option_type']} at {current_price} ({percent_change:.2f}%)")
-
-                # Check for expiry
-                expiry_date = order['expiry_date']
-                if expiry_date and expiry_date <= date.today():
-                    self._close_order_sync(order['id'], current_price, 'EXPIRED', percent_change)
-                    orders_to_remove.append(key)
-                    logger.info(f"Position expired: {order['symbol']} {order['strike_price']} {order['option_type']}")
-
-            except Exception as e:
-                logger.error(f"Error updating order {key}: {str(e)}")
-
-        logger.info(f"Updated {len(self.active_orders)} active orders in {time.time() - start_time:.2f}s, closing {len(orders_to_remove)} orders")
-
-        # Note: The actual removal from self.active_orders is done in the main thread
-        # to avoid concurrent modification issues
-        return orders_to_remove
-
-    def _update_order_price_sync(self, order_id, current_price):
-        """Synchronous version of _update_order_price"""
-        try:
-            with self.db._get_cursor() as cur:
-                cur.execute("""
-                    UPDATE strategy_orders
-                    SET current_price = %s
-                    WHERE id = %s
-                """, (current_price, order_id))
-        except Exception as e:
-            logger.error(f"Error updating order price: {str(e)}")
-
-    def _close_order_sync(self, order_id, exit_price, status, pnl_percentage):
-        """Synchronous version of _close_order"""
-        try:
-            with self.db._get_cursor() as cur:
-                # Get order details first
-                cur.execute("""
-                    SELECT entry_price, quantity
-                    FROM strategy_orders
-                    WHERE id = %s
-                """, (order_id,))
-
-                row = cur.fetchone()
-                if not row:
-                    logger.error(f"Order {order_id} not found for closing")
-                    return
-
-                entry_price = float(row[0])
-                quantity = int(row[1])
-
-                # Calculate PnL
-                pnl = (exit_price - entry_price) * quantity
-
-                # Update the order
-                cur.execute("""
-                    UPDATE strategy_orders
-                    SET exit_price = %s,
-                        exit_time = NOW(),
-                        status = %s,
-                        pnl = %s,
-                        pnl_percentage = %s
-                    WHERE id = %s
-                """, (exit_price, status, pnl, pnl_percentage, order_id))
-
-        except Exception as e:
-            logger.error(f"Error closing order: {str(e)}")
-
-    def _update_daily_capital_sync(self):
-        """Synchronous version of _update_daily_capital"""
-        try:
-            today = datetime.now(self.tz).date()
-            total_capital = 0.0
-            unrealized_pnl = 0.0
-            open_positions = len(self.active_orders)
-
-            # Calculate current capital deployed and unrealized PnL
-            with self.db._get_cursor() as cur:
-                cur.execute("""
-                    SELECT SUM(entry_price * quantity), 
-                           SUM((current_price - entry_price) * quantity)
-                    FROM strategy_orders
-                    WHERE status = 'OPEN' AND strategy_name = %s
-                """, (self.strategy_name,))
-
-                row = cur.fetchone()
-                if row and row[0]:
-                    total_capital = float(row[0])
-                    unrealized_pnl = float(row[1] or 0)
-
-            # Update max capital if needed
-            self.today_capital = total_capital
-            if total_capital > self.max_capital:
-                self.max_capital = total_capital
-
-            # Update or insert daily capital record
-            with self.db._get_cursor() as cur:
-                cur.execute("""
-                    INSERT INTO strategy_daily_capital
-                    (strategy_name, date, open_positions, capital_deployed, unrealized_pnl, updated_at)
-                    VALUES (%s, %s, %s, %s, %s, NOW())
-                    ON CONFLICT (strategy_name, date)
-                    DO UPDATE SET
-                        open_positions = EXCLUDED.open_positions,
-                        capital_deployed = EXCLUDED.capital_deployed,
-                        unrealized_pnl = EXCLUDED.unrealized_pnl,
-                        updated_at = NOW()
-                """, (self.strategy_name, today, open_positions, total_capital, unrealized_pnl))
-
-            return {
-                'capital': total_capital,
-                'pnl': unrealized_pnl,
-                'positions': open_positions
-            }
-
-        except Exception as e:
-            logger.error(f"Error updating daily capital: {str(e)}")
-            return None
-
 
 # Function to run the strategy tracker as a background process
 async def run_strategy_tracker():
