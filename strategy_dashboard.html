@@ -116,6 +116,47 @@
         top: 0;
         background-color: #f8f9fa;
     }
+
+    /* Sortable table styles */
+    .sortable {
+        cursor: pointer;
+    }
+
+    .sortable:hover {
+        background-color: #f1f1f1;
+    }
+
+    .sortable::after {
+        content: "⇅";
+        margin-left: 5px;
+        opacity: 0.5;
+    }
+
+    .sortable.asc::after {
+        content: "↑";
+        opacity: 1;
+    }
+
+    .sortable.desc::after {
+        content: "↓";
+        opacity: 1;
+    }
+
+    /* Pagination styles */
+    .pagination-container {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-top: 15px;
+    }
+
+    .page-info {
+      color: #6c757d;
+    }
+
+    .pagination {
+      margin-bottom: 0;
+    }
   </style>
 </head>
 <body>
@@ -240,7 +281,7 @@
             <table class="table table-striped table-hover">
               <thead>
                 <tr>
-                  <th>Symbol</th>
+                  <th class="sortable" data-sort="symbol">Symbol</th>
                   <th>Strike</th>
                   <th>Type</th>
                   <th>Entry Price</th>
@@ -249,15 +290,23 @@
                   <th>Stop Loss</th>
                   <th>Qty</th>
                   <th>Entry Time</th>
-                  <th>Days Open</th>
-                  <th>Unrealized P&L</th>
-                  <th>P&L %</th>
+                  <th class="sortable" data-sort="days">Days Open</th>
+                  <th class="sortable" data-sort="pnl">Unrealized P&L</th>
+                  <th class="sortable" data-sort="pnl-percent">P&L %</th>
                 </tr>
               </thead>
               <tbody id="activeOrdersTableBody">
                 <!-- Active orders will be dynamically added here -->
               </tbody>
             </table>
+            <div class="pagination-container" id="activeOrdersPagination">
+              <div class="page-info">
+                Showing <span id="activeOrdersStart">0</span> to <span id="activeOrdersEnd">0</span> of <span id="activeOrdersTotal">0</span> entries
+              </div>
+              <ul class="pagination" id="activeOrdersPageButtons">
+                <!-- Pagination buttons will be dynamically added here -->
+              </ul>
+            </div>
           </div>
         </div>
       </div>
@@ -277,7 +326,7 @@
             <table class="table table-striped table-hover">
               <thead>
                 <tr>
-                  <th>Symbol</th>
+                  <th class="sortable" data-sort="symbol">Symbol</th>
                   <th>Strike</th>
                   <th>Type</th>
                   <th>Entry Price</th>
@@ -285,15 +334,23 @@
                   <th>Qty</th>
                   <th>Entry Time</th>
                   <th>Exit Time</th>
-                  <th>Status</th>
-                  <th>P&L</th>
-                  <th>P&L %</th>
+                  <th class="sortable" data-sort="status">Status</th>
+                  <th class="sortable" data-sort="pnl">P&L</th>
+                  <th class="sortable" data-sort="pnl-percent">P&L %</th>
                 </tr>
               </thead>
               <tbody id="closedOrdersTableBody">
                 <!-- Closed orders will be dynamically added here -->
               </tbody>
             </table>
+            <div class="pagination-container" id="closedOrdersPagination">
+              <div class="page-info">
+                Showing <span id="closedOrdersStart">0</span> to <span id="closedOrdersEnd">0</span> of <span id="closedOrdersTotal">0</span> entries
+              </div>
+              <ul class="pagination" id="closedOrdersPageButtons">
+                <!-- Pagination buttons will be dynamically added here -->
+              </ul>
+            </div>
           </div>
         </div>
       </div>
@@ -343,6 +400,18 @@
   let monthlyPerformance = [];
   let performanceChart = null;
   let currentFilter = 'all';
+  let currentSort = { table: null, column: null, direction: null };
+
+  // Pagination settings
+  const paginationSettings = {
+    itemsPerPage: 30,
+    activeOrders: {
+      currentPage: 1
+    },
+    closedOrders: {
+      currentPage: 1
+    }
+  };
 
   // API endpoint - configure this to match your backend
   const apiBaseUrl = 'https://order-creation-ui-api-production.up.railway.app';
@@ -369,6 +438,33 @@
       fetchData(); // Refetch data with the new strategy
     });
 
+    // Set up sortable columns
+    document.querySelectorAll('th.sortable').forEach(th => {
+      th.addEventListener('click', function() {
+        const sortType = this.dataset.sort;
+        const tableId = this.closest('table').querySelector('tbody').id;
+        const direction = this.classList.contains('asc') ? 'desc' : 'asc';
+
+        // Reset all sorting indicators
+        document.querySelectorAll('th.sortable').forEach(header => {
+          header.classList.remove('asc', 'desc');
+        });
+
+        // Set this column's sort direction
+        this.classList.add(direction);
+
+        // Update current sort
+        currentSort = {
+          table: tableId,
+          column: sortType,
+          direction: direction
+        };
+
+        // Apply sorting
+        sortTable(tableId, sortType, direction);
+      });
+    });
+
     // Initial data load
     fetchData();
 
@@ -387,10 +483,15 @@
       const activeOrdersData = await activeOrdersResponse.json();
       activeOrders = activeOrdersData.orders || [];
 
+      // Log data for debugging
+      console.log(`Active orders for ${selectedStrategy}:`, activeOrders.length);
+
       // Fetch closed orders
       const closedOrdersResponse = await fetch(`${apiBaseUrl}/api/strategy/closed-orders${strategyParam}`);
       const closedOrdersData = await closedOrdersResponse.json();
       closedOrders = closedOrdersData.orders || [];
+
+      console.log(`Closed orders for ${selectedStrategy}:`, closedOrders.length);
 
       // Fetch monthly performance
       const monthlyResponse = await fetch(`${apiBaseUrl}/api/strategy/monthly-performance${strategyParam}`);
@@ -408,7 +509,7 @@
       const comparisonResponse = await fetch(`${apiBaseUrl}/api/strategy/comparison`);
       const comparisonData = await comparisonResponse.json();
 
-      // Update the UI
+      // Update the UI - important: update UI even if selectedStrategy is not 'all'
       updateMetrics(summaryData);
       renderActiveOrders(activeOrders);
       renderClosedOrders(closedOrders);
@@ -428,6 +529,11 @@
           // Fall back to calculating from orders if needed
           renderStrategyComparison(closedOrders);
         }
+      }
+
+      // Re-apply current sort if it exists
+      if (currentSort.table && currentSort.column && currentSort.direction) {
+        sortTable(currentSort.table, currentSort.column, currentSort.direction);
       }
 
       document.getElementById('lastUpdated').textContent = new Date().toLocaleString();
@@ -451,12 +557,39 @@
       const emptyRow = document.createElement('tr');
       emptyRow.innerHTML = `<td colspan="12" class="text-center">No active orders</td>`;
       tableBody.appendChild(emptyRow);
+
+      // Hide pagination if no orders
+      document.getElementById('activeOrdersPagination').style.display = 'none';
       return;
     }
 
-    orders.forEach(order => {
+    // Show pagination if there are orders
+    document.getElementById('activeOrdersPagination').style.display = 'flex';
+
+    // Apply pagination
+    const totalItems = orders.length;
+    const currentPage = paginationSettings.activeOrders.currentPage;
+    const itemsPerPage = paginationSettings.itemsPerPage;
+    const startIndex = (currentPage - 1) * itemsPerPage;
+    const endIndex = Math.min(startIndex + itemsPerPage, totalItems);
+
+    // Update pagination info
+    document.getElementById('activeOrdersStart').textContent = totalItems > 0 ? startIndex + 1 : 0;
+    document.getElementById('activeOrdersEnd').textContent = endIndex;
+    document.getElementById('activeOrdersTotal').textContent = totalItems;
+
+    // Update pagination buttons
+    updatePaginationButtons('activeOrders', totalItems, currentPage, itemsPerPage);
+
+    // Display only current page items
+    const ordersToDisplay = orders.slice(startIndex, endIndex);
+
+    ordersToDisplay.forEach(order => {
       const row = document.createElement('tr');
       row.classList.add('active-trade');
+      row.dataset.symbol = order.symbol;
+      row.dataset.pnl = (order.current_price - order.entry_price) * order.quantity;
+      row.dataset.pnlPercent = ((order.current_price - order.entry_price) / order.entry_price) * 100;
 
       // Calculate unrealized P&L
       const pnl = (order.current_price - order.entry_price) * order.quantity;
@@ -467,6 +600,7 @@
       const entryDate = new Date(order.entry_time);
       const today = new Date();
       const daysOpen = Math.floor((today - entryDate) / (1000 * 60 * 60 * 24));
+      row.dataset.days = daysOpen;
 
       row.innerHTML = `
         <td>${order.symbol}</td>
@@ -484,24 +618,57 @@
       `;
       tableBody.appendChild(row);
     });
+
+    // Reapply sorting if active
+    if (currentSort.table === 'activeOrdersTableBody' && currentSort.column) {
+      sortTable('activeOrdersTableBody', currentSort.column, currentSort.direction);
+    }
   }
 
   function renderClosedOrders(orders) {
     const tableBody = document.getElementById('closedOrdersTableBody');
     tableBody.innerHTML = '';
 
-    if (orders.length === 0) {
-      const emptyRow = document.createElement('tr');
-      emptyRow.innerHTML = `<td colspan="11" class="text-center">No closed orders</td>`;
-      tableBody.appendChild(emptyRow);
-      return;
-    }
-
     // Apply filter
     const filteredOrders = applyOrderFilters(orders);
 
-    filteredOrders.forEach(order => {
+    if (filteredOrders.length === 0) {
+      const emptyRow = document.createElement('tr');
+      emptyRow.innerHTML = `<td colspan="11" class="text-center">No closed orders</td>`;
+      tableBody.appendChild(emptyRow);
+
+      // Hide pagination if no orders
+      document.getElementById('closedOrdersPagination').style.display = 'none';
+      return;
+    }
+
+    // Show pagination if there are orders
+    document.getElementById('closedOrdersPagination').style.display = 'flex';
+
+    // Apply pagination
+    const totalItems = filteredOrders.length;
+    const currentPage = paginationSettings.closedOrders.currentPage;
+    const itemsPerPage = paginationSettings.itemsPerPage;
+    const startIndex = (currentPage - 1) * itemsPerPage;
+    const endIndex = Math.min(startIndex + itemsPerPage, totalItems);
+
+    // Update pagination info
+    document.getElementById('closedOrdersStart').textContent = totalItems > 0 ? startIndex + 1 : 0;
+    document.getElementById('closedOrdersEnd').textContent = endIndex;
+    document.getElementById('closedOrdersTotal').textContent = totalItems;
+
+    // Update pagination buttons
+    updatePaginationButtons('closedOrders', totalItems, currentPage, itemsPerPage);
+
+    // Display only current page items
+    const ordersToDisplay = filteredOrders.slice(startIndex, endIndex);
+
+    ordersToDisplay.forEach(order => {
       const row = document.createElement('tr');
+      row.dataset.symbol = order.symbol;
+      row.dataset.pnl = order.pnl;
+      row.dataset.pnlPercent = order.pnl_percentage;
+      row.dataset.status = order.status;
 
       // Format status and P&L
       const statusClass = `status-${order.status.toLowerCase()}`;
@@ -521,6 +688,108 @@
         <td class="${pnlClass}">${order.pnl_percentage.toFixed(2)}%</td>
       `;
       tableBody.appendChild(row);
+    });
+
+    // Reapply sorting if active
+    if (currentSort.table === 'closedOrdersTableBody' && currentSort.column) {
+      sortTable('closedOrdersTableBody', currentSort.column, currentSort.direction);
+    }
+  }
+
+  function updatePaginationButtons(tableType, totalItems, currentPage, itemsPerPage) {
+    const paginationElement = document.getElementById(`${tableType}PageButtons`);
+    paginationElement.innerHTML = '';
+
+    const totalPages = Math.ceil(totalItems / itemsPerPage);
+
+    // No need for pagination if only one page
+    if (totalPages <= 1) {
+      return;
+    }
+
+    // Previous button
+    const prevLi = document.createElement('li');
+    prevLi.className = `page-item ${currentPage === 1 ? 'disabled' : ''}`;
+    prevLi.innerHTML = `<a class="page-link" href="#" data-page="${currentPage - 1}">Previous</a>`;
+    paginationElement.appendChild(prevLi);
+
+    // Page buttons - show limited number of pages
+    const maxVisiblePages = 5;
+    let startPage = Math.max(1, currentPage - Math.floor(maxVisiblePages / 2));
+    let endPage = Math.min(totalPages, startPage + maxVisiblePages - 1);
+
+    // Adjust if we're at the end
+    if (endPage - startPage + 1 < maxVisiblePages) {
+      startPage = Math.max(1, endPage - maxVisiblePages + 1);
+    }
+
+    // First page if not visible
+    if (startPage > 1) {
+      const firstLi = document.createElement('li');
+      firstLi.className = 'page-item';
+      firstLi.innerHTML = `<a class="page-link" href="#" data-page="1">1</a>`;
+      paginationElement.appendChild(firstLi);
+
+      if (startPage > 2) {
+        const ellipsisLi = document.createElement('li');
+        ellipsisLi.className = 'page-item disabled';
+        ellipsisLi.innerHTML = `<a class="page-link" href="#">...</a>`;
+        paginationElement.appendChild(ellipsisLi);
+      }
+    }
+
+    // Page numbers
+    for (let i = startPage; i <= endPage; i++) {
+      const pageLi = document.createElement('li');
+      pageLi.className = `page-item ${i === currentPage ? 'active' : ''}`;
+      pageLi.innerHTML = `<a class="page-link" href="#" data-page="${i}">${i}</a>`;
+      paginationElement.appendChild(pageLi);
+    }
+
+    // Last page if not visible
+    if (endPage < totalPages) {
+      if (endPage < totalPages - 1) {
+        const ellipsisLi = document.createElement('li');
+        ellipsisLi.className = 'page-item disabled';
+        ellipsisLi.innerHTML = `<a class="page-link" href="#">...</a>`;
+        paginationElement.appendChild(ellipsisLi);
+      }
+
+      const lastLi = document.createElement('li');
+      lastLi.className = 'page-item';
+      lastLi.innerHTML = `<a class="page-link" href="#" data-page="${totalPages}">${totalPages}</a>`;
+      paginationElement.appendChild(lastLi);
+    }
+
+    // Next button
+    const nextLi = document.createElement('li');
+    nextLi.className = `page-item ${currentPage === totalPages ? 'disabled' : ''}`;
+    nextLi.innerHTML = `<a class="page-link" href="#" data-page="${currentPage + 1}">Next</a>`;
+    paginationElement.appendChild(nextLi);
+
+    // Add event listeners
+    paginationElement.querySelectorAll('.page-link').forEach(link => {
+      link.addEventListener('click', function(e) {
+        e.preventDefault();
+
+        // Skip if disabled or current
+        if (this.parentNode.classList.contains('disabled') ||
+            this.parentNode.classList.contains('active')) {
+          return;
+        }
+
+        const page = parseInt(this.dataset.page);
+        if (!isNaN(page)) {
+          // Set current page and re-render
+          paginationSettings[tableType].currentPage = page;
+
+          if (tableType === 'activeOrders') {
+            renderActiveOrders(activeOrders);
+          } else if (tableType === 'closedOrders') {
+            renderClosedOrders(closedOrders);
+          }
+        }
+      });
     });
   }
 
@@ -590,6 +859,7 @@
       }
     };
 
+    // First pass: calculate basic stats for each order
     orders.forEach(order => {
       // Skip if strategy_name is missing
       if (!order.strategy_name) return;
@@ -608,13 +878,68 @@
       } else {
         strategyData[strategyKey].avgLossPercent += order.pnl_percentage;
       }
-
-      // Max capital is the highest quantity * entry_price for the strategy
-      const capital = order.quantity * order.entry_price;
-      if (capital > strategyData[strategyKey].maxCapital) {
-        strategyData[strategyKey].maxCapital = capital;
-      }
     });
+
+    // Second pass: calculate max capital by analyzing the capital deployed over time
+    // Sort all orders by entry time to track capital chronologically
+    const sortedOrders = [...orders].sort((a, b) => new Date(a.entry_time) - new Date(b.entry_time));
+
+    // Track capital usage over time for each strategy
+    const capitalTimeline = {
+      percent_change_tracker: [],
+      aggressive_tracker: []
+    };
+
+    // Process orders chronologically to track capital usage
+    sortedOrders.forEach(order => {
+      if (!order.strategy_name || !capitalTimeline[order.strategy_name]) return;
+
+      const strategy = order.strategy_name;
+      const entryTime = new Date(order.entry_time);
+      const exitTime = new Date(order.exit_time);
+      const capital = order.quantity * order.entry_price;
+
+      // Add capital at entry time
+      capitalTimeline[strategy].push({
+        time: entryTime,
+        action: 'add',
+        capital: capital
+      });
+
+      // Release capital at exit time
+      capitalTimeline[strategy].push({
+        time: exitTime,
+        action: 'release',
+        capital: capital
+      });
+    });
+
+    // Calculate maximum capital deployed at any time for each strategy
+    for (const strategy in capitalTimeline) {
+      if (!capitalTimeline[strategy].length) continue;
+
+      // Sort all capital events by time
+      const events = capitalTimeline[strategy].sort((a, b) => a.time - b.time);
+
+      let currentCapital = 0;
+      let maxCapital = 0;
+
+      // Process events chronologically
+      events.forEach(event => {
+        if (event.action === 'add') {
+          currentCapital += event.capital;
+        } else if (event.action === 'release') {
+          currentCapital -= event.capital;
+        }
+
+        // Track maximum capital deployed
+        if (currentCapital > maxCapital) {
+          maxCapital = currentCapital;
+        }
+      });
+
+      strategyData[strategy].maxCapital = maxCapital;
+    }
 
     // Calculate averages and ROI
     for (const key in strategyData) {
@@ -799,6 +1124,48 @@
       default:
         return orders;
     }
+  }
+
+  function sortTable(tableId, column, direction) {
+    const tableBody = document.getElementById(tableId);
+    const rows = Array.from(tableBody.querySelectorAll('tr'));
+
+    // Skip if there's only one row (likely "No data" message)
+    if (rows.length <= 1) return;
+
+    // Define sort function based on column type
+    const sortFn = (a, b) => {
+      // Get values from the cells instead of data attributes
+      const aIndex = Array.from(a.cells).findIndex(cell =>
+        cell.closest('table').querySelector(`th[data-sort="${column}"]`)?.cellIndex === cell.cellIndex);
+      const bIndex = Array.from(b.cells).findIndex(cell =>
+        cell.closest('table').querySelector(`th[data-sort="${column}"]`)?.cellIndex === cell.cellIndex);
+
+      if (aIndex === -1 || bIndex === -1) return 0;
+
+      let aVal = a.cells[aIndex].textContent.trim();
+      let bVal = b.cells[bIndex].textContent.trim();
+
+      // If values are numeric, convert to numbers
+      if (column === 'pnl' || column === 'pnl-percent' || column === 'days') {
+        // Remove any currency symbols or commas
+        aVal = parseFloat(aVal.replace(/[₹,%]/g, '')) || 0;
+        bVal = parseFloat(bVal.replace(/[₹,%]/g, '')) || 0;
+        return direction === 'asc' ? aVal - bVal : bVal - aVal;
+      }
+
+      // String comparison for text values
+      return direction === 'asc'
+        ? aVal.localeCompare(bVal)
+        : bVal.localeCompare(aVal);
+    };
+
+    // Sort the rows
+    rows.sort(sortFn);
+
+    // Clear table and append in new order
+    tableBody.innerHTML = '';
+    rows.forEach(row => tableBody.appendChild(row));
   }
 
   function formatNumber(number) {
