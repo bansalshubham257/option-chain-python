@@ -1491,7 +1491,7 @@ function renderHighlightedOptionsTable() {
 
       // Sort data by percent_change in descending order
       const sortedLowMediumData = [...lowMediumData].sort((a, b) => b.percent_change - a.percent_change);
-      const sortedMediumHighData = [...mediumHighData].sort((a, b) => b.percent_change - a.percent_change);
+      const sortedMediumHighData = [...mediumHighData].sort((a, b) => b.percent_change - a.percentChange);
       const sortedHighData = [...highData].sort((a, b) => b.percent_change - a.percent_change);
       const sortedVeryHighData = [...veryHighData].sort((a, b) => b.percent_change - a.percent_change);
 
@@ -1518,6 +1518,21 @@ function renderHighlightedOptionsTable() {
           tableBody.appendChild(emptyRow);
           return;
       }
+
+      // Create a map of symbols from recovery table
+      const recoverySymbols = new Set();
+
+      // Get recovery data - options that dropped below thresholds but now have recovered
+      const recoveryData = filterOutIndexData(allOrdersData).filter(order => {
+          const hasDroppedBelow = order.is_less_than_25pct || order.is_less_than_50pct;
+          const hasRecovered = order.current_ltp >= order.stored_ltp;
+          return hasDroppedBelow && hasRecovered;
+      });
+
+      // Add all recovery symbols to the set
+      recoveryData.forEach(order => {
+          recoverySymbols.add(order.symbol);
+      });
 
       data.forEach(order => {
           const row = document.createElement('tr');
@@ -1553,8 +1568,11 @@ function renderHighlightedOptionsTable() {
           const bidQtyDisplay = formatLargeNumber(liveBidQ);
           const askQtyDisplay = formatLargeNumber(liveAskQ);
 
-          // Display symbol without any special highlighting
-          const symbolDisplay = order.symbol;
+          // Check if this symbol is also in recovery table and add badge if needed
+          let symbolDisplay = order.symbol;
+          if (recoverySymbols.has(order.symbol)) {
+              symbolDisplay = `<span class="recovery-overlap">${order.symbol} <span class="badge bg-success">Recovery</span></span>`;
+          }
 
           // Determine milestone based on percentage change
           let milestoneText = 'New';
@@ -2119,6 +2137,41 @@ function applySort(data) {
           }
       }
 
+      // Create a map of symbols from percentage tables
+      const percentageTableSymbols = new Map();
+
+      // Check if a stock is in 10-25% range
+      const lowMediumData = filterOutIndexData(allOrdersData).filter(order =>
+          order.percent_change > 10 && order.percent_change <= 25
+      );
+      lowMediumData.forEach(order => {
+          percentageTableSymbols.set(order.symbol, "10-25%");
+      });
+
+      // Check if a stock is in 25-50% range
+      const mediumHighData = filterOutIndexData(allOrdersData).filter(order =>
+          order.percent_change > 25 && order.percent_change <= 50
+      );
+      mediumHighData.forEach(order => {
+          percentageTableSymbols.set(order.symbol, "25-50%");
+      });
+
+      // Check if a stock is in 50-75% range
+      const highData = filterOutIndexData(allOrdersData).filter(order =>
+          order.percent_change > 50 && order.percent_change <= 75
+      );
+      highData.forEach(order => {
+          percentageTableSymbols.set(order.symbol, "50-75%");
+      });
+
+      // Check if a stock is in 75-100% range
+      const veryHighData = filterOutIndexData(allOrdersData).filter(order =>
+          order.percent_change > 75 && order.percent_change <= 100
+      );
+      veryHighData.forEach(order => {
+          percentageTableSymbols.set(order.symbol, "75-100%");
+      });
+
       recoveryData.forEach(order => {
           const row = document.createElement('tr');
 
@@ -2170,8 +2223,12 @@ function applySort(data) {
           const bidQtyDisplay = formatLargeNumber(liveBidQ);
           const askQtyDisplay = formatLargeNumber(liveAskQ);
 
-          // Display symbol without any special highlighting
-          const symbolDisplay = order.symbol;
+          // Check if this symbol is also in a percentage table
+          let symbolDisplay = order.symbol;
+          if (percentageTableSymbols.has(order.symbol)) {
+              const rangeLabel = percentageTableSymbols.get(order.symbol);
+              symbolDisplay = `<span class="recovery-overlap">${order.symbol} <span class="badge bg-info">Also in ${rangeLabel}</span></span>`;
+          }
 
           // Determine the lowest milestone hit
           let lowestMilestone = "";
