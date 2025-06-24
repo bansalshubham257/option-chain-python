@@ -45,7 +45,7 @@ class StrategyTracker:
         default_config = {
             "name": "percent_change_tracker",
             "entry_threshold": 5.0,  # Enter when price change > 5%
-            "profit_target": 95.0,   # Take profit at 95% gain
+            "profit_target": 91.0,   # Take profit at 95% gain
             "stop_loss": -15.0,      # Stop loss at 15% loss
             "lot_size_multiplier": 1  # Number of lots to buy
         }
