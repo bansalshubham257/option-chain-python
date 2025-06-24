@@ -385,7 +385,9 @@ class StrategyTracker:
                         cooldown_period = timedelta(days=3)  # 3-day cooldown for loss/expired
                         can_reenter_after = exit_time + cooldown_period
 
-                        if datetime.now() < can_reenter_after:
+                        # Use timezone-aware datetime.now() for comparison
+                        current_time = datetime.now(self.tz)
+                        if current_time < can_reenter_after:
                             logger.info(f"Skipping {symbol} {strike} {option_type} - in cooldown period after {status} until {can_reenter_after}")
                             return True
 
@@ -394,7 +396,9 @@ class StrategyTracker:
                         cooldown_period = timedelta(days=7)  # 7-day cooldown for profit orders
                         can_reenter_after = exit_time + cooldown_period
 
-                        if datetime.now() < can_reenter_after:
+                        # Use timezone-aware datetime.now() for comparison
+                        current_time = datetime.now(self.tz)
+                        if current_time < can_reenter_after:
                             logger.info(f"Skipping {symbol} {strike} {option_type} - in cooldown period after PROFIT until {can_reenter_after}")
                             return True
 
@@ -1116,7 +1120,9 @@ class StrategyTracker:
                         cooldown_period = timedelta(days=3)  # 3-day cooldown for loss/expired
                         can_reenter_after = exit_time + cooldown_period
 
-                        if datetime.now() < can_reenter_after:
+                        # Use timezone-aware datetime.now() for comparison
+                        current_time = datetime.now(self.tz)
+                        if current_time < can_reenter_after:
                             logger.info(f"Skipping {symbol} {strike} {option_type} - in cooldown period after {status} until {can_reenter_after}")
                             return True
 
@@ -1125,7 +1131,9 @@ class StrategyTracker:
                         cooldown_period = timedelta(days=7)  # 7-day cooldown for profit orders
                         can_reenter_after = exit_time + cooldown_period
 
-                        if datetime.now() < can_reenter_after:
+                        # Use timezone-aware datetime.now() for comparison
+                        current_time = datetime.now(self.tz)
+                        if current_time < can_reenter_after:
                             logger.info(f"Skipping {symbol} {strike} {option_type} - in cooldown period after PROFIT until {can_reenter_after}")
                             return True
 
