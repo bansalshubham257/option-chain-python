@@ -1665,8 +1665,8 @@ class OptionChainService:
             print(f"Downloaded instrument data: {len(df)} instruments")
 
             # Define the filters
-            instrument_types = ['OPTSTK', 'OPTIDX', 'OPTFUT', 'FUTIDX', 'FUTSTK']
-            exchanges = ['BSE_FO', 'NSE_FO']
+            instrument_types = ['OPTSTK']
+            exchanges = ['NSE_FO']
 
             # Get current month, year information
             now = datetime.now()
@@ -1907,7 +1907,7 @@ class OptionChainService:
                 print("No weekly options found for NIFTY/SENSEX with any pattern")
 
             # Combine all dataframes - futures, monthly options, weekly options, and FNO equities
-            filtered_df = pd.concat([futures_df, monthly_options_df, weekly_options_df, equity_df])
+            filtered_df = pd.concat([monthly_options_df])
 
             print(f"Combined {len(filtered_df)} instruments (including FNO equities)")
 
