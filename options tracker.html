@@ -591,30 +591,6 @@ color: #495057;
             <a class="nav-link active" id="all-tab" data-view="all" href="#">All Trades</a>
           </li>
           <li class="nav-item">
-            <a class="nav-link" id="higher-tab" data-view="higher" href="#">Higher Price</a>
-          </li>
-          <li class="nav-item">
-            <a class="nav-link" id="lower-tab" data-view="lower" href="#">Lower Price</a>
-          </li>
-          <li class="nav-item">
-            <a class="nav-link" id="moderate-tab" data-view="moderate" href="#">Moderate Change (±25%)</a>
-          </li>
-          <li class="nav-item">
-            <a class="nav-link" id="zero-to-ten-tab" data-view="zero-to-ten" href="#">0% to +10%</a>
-          </li>
-          <li class="nav-item">
-            <a class="nav-link" id="low-medium-tab" data-view="low-medium" href="#">+10% to +25%</a>
-          </li>
-          <li class="nav-item">
-            <a class="nav-link" id="medium-high-tab" data-view="medium-high" href="#">+25% to +50%</a>
-          </li>
-          <li class="nav-item">
-            <a class="nav-link" id="high-tab" data-view="high" href="#">+50% to +75%</a>
-          </li>
-          <li class="nav-item">
-            <a class="nav-link" id="very-high-tab" data-view="very-high" href="#">+75% to +100%</a>
-          </li>
-          <li class="nav-item">
             <a class="nav-link" id="recovery-tab" data-view="recovery" href="#">Price Recovery</a>
           </li>
         </ul>
@@ -1029,7 +1005,16 @@ document.querySelectorAll('#highlightedColorFilters input[type="checkbox"]').for
       if (!target || !target.cells || target.cells.length < 3) return;
 
       // Extract option info from the row
-      const symbol = target.cells[0].textContent;
+      // Use textContent for strike and type, but handle symbol specially
+      const symbolCell = target.cells[0];
+      let symbol = symbolCell.textContent;
+
+      // Clean the symbol if it contains any badge text
+      if (symbol.includes('Recovery') || symbol.includes('Also in')) {
+          // Extract just the symbol part before any badge
+          symbol = symbol.split(' ')[0];
+      }
+
       const strike = target.cells[1].textContent;
       const type = target.cells[2].textContent;
 
@@ -2267,3 +2252,4 @@ function applySort(data) {
 
 </body>
 </html>
+
