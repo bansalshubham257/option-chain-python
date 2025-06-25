@@ -178,6 +178,7 @@
           <option value="all">All Strategies</option>
           <option value="percent_change_tracker">Conservative (5% Entry, 15% SL)</option>
           <option value="aggressive_tracker">Aggressive (10% Entry, 30% SL)</option>
+          <option value="high_risk_tracker">High Risk (8% Entry, 60% SL)</option>
         </select>
       </div>
     </div>
@@ -252,6 +253,37 @@
     </div>
   </div>
 
+  <!-- Strategy Summary Table (New) -->
+  <div class="row mb-4" id="strategySummarySection">
+    <div class="col-12">
+      <div class="card">
+        <div class="card-header bg-primary text-white">
+          <h4>Strategy Summary</h4>
+        </div>
+        <div class="card-body">
+          <div class="table-responsive">
+            <table class="table table-striped table-bordered">
+              <thead>
+                <tr>
+                  <th>Strategy</th>
+                  <th>Open Orders</th>
+                  <th>Closed Orders</th>
+                  <th>Total Profit</th>
+                  <th>Total Loss</th>
+                  <th>Net P&L</th>
+                  <th>Current Capital</th>
+                </tr>
+              </thead>
+              <tbody id="strategySummaryTableBody">
+                <!-- Strategy summary will be dynamically added here -->
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- Performance Chart -->
   <div class="row mb-4">
     <div class="col-12">
@@ -269,7 +301,7 @@
   </div>
 
   <!-- Live Open Orders -->
-  <div class="row mb-4">
+  <div class="row mb-4" id="activeOrdersSection">
     <div class="col-12">
       <div class="card">
         <div class="card-header bg-primary text-white">
@@ -289,7 +321,7 @@
                   <th>Target</th>
                   <th>Stop Loss</th>
                   <th>Qty</th>
-                  <th>Entry Time</th>
+                  <th class="sortable" data-sort="entry_time">Entry Time</th>
                   <th class="sortable" data-sort="days">Days Open</th>
                   <th class="sortable" data-sort="pnl">Unrealized P&L</th>
                   <th class="sortable" data-sort="pnl-percent">P&L %</th>
@@ -314,7 +346,7 @@
   </div>
 
   <!-- Closed Orders -->
-  <div class="row mb-4">
+  <div class="row mb-4" id="closedOrdersSection">
     <div class="col-12">
       <div class="card">
         <div class="card-header bg-success text-white">
@@ -332,8 +364,8 @@
                   <th>Entry Price</th>
                   <th>Exit Price</th>
                   <th>Qty</th>
-                  <th>Entry Time</th>
-                  <th>Exit Time</th>
+                  <th class="sortable" data-sort="entry_time">Entry Time</th>
+                  <th class="sortable" data-sort="exit_time">Exit Time</th>
                   <th class="sortable" data-sort="status">Status</th>
                   <th class="sortable" data-sort="pnl">P&L</th>
                   <th class="sortable" data-sort="pnl-percent">P&L %</th>
@@ -436,6 +468,9 @@
     document.getElementById('strategySelector').addEventListener('change', function() {
       const selectedStrategy = this.value;
       fetchData(); // Refetch data with the new strategy
+
+      // Toggle sections visibility based on selected strategy
+      updateSectionsVisibility(selectedStrategy);
     });
 
     // Set up sortable columns
@@ -445,8 +480,8 @@
         const tableId = this.closest('table').querySelector('tbody').id;
         const direction = this.classList.contains('asc') ? 'desc' : 'asc';
 
-        // Reset all sorting indicators
-        document.querySelectorAll('th.sortable').forEach(header => {
+        // Reset all sorting indicators in this table
+        this.closest('table').querySelectorAll('th.sortable').forEach(header => {
           header.classList.remove('asc', 'desc');
         });
 
@@ -460,17 +495,48 @@
           direction: direction
         };
 
-        // Apply sorting
-        sortTable(tableId, sortType, direction);
+        // Reset to first page when sorting changes
+        if (tableId === 'activeOrdersTableBody') {
+          paginationSettings.activeOrders.currentPage = 1;
+          renderActiveOrders(activeOrders);
+        } else if (tableId === 'closedOrdersTableBody') {
+          paginationSettings.closedOrders.currentPage = 1;
+          renderClosedOrders(closedOrders);
+        }
       });
     });
 
     // Initial data load
     fetchData();
 
+    // Set initial sections visibility
+    updateSectionsVisibility(document.getElementById('strategySelector').value);
+
     // Set up auto-refresh every 30 seconds
     setInterval(fetchData, 30000);
   });
+
+  // Function to update sections visibility based on selected strategy
+  function updateSectionsVisibility(selectedStrategy) {
+    const activeOrdersSection = document.getElementById('activeOrdersSection');
+    const closedOrdersSection = document.getElementById('closedOrdersSection');
+    const strategySummarySection = document.getElementById('strategySummarySection');
+    const comparisonSection = document.getElementById('strategyComparisonSection');
+
+    if (selectedStrategy === 'all') {
+      // When "All Strategies" is selected, hide individual orders and show summary/comparison
+      activeOrdersSection.style.display = 'none';
+      closedOrdersSection.style.display = 'none';
+      strategySummarySection.style.display = 'block';
+      comparisonSection.style.display = 'block';
+    } else {
+      // When a specific strategy is selected, show orders and hide comparison
+      activeOrdersSection.style.display = 'flex';
+      closedOrdersSection.style.display = 'flex';
+      strategySummarySection.style.display = 'none';
+      comparisonSection.style.display = 'none';
+    }
+  }
 
   async function fetchData() {
     try {
@@ -505,34 +571,29 @@
       const summaryResponse = await fetch(summaryUrl);
       const summaryData = await summaryResponse.json();
 
-      // Always fetch comparison data (showing both strategies)
+      // Always fetch comparison data (showing all strategies)
       const comparisonResponse = await fetch(`${apiBaseUrl}/api/strategy/comparison`);
       const comparisonData = await comparisonResponse.json();
 
-      // Update the UI - important: update UI even if selectedStrategy is not 'all'
+      // Update the UI based on the selected strategy
       updateMetrics(summaryData);
-      renderActiveOrders(activeOrders);
-      renderClosedOrders(closedOrders);
+
+      if (selectedStrategy === 'all') {
+        // For "All Strategies", update the summary and comparison tables
+        renderStrategyComparisonFromAPI(comparisonData.comparison);
+        renderStrategySummary(comparisonData.comparison);
+      } else {
+        // For specific strategy, render the order tables
+        renderActiveOrders(activeOrders);
+        renderClosedOrders(closedOrders);
+      }
+
+      // Always update these regardless of strategy selection
       renderMonthlyPerformance(monthlyPerformance);
       updatePerformanceChart();
 
-      // Only hide the comparison section if a specific strategy is selected
-      const comparisonSection = document.getElementById('strategyComparisonSection');
-      if (selectedStrategy !== 'all') {
-        comparisonSection.style.display = 'none';
-      } else {
-        comparisonSection.style.display = 'block';
-        // Use the dedicated comparison endpoint data if available
-        if (comparisonData && comparisonData.comparison) {
-          renderStrategyComparisonFromAPI(comparisonData.comparison);
-        } else {
-          // Fall back to calculating from orders if needed
-          renderStrategyComparison(closedOrders);
-        }
-      }
-
-      // Re-apply current sort if it exists
-      if (currentSort.table && currentSort.column && currentSort.direction) {
+      // Re-apply current sort if it exists and we're viewing a specific strategy
+      if (selectedStrategy !== 'all' && currentSort.table && currentSort.column && currentSort.direction) {
         sortTable(currentSort.table, currentSort.column, currentSort.direction);
       }
 
@@ -550,10 +611,16 @@
   }
 
   function renderActiveOrders(orders) {
+    // First apply sorting to the full dataset if needed
+    let sortedOrders = [...orders];
+    if (currentSort.table === 'activeOrdersTableBody' && currentSort.column) {
+      sortedOrders = sortDataset(sortedOrders, currentSort.column, currentSort.direction);
+    }
+
     const tableBody = document.getElementById('activeOrdersTableBody');
     tableBody.innerHTML = '';
 
-    if (orders.length === 0) {
+    if (sortedOrders.length === 0) {
       const emptyRow = document.createElement('tr');
       emptyRow.innerHTML = `<td colspan="12" class="text-center">No active orders</td>`;
       tableBody.appendChild(emptyRow);
@@ -567,7 +634,7 @@
     document.getElementById('activeOrdersPagination').style.display = 'flex';
 
     // Apply pagination
-    const totalItems = orders.length;
+    const totalItems = sortedOrders.length;
     const currentPage = paginationSettings.activeOrders.currentPage;
     const itemsPerPage = paginationSettings.itemsPerPage;
     const startIndex = (currentPage - 1) * itemsPerPage;
@@ -582,14 +649,11 @@
     updatePaginationButtons('activeOrders', totalItems, currentPage, itemsPerPage);
 
     // Display only current page items
-    const ordersToDisplay = orders.slice(startIndex, endIndex);
+    const ordersToDisplay = sortedOrders.slice(startIndex, endIndex);
 
     ordersToDisplay.forEach(order => {
       const row = document.createElement('tr');
       row.classList.add('active-trade');
-      row.dataset.symbol = order.symbol;
-      row.dataset.pnl = (order.current_price - order.entry_price) * order.quantity;
-      row.dataset.pnlPercent = ((order.current_price - order.entry_price) / order.entry_price) * 100;
 
       // Calculate unrealized P&L
       const pnl = (order.current_price - order.entry_price) * order.quantity;
@@ -600,7 +664,6 @@
       const entryDate = new Date(order.entry_time);
       const today = new Date();
       const daysOpen = Math.floor((today - entryDate) / (1000 * 60 * 60 * 24));
-      row.dataset.days = daysOpen;
 
       row.innerHTML = `
         <td>${order.symbol}</td>
@@ -618,21 +681,22 @@
       `;
       tableBody.appendChild(row);
     });
-
-    // Reapply sorting if active
-    if (currentSort.table === 'activeOrdersTableBody' && currentSort.column) {
-      sortTable('activeOrdersTableBody', currentSort.column, currentSort.direction);
-    }
   }
 
   function renderClosedOrders(orders) {
+    // Apply filter first
+    const filteredOrders = applyOrderFilters(orders);
+
+    // Then apply sorting to the full filtered dataset if needed
+    let sortedOrders = [...filteredOrders];
+    if (currentSort.table === 'closedOrdersTableBody' && currentSort.column) {
+      sortedOrders = sortDataset(sortedOrders, currentSort.column, currentSort.direction);
+    }
+
     const tableBody = document.getElementById('closedOrdersTableBody');
     tableBody.innerHTML = '';
 
-    // Apply filter
-    const filteredOrders = applyOrderFilters(orders);
-
-    if (filteredOrders.length === 0) {
+    if (sortedOrders.length === 0) {
       const emptyRow = document.createElement('tr');
       emptyRow.innerHTML = `<td colspan="11" class="text-center">No closed orders</td>`;
       tableBody.appendChild(emptyRow);
@@ -646,7 +710,7 @@
     document.getElementById('closedOrdersPagination').style.display = 'flex';
 
     // Apply pagination
-    const totalItems = filteredOrders.length;
+    const totalItems = sortedOrders.length;
     const currentPage = paginationSettings.closedOrders.currentPage;
     const itemsPerPage = paginationSettings.itemsPerPage;
     const startIndex = (currentPage - 1) * itemsPerPage;
@@ -661,14 +725,10 @@
     updatePaginationButtons('closedOrders', totalItems, currentPage, itemsPerPage);
 
     // Display only current page items
-    const ordersToDisplay = filteredOrders.slice(startIndex, endIndex);
+    const ordersToDisplay = sortedOrders.slice(startIndex, endIndex);
 
     ordersToDisplay.forEach(order => {
       const row = document.createElement('tr');
-      row.dataset.symbol = order.symbol;
-      row.dataset.pnl = order.pnl;
-      row.dataset.pnlPercent = order.pnl_percentage;
-      row.dataset.status = order.status;
 
       // Format status and P&L
       const statusClass = `status-${order.status.toLowerCase()}`;
@@ -689,11 +749,6 @@
       `;
       tableBody.appendChild(row);
     });
-
-    // Reapply sorting if active
-    if (currentSort.table === 'closedOrdersTableBody' && currentSort.column) {
-      sortTable('closedOrdersTableBody', currentSort.column, currentSort.direction);
-    }
   }
 
   function updatePaginationButtons(tableType, totalItems, currentPage, itemsPerPage) {
@@ -856,6 +911,17 @@
         totalPnl: 0,
         maxCapital: 0,
         roi: 0
+      },
+      high_risk_tracker: {
+        displayName: 'High Risk (8% Entry, 60% SL)',
+        totalOrders: 0,
+        winRate: 0,
+        profitCount: 0,
+        avgProfitPercent: 0,
+        avgLossPercent: 0,
+        totalPnl: 0,
+        maxCapital: 0,
+        roi: 0
       }
     };
 
@@ -887,7 +953,8 @@
     // Track capital usage over time for each strategy
     const capitalTimeline = {
       percent_change_tracker: [],
-      aggressive_tracker: []
+      aggressive_tracker: [],
+      high_risk_tracker: []
     };
 
     // Process orders chronologically to track capital usage
@@ -980,6 +1047,75 @@
     }
   }
 
+  // New function to render the strategy summary table
+  function renderStrategySummary(comparisonData) {
+    const tableBody = document.getElementById('strategySummaryTableBody');
+    tableBody.innerHTML = '';
+
+    if (!comparisonData || comparisonData.length === 0) {
+      const emptyRow = document.createElement('tr');
+      emptyRow.innerHTML = `<td colspan="7" class="text-center">No summary data available</td>`;
+      tableBody.appendChild(emptyRow);
+      return;
+    }
+
+    comparisonData.forEach(strategy => {
+      const row = document.createElement('tr');
+      let displayName;
+
+      switch(strategy.strategy_name) {
+        case 'percent_change_tracker':
+          displayName = 'Conservative (5% Entry, 15% SL)';
+          break;
+        case 'aggressive_tracker':
+          displayName = 'Aggressive (10% Entry, 30% SL)';
+          break;
+        case 'high_risk_tracker':
+          displayName = 'High Risk (8% Entry, 60% SL)';
+          break;
+        default:
+          displayName = strategy.strategy_name;
+      }
+
+      // Calculate net P&L
+      const netPnl = (strategy.total_profit || 0) - Math.abs(strategy.total_loss || 0);
+
+      row.innerHTML = `
+        <td>${displayName}</td>
+        <td>${strategy.open_orders || 0}</td>
+        <td>${strategy.closed_orders || 0}</td>
+        <td class="profit">₹${formatNumber(strategy.total_profit || 0)}</td>
+        <td class="loss">₹${formatNumber(Math.abs(strategy.total_loss || 0))}</td>
+        <td class="${netPnl >= 0 ? 'profit' : 'loss'}">₹${formatNumber(netPnl)}</td>
+        <td>₹${formatNumber(strategy.current_capital || 0)}</td>
+      `;
+      tableBody.appendChild(row);
+    });
+
+    // Add a total row
+    const totalRow = document.createElement('tr');
+    totalRow.classList.add('fw-bold');
+
+    // Calculate totals
+    const totalOpenOrders = comparisonData.reduce((sum, item) => sum + (item.open_orders || 0), 0);
+    const totalClosedOrders = comparisonData.reduce((sum, item) => sum + (item.closed_orders || 0), 0);
+    const totalProfit = comparisonData.reduce((sum, item) => sum + (item.total_profit || 0), 0);
+    const totalLoss = comparisonData.reduce((sum, item) => sum + Math.abs(item.total_loss || 0), 0);
+    const totalNetPnl = totalProfit - totalLoss;
+    const totalCapital = comparisonData.reduce((sum, item) => sum + (item.current_capital || 0), 0);
+
+    totalRow.innerHTML = `
+      <td>Total (All Strategies)</td>
+      <td>${totalOpenOrders}</td>
+      <td>${totalClosedOrders}</td>
+      <td class="profit">₹${formatNumber(totalProfit)}</td>
+      <td class="loss">₹${formatNumber(totalLoss)}</td>
+      <td class="${totalNetPnl >= 0 ? 'profit' : 'loss'}">₹${formatNumber(totalNetPnl)}</td>
+      <td>₹${formatNumber(totalCapital)}</td>
+    `;
+    tableBody.appendChild(totalRow);
+  }
+
   function renderStrategyComparisonFromAPI(comparisonData) {
     const tableBody = document.getElementById('strategyComparisonTableBody');
     tableBody.innerHTML = '';
@@ -993,9 +1129,21 @@
 
     comparisonData.forEach(strategy => {
       const row = document.createElement('tr');
-      const displayName = strategy.strategy_name === 'percent_change_tracker'
-        ? 'Conservative (5% Entry, 15% SL)'
-        : 'Aggressive (10% Entry, 30% SL)';
+      let displayName;
+
+      switch(strategy.strategy_name) {
+        case 'percent_change_tracker':
+          displayName = 'Conservative (5% Entry, 15% SL)';
+          break;
+        case 'aggressive_tracker':
+          displayName = 'Aggressive (10% Entry, 30% SL)';
+          break;
+        case 'high_risk_tracker':
+          displayName = 'High Risk (8% Entry, 60% SL)';
+          break;
+        default:
+          displayName = strategy.strategy_name;
+      }
 
       row.innerHTML = `
         <td>${displayName}</td>
@@ -1003,14 +1151,47 @@
         <td>${strategy.win_rate.toFixed(2)}%</td>
         <td class="profit">${strategy.avg_profit_percentage.toFixed(2)}%</td>
         <td class="loss">${strategy.avg_loss_percentage.toFixed(2)}%</td>
-        <td class="${strategy.net_pnl >= 0 ? 'profit' : 'loss'}">₹${strategy.net_pnl.toFixed(2)}</td>
-        <td>₹${strategy.max_capital.toFixed(2)}</td>
+        <td class="${strategy.net_pnl >= 0 ? 'profit' : 'loss'}">₹${formatNumber(strategy.net_pnl)}</td>
+        <td>₹${formatNumber(strategy.max_capital)}</td>
         <td class="${strategy.roi >= 0 ? 'profit' : 'loss'}">${strategy.roi.toFixed(2)}%</td>
       `;
       tableBody.appendChild(row);
     });
+
+    // Add a row for combined performance
+    if (comparisonData.length > 1) {
+      const combinedRow = document.createElement('tr');
+      combinedRow.classList.add('fw-bold');
+
+      // Calculate combined metrics
+      const totalOrders = comparisonData.reduce((sum, item) => sum + item.total_orders, 0);
+      const totalProfit = comparisonData.reduce((sum, item) => sum + (item.total_profit || 0), 0);
+      const totalLoss = comparisonData.reduce((sum, item) => sum + Math.abs(item.total_loss || 0), 0);
+      const netPnl = comparisonData.reduce((sum, item) => sum + item.net_pnl, 0);
+      const maxCapital = comparisonData.reduce((sum, item) => sum + item.max_capital, 0);
+
+      // Calculate combined win rate
+      const winCount = comparisonData.reduce((sum, item) => sum + (item.win_count || Math.round(item.total_orders * item.win_rate / 100)), 0);
+      const combinedWinRate = totalOrders > 0 ? (winCount / totalOrders) * 100 : 0;
+
+      // ROI for combined strategies
+      const combinedRoi = maxCapital > 0 ? (netPnl / maxCapital) * 100 : 0;
+
+      combinedRow.innerHTML = `
+        <td>Combined Performance</td>
+        <td>${totalOrders}</td>
+        <td>${combinedWinRate.toFixed(2)}%</td>
+        <td class="profit">-</td>
+        <td class="loss">-</td>
+        <td class="${netPnl >= 0 ? 'profit' : 'loss'}">₹${formatNumber(netPnl)}</td>
+        <td>₹${formatNumber(maxCapital)}</td>
+        <td class="${combinedRoi >= 0 ? 'profit' : 'loss'}">${combinedRoi.toFixed(2)}%</td>
+      `;
+      tableBody.appendChild(combinedRow);
+    }
   }
 
+  // Function to update the performance chart
   function updatePerformanceChart() {
     // Get the canvas element
     const ctx = document.getElementById('performanceChart').getContext('2d');
@@ -1044,6 +1225,14 @@
             borderColor: 'rgba(255, 99, 132, 1)',
             borderWidth: 2,
             tension: 0.1
+          },
+          {
+            label: 'High Risk Strategy P&L',
+            data: performanceData.highRiskPnl,
+            backgroundColor: 'rgba(255, 159, 64, 0.2)',
+            borderColor: 'rgba(255, 159, 64, 1)',
+            borderWidth: 2,
+            tension: 0.1
           }
         ]
       },
@@ -1059,6 +1248,7 @@
     });
   }
 
+  // Function to prepare data for the performance chart
   function prepareStrategyChartData() {
     // Sort closed orders by exit time
     const sortedOrders = [...closedOrders].sort((a, b) => new Date(a.exit_time) - new Date(b.exit_time));
@@ -1067,18 +1257,24 @@
     const labels = [];
     const conservativePnl = [];
     const aggressivePnl = [];
+    const highRiskPnl = [];
     let conservativeSum = 0;
     let aggressiveSum = 0;
+    let highRiskSum = 0;
 
     // Group orders by day and strategy
     const dailyData = {};
 
     sortedOrders.forEach(order => {
+      // Skip if no exit time or no strategy name
+      if (!order.exit_time || !order.strategy_name) return;
+
       const exitDate = new Date(order.exit_time).toLocaleDateString();
       if (!dailyData[exitDate]) {
         dailyData[exitDate] = {
           conservative: 0,
-          aggressive: 0
+          aggressive: 0,
+          highRisk: 0
         };
       }
 
@@ -1087,6 +1283,8 @@
         dailyData[exitDate].conservative += order.pnl;
       } else if (order.strategy_name === 'aggressive_tracker') {
         dailyData[exitDate].aggressive += order.pnl;
+      } else if (order.strategy_name === 'high_risk_tracker') {
+        dailyData[exitDate].highRisk += order.pnl;
       }
     });
 
@@ -1097,76 +1295,98 @@
       // Update cumulative values
       conservativeSum += dailyData[date].conservative;
       aggressiveSum += dailyData[date].aggressive;
+      highRiskSum += dailyData[date].highRisk;
 
       // Add to series
       conservativePnl.push(conservativeSum);
       aggressivePnl.push(aggressiveSum);
+      highRiskPnl.push(highRiskSum);
     });
 
-    return { labels, conservativePnl, aggressivePnl };
-  }
-
-  function applyFilters() {
-    renderClosedOrders(closedOrders);
+    return {
+      labels,
+      conservativePnl,
+      aggressivePnl,
+      highRiskPnl
+    };
   }
 
   function applyOrderFilters(orders) {
-    // Apply filter based on current selection
-    switch (currentFilter) {
-      case 'profit':
-        return orders.filter(order => order.status === 'PROFIT');
-      case 'loss':
-        return orders.filter(order => order.status === 'LOSS');
-      case 'open':
-        return orders.filter(order => order.status === 'OPEN');
-      case 'expired':
-        return orders.filter(order => order.status === 'EXPIRED');
-      default:
-        return orders;
+    const filter = currentFilter;
+    if (filter === 'all') {
+      return orders;
     }
+
+    return orders.filter(order => {
+      if (filter === 'profit' && order.status === 'PROFIT') return true;
+      if (filter === 'loss' && order.status === 'LOSS') return true;
+      if (filter === 'open' && order.status === 'OPEN') return true;
+      if (filter === 'expired' && order.status === 'EXPIRED') return true;
+      return false;
+    });
   }
 
-  function sortTable(tableId, column, direction) {
-    const tableBody = document.getElementById(tableId);
-    const rows = Array.from(tableBody.querySelectorAll('tr'));
+  function applyFilters() {
+    // Re-render closed orders with the new filter
+    renderClosedOrders(closedOrders);
+  }
 
-    // Skip if there's only one row (likely "No data" message)
-    if (rows.length <= 1) return;
+  // Add a new function to sort the entire dataset
+  function sortDataset(data, column, direction) {
+    return [...data].sort((a, b) => {
+      let aVal, bVal;
 
-    // Define sort function based on column type
-    const sortFn = (a, b) => {
-      // Get values from the cells instead of data attributes
-      const aIndex = Array.from(a.cells).findIndex(cell =>
-        cell.closest('table').querySelector(`th[data-sort="${column}"]`)?.cellIndex === cell.cellIndex);
-      const bIndex = Array.from(b.cells).findIndex(cell =>
-        cell.closest('table').querySelector(`th[data-sort="${column}"]`)?.cellIndex === cell.cellIndex);
-
-      if (aIndex === -1 || bIndex === -1) return 0;
-
-      let aVal = a.cells[aIndex].textContent.trim();
-      let bVal = b.cells[bIndex].textContent.trim();
-
-      // If values are numeric, convert to numbers
-      if (column === 'pnl' || column === 'pnl-percent' || column === 'days') {
-        // Remove any currency symbols or commas
-        aVal = parseFloat(aVal.replace(/[₹,%]/g, '')) || 0;
-        bVal = parseFloat(bVal.replace(/[₹,%]/g, '')) || 0;
-        return direction === 'asc' ? aVal - bVal : bVal - aVal;
+      // Determine values based on column type
+      switch(column) {
+        case 'symbol':
+          aVal = a.symbol;
+          bVal = b.symbol;
+          break;
+        case 'days':
+          const aDate = new Date(a.entry_time);
+          const bDate = new Date(b.entry_time);
+          const today = new Date();
+          aVal = Math.floor((today - aDate) / (1000 * 60 * 60 * 24));
+          bVal = Math.floor((today - bDate) / (1000 * 60 * 60 * 24));
+          break;
+        case 'entry_time':
+          aVal = new Date(a.entry_time).getTime();
+          bVal = new Date(b.entry_time).getTime();
+          break;
+        case 'exit_time':
+          aVal = new Date(a.exit_time).getTime();
+          bVal = new Date(b.exit_time).getTime();
+          break;
+        case 'pnl':
+          aVal = a.pnl !== undefined ? a.pnl : (a.current_price - a.entry_price) * a.quantity;
+          bVal = b.pnl !== undefined ? b.pnl : (b.current_price - b.entry_price) * b.quantity;
+          break;
+        case 'pnl-percent':
+          aVal = a.pnl_percentage !== undefined ? a.pnl_percentage : ((a.current_price - a.entry_price) / a.entry_price) * 100;
+          bVal = b.pnl_percentage !== undefined ? b.pnl_percentage : ((b.current_price - b.entry_price) / b.entry_price) * 100;
+          break;
+        case 'status':
+          aVal = a.status || '';
+          bVal = b.status || '';
+          break;
+        default:
+          aVal = a[column] || '';
+          bVal = b[column] || '';
       }
 
-      // String comparison for text values
-      return direction === 'asc'
-        ? aVal.localeCompare(bVal)
-        : bVal.localeCompare(aVal);
-    };
-
-    // Sort the rows
-    rows.sort(sortFn);
-
-    // Clear table and append in new order
-    tableBody.innerHTML = '';
-    rows.forEach(row => tableBody.appendChild(row));
+      // Sort based on direction
+      if (typeof aVal === 'number' && typeof bVal === 'number') {
+        return direction === 'asc' ? aVal - bVal : bVal - aVal;
+      } else {
+        // Convert to strings for comparison
+        aVal = String(aVal).toLowerCase();
+        bVal = String(bVal).toLowerCase();
+        return direction === 'asc' ? aVal.localeCompare(bVal) : bVal.localeCompare(aVal);
+      }
+    });
   }
+
+  // ...existing code...
 
   function formatNumber(number) {
     return new Intl.NumberFormat('en-IN', {
