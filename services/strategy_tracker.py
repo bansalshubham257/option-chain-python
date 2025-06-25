@@ -45,7 +45,7 @@ class StrategyTracker:
         default_config = {
             "name": "percent_change_tracker",
             "entry_threshold": 5.0,  # Enter when price change > 5%
-            "profit_target": 91.0,   # Take profit at 95% gain
+            "profit_target": 95.0,   # Take profit at 95% gain
             "stop_loss": -15.0,      # Stop loss at 15% loss
             "lot_size_multiplier": 1  # Number of lots to buy
         }
@@ -558,6 +558,81 @@ class StrategyTracker:
             if order and order['instrument_key'] in self.monitoring_instruments:
                 del self.monitoring_instruments[order['instrument_key']]
 
+    def _update_active_orders_sync(self):
+        """Synchronous version of _update_active_orders for use with ThreadPoolExecutor"""
+        if not self.active_orders:
+            return
+
+        # Get current prices for all active orders
+        instrument_keys = [order['instrument_key'] for order in self.active_orders.values() if order['instrument_key']]
+        if not instrument_keys:
+            return
+
+        # Get live prices synchronously
+        try:
+            # Get LTP data for all keys in one call
+            ltp_data = self.option_chain_service.fetch_ltp(instrument_keys)
+            live_prices = {}
+            for instrument_key, ltp in ltp_data.items():
+                live_prices[instrument_key] = {"ltp": float(ltp)}
+
+            # Process each active order
+            orders_to_remove = []
+
+            for key, order in self.active_orders.items():
+                try:
+                    instrument_key = order['instrument_key']
+
+                    # Skip if no instrument key
+                    if not instrument_key:
+                        continue
+
+                    # Get current price from live data
+                    current_price = self._get_price_from_live_data(instrument_key, live_prices)
+                    if current_price <= 0:
+                        continue
+
+                    entry_price = order['entry_price']
+                    target_price = order['target_price']
+                    stop_loss_price = order['stop_loss']
+
+                    # Calculate percent change
+                    percent_change = ((current_price - entry_price) / entry_price) * 100
+
+                    # Update current price in database
+                    with self.db._get_cursor() as cur:
+                        cur.execute("""
+                            UPDATE strategy_orders
+                            SET current_price = %s
+                            WHERE id = %s
+                        """, (current_price, order['id']))
+
+                    # Check if target or stop loss hit - these will be processed in the main loop
+                    # after this function returns
+                    if current_price >= target_price:
+                        logger.info(f"Target hit detected: {order['symbol']} {order['strike_price']} {order['option_type']} at {current_price} ({percent_change:.2f}%)")
+                        orders_to_remove.append((key, current_price, 'PROFIT', percent_change))
+
+                    elif current_price <= stop_loss_price:
+                        logger.info(f"Stop loss hit detected: {order['symbol']} {order['strike_price']} {order['option_type']} at {current_price} ({percent_change:.2f}%)")
+                        orders_to_remove.append((key, current_price, 'LOSS', percent_change))
+
+                    # Check for expiry
+                    expiry_date = order['expiry_date']
+                    if expiry_date and expiry_date <= date.today():
+                        logger.info(f"Position expiry detected: {order['symbol']} {order['strike_price']} {order['option_type']}")
+                        orders_to_remove.append((key, current_price, 'EXPIRED', percent_change))
+
+                except Exception as e:
+                    logger.error(f"Error updating order {key}: {str(e)}")
+
+            # Return orders that need to be removed for processing in the main thread
+            return orders_to_remove
+
+        except Exception as e:
+            logger.error(f"Error in _update_active_orders_sync: {str(e)}")
+            return []
+
     async def _get_live_prices(self, instrument_keys):
         """Get current prices for a list of instrument keys using the LTP API endpoint"""
         if not instrument_keys:
@@ -794,6 +869,52 @@ class StrategyTracker:
                         unrealized_pnl = EXCLUDED.unrealized_pnl,
                         updated_at = NOW()
                 """, (self.strategy_name, today, open_positions, total_capital, unrealized_pnl))
+
+        except Exception as e:
+            logger.error(f"Error updating daily capital: {str(e)}")
+
+    def _update_daily_capital_sync(self):
+        """Synchronous version of _update_daily_capital for use with ThreadPoolExecutor"""
+        try:
+            today = datetime.now(self.tz).date()
+            total_capital = 0.0
+            unrealized_pnl = 0.0
+            open_positions = len(self.active_orders)
+
+            # Calculate current capital deployed and unrealized PnL
+            with self.db._get_cursor() as cur:
+                cur.execute("""
+                    SELECT SUM(entry_price * quantity), 
+                           SUM((current_price - entry_price) * quantity)
+                    FROM strategy_orders
+                    WHERE status = 'OPEN' AND strategy_name = %s
+                """, (self.strategy_name,))
+
+                row = cur.fetchone()
+                if row and row[0]:
+                    total_capital = float(row[0])
+                    unrealized_pnl = float(row[1] or 0)
+
+            # Update max capital if needed
+            self.today_capital = total_capital
+            if total_capital > self.max_capital:
+                self.max_capital = total_capital
+
+            # Update or insert daily capital record
+            with self.db._get_cursor() as cur:
+                cur.execute("""
+                    INSERT INTO strategy_daily_capital
+                    (strategy_name, date, open_positions, capital_deployed, unrealized_pnl, updated_at)
+                    VALUES (%s, %s, %s, %s, %s, NOW())
+                    ON CONFLICT (strategy_name, date)
+                    DO UPDATE SET
+                        open_positions = EXCLUDED.open_positions,
+                        capital_deployed = EXCLUDED.capital_deployed,
+                        unrealized_pnl = EXCLUDED.unrealized_pnl,
+                        updated_at = NOW()
+                """, (self.strategy_name, today, open_positions, total_capital, unrealized_pnl))
+
+            logger.info(f"Updated daily capital stats: {open_positions} positions, {total_capital:.2f} capital, {unrealized_pnl:.2f} unrealized PnL")
 
         except Exception as e:
             logger.error(f"Error updating daily capital: {str(e)}")
