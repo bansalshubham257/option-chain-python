@@ -851,6 +851,223 @@ async def restart_all_websockets():
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error restarting WebSockets: {str(e)}")
 
+async def websocket_worker():
+    """Main WebSocket connection handler with enhanced error handling and retries."""
+    global market_data, active_subscription, current_websocket
+
+    ssl_context = ssl.create_default_context()
+    ssl_context.check_hostname = False
+    ssl_context.verify_mode = ssl.CERT_NONE
+
+    while True:
+        try:
+            # Check and close any stale connections
+            await check_and_close_stale_connections()
+
+            # Close any existing WebSocket connection before creating a new one
+            await close_existing_websocket()
+
+            # Get authorization and token
+            auth, current_token = get_market_data_feed_authorize_v3()
+
+            if not auth or not auth.get("data") or not auth["data"].get("authorized_redirect_uri"):
+                print("Failed to get valid authorization URL. Response:", auth)
+                await asyncio.sleep(10)  # Wait before retrying
+                continue
+
+            # Close any existing websocket with this token
+            await close_websocket_by_token(current_token)
+
+            uri = auth["data"]["authorized_redirect_uri"]
+            print(f"Connecting to WebSocket at {uri}")
+
+            async with websockets.connect(uri, ssl=ssl_context, ping_interval=20, ping_timeout=10) as websocket:
+                print("WebSocket connected successfully")
+
+                async with websocket_lock:
+                    current_websocket = websocket
+                    # Store in active connections
+                    if current_token in active_websocket_connections:
+                        active_websocket_connections[current_token]['websocket'] = websocket
+                        active_websocket_connections[current_token]['created_at'] = time.time()
+
+                # Send a ping to make sure the connection is working
+                try:
+                    await websocket.ping()
+                    print("WebSocket ping successful")
+                except Exception as e:
+                    print(f"WebSocket ping failed: {e}")
+                    raise
+
+                # Initialize a local subscription list to track what we've already subscribed to
+                local_subscribed = []
+                last_subscription_time = 0
+                connection_start_time = time.time()
+
+                # Force subscribe to a default instrument to activate the feed (e.g., NIFTY)
+                initial_instrument = "NSE_INDEX|Nifty 50"
+                subscription_data = {
+                    "guid": str(time.time()),
+                    "method": "sub",
+                    "data": {
+                        "mode": "full",
+                        "instrumentKeys": [initial_instrument]
+                    }
+                }
+                print(f"Sending initial subscription to activate feed")
+                await websocket.send(json.dumps(subscription_data).encode('utf-8'))
+                print(f"Initial subscription sent successfully")
+
+                # Immediately add any current active_subscription items
+                if active_subscription:
+                    print(f"Sending initial active subscriptions: {len(active_subscription)} instruments")
+                    subscription_data = {
+                        "guid": str(time.time()),
+                        "method": "sub",
+                        "data": {
+                            "mode": "full",
+                            "instrumentKeys": active_subscription
+                        }
+                    }
+                    await websocket.send(json.dumps(subscription_data).encode('utf-8'))
+                    local_subscribed = list(active_subscription)
+                    print(f"Active subscriptions sent successfully")
+
+                while True:
+                    # Resend all subscriptions every 5 minutes to ensure they're active
+                    current_time = time.time()
+                    if current_time - last_subscription_time > 300 and active_subscription:  # 5 minutes
+                        print(f"Refreshing all subscriptions: {len(active_subscription)} instruments")
+                        subscription_data = {
+                            "guid": str(current_time),
+                            "method": "sub",
+                            "data": {
+                                "mode": "full",
+                                "instrumentKeys": active_subscription
+                            }
+                        }
+                        await websocket.send(json.dumps(subscription_data).encode('utf-8'))
+                        last_subscription_time = current_time
+                        local_subscribed = list(active_subscription)
+                        print(f"Subscription refresh completed")
+
+                    # Send new subscriptions if there are any
+                    subscription_to_send = [item for item in active_subscription if item not in local_subscribed]
+                    if subscription_to_send:
+                        print(f"New subscription requested: {len(subscription_to_send)} instruments")
+                        subscription_data = {
+                            "guid": str(time.time()),
+                            "method": "sub",
+                            "data": {
+                                "mode": "full",
+                                "instrumentKeys": subscription_to_send
+                            }
+                        }
+                        print(f"Sending subscription request...")
+                        await websocket.send(json.dumps(subscription_data).encode('utf-8'))
+                        last_subscription_time = time.time()
+
+                        # Add these instruments to our local tracking
+                        local_subscribed.extend(subscription_to_send)
+                        print(f"Total subscribed instruments: {len(local_subscribed)}")
+
+                    # If connection is too old (1 hour), break to reconnect
+                    if time.time() - connection_start_time > 3600:  # 1 hour
+                        print("Connection active for 1 hour, reconnecting for freshness")
+                        break
+
+                    # Check if market_data is empty after 30 seconds of connection
+                    connection_age = time.time() - connection_start_time
+                    if connection_age > 30 and connection_age < 60 and len(market_data) == 0:
+                        print("WARNING: No market data received after 30 seconds, reconnecting")
+                        break
+
+                    try:
+                        # Shorter timeout to be more responsive
+                        message = await asyncio.wait_for(websocket.recv(), timeout=3)
+
+                        # Debug empty message
+                        if not message:
+                            print("Received empty message from WebSocket")
+                            continue
+
+                        # Process the message
+                        try:
+                            decoded = decode_protobuf(message)
+                            data = MessageToDict(decoded)
+
+                            # Check if this is an empty or error response
+                            if not data or not data.get("feeds"):
+                                continue
+
+                            # Process market data
+                            for instrument, feed in data.get("feeds", {}).items():
+                                full_feed = feed.get("fullFeed", {})
+                                market_ff = full_feed.get("marketFF", {})
+                                index_ff = full_feed.get("indexFF", {})
+
+                                ltpc = market_ff.get("ltpc", index_ff.get("ltpc", {}))
+                                oi = market_ff.get("oi", 0)
+
+                                volume = 0
+                                market_ohlc = market_ff.get("marketOHLC", {}).get("ohlc", [])
+                                if market_ohlc:
+                                    for ohlc_data in market_ohlc:
+                                        if ohlc_data.get("interval") == "1d":
+                                            volume = int(ohlc_data.get("vol", 0))
+                                            break
+                                    if volume == 0 and market_ohlc:
+                                        volume = int(market_ohlc[0].get("vol", 0))
+                                if volume == 0:
+                                    volume = int(market_ff.get("vtt", 0))
+
+                                bid_ask_quote = market_ff.get("marketLevel", {}).get("bidAskQuote", [{}])
+                                bidQ = max([int(quote.get("bidQ", 0) or 0) for quote in bid_ask_quote[:5]]) if bid_ask_quote else 0
+                                askQ = max([int(quote.get("askQ", 0) or 0) for quote in bid_ask_quote[:5]]) if bid_ask_quote else 0
+
+                                # Add to market_data
+                                market_data[instrument] = {
+                                    "ltp": ltpc.get("ltp"),
+                                    "volume": volume,
+                                    "oi": oi,
+                                    "bidQ": bidQ,
+                                    "askQ": askQ
+                                }
+
+                            # Log data count periodically
+                            if len(market_data) > 0 and len(market_data) % 10 == 0:
+                                print(f"Market data now has {len(market_data)} instruments")
+
+                        except Exception as e:
+                            print(f"Error processing message: {str(e)}")
+                            continue
+
+                    except asyncio.TimeoutError:
+                        # Send a heartbeat to keep the connection alive
+                        try:
+                            await websocket.ping()
+                        except Exception as e:
+                            print(f"Heartbeat ping failed: {e}")
+                            break  # Break the inner loop to reconnect
+                    except Exception as e:
+                        print(f"WebSocket connection error: {e}")
+                        break  # Break the inner loop to reconnect
+
+        except Exception as e:
+            print(f"Connection error: {e}, reconnecting in 5 seconds...")
+            import traceback
+            traceback.print_exc()
+
+            # Make sure to clean up the current websocket reference
+            async with websocket_lock:
+                current_websocket = None
+
+            # Clear market_data if it's been more than 10 minutes since last successful connection
+            if len(market_data) == 0:
+                print("No market data, clearing market_data dictionary to start fresh")
+                market_data.clear()
+
+
 @app.get("/api/options-orders-analysis")
 async def get_options_orders_analysis():
     """Fetch options orders with live market data."""
