@@ -16,6 +16,7 @@ import websockets
 from concurrent.futures import ThreadPoolExecutor
 import threading
 
+from config import Config
 from services.database import DatabaseService
 from services.option_chain import OptionChainService
 
@@ -71,7 +72,7 @@ class StrategyTracker:
 
         # Worker API base URL for fetching live market data
         # Use localhost instead of 0.0.0.0 for better reliability
-        self.worker_api_url = "http://0.0.0.0:8000"
+        self.worker_api_url = Config.WORKER_URL
 
         # WebSocket for fetching live prices
         self.market_data = {}  # Cache for market data received from WebSocket
@@ -355,13 +356,27 @@ class StrategyTracker:
                     logger.info(f"Found existing OPEN order for {symbol} {strike} {option_type}")
                     return True
 
-                # Check if there was a recent closed order (stop loss hit)
+                # Check if there was a PROFIT order - NEVER re-enter if closed in profit
+                cur.execute("""
+                    SELECT COUNT(*)
+                    FROM strategy_orders
+                    WHERE symbol = %s AND strike_price = %s AND option_type = %s
+                    AND strategy_name = %s
+                    AND status = 'PROFIT'
+                """, (symbol, strike, option_type, self.strategy_name))
+
+                profit_count = cur.fetchone()[0]
+                if profit_count > 0:
+                    logger.info(f"Skipping {symbol} {strike} {option_type} - previously closed with PROFIT")
+                    return True
+
+                # Check if there was a recent closed order (loss or expired)
                 cur.execute("""
                     SELECT exit_time, status 
                     FROM strategy_orders
                     WHERE symbol = %s AND strike_price = %s AND option_type = %s
                     AND strategy_name = %s
-                    AND status != 'OPEN'
+                    AND status IN ('LOSS', 'EXPIRED')
                     ORDER BY exit_time DESC
                     LIMIT 1
                 """, (symbol, strike, option_type, self.strategy_name))
@@ -371,28 +386,16 @@ class StrategyTracker:
                     exit_time = row[0]
                     status = row[1]
 
-                    # For orders closed due to stop loss or expiry, require a cooldown period
+                    # For orders closed due to loss or expiry, require a cooldown period
                     # before creating a new order for the same option
-                    if status in ('LOSS', 'EXPIRED'):
-                        cooldown_period = timedelta(days=3)  # 3-day cooldown for loss/expired
-                        can_reenter_after = exit_time + cooldown_period
+                    cooldown_period = timedelta(days=3)  # 3-day cooldown for loss/expired
+                    can_reenter_after = exit_time + cooldown_period
 
-                        # Use timezone-aware datetime.now() for comparison
-                        current_time = datetime.now(self.tz)
-                        if current_time < can_reenter_after:
-                            logger.info(f"Skipping {symbol} {strike} {option_type} - in cooldown period after {status} until {can_reenter_after}")
-                            return True
-
-                    # If the order was closed with profit, don't reenter for a longer period
-                    elif status == 'PROFIT':
-                        cooldown_period = timedelta(days=7)  # 7-day cooldown for profit orders
-                        can_reenter_after = exit_time + cooldown_period
-
-                        # Use timezone-aware datetime.now() for comparison
-                        current_time = datetime.now(self.tz)
-                        if current_time < can_reenter_after:
-                            logger.info(f"Skipping {symbol} {strike} {option_type} - in cooldown period after PROFIT until {can_reenter_after}")
-                            return True
+                    # Use timezone-aware datetime.now() for comparison
+                    current_time = datetime.now(self.tz)
+                    if current_time < can_reenter_after:
+                        logger.info(f"Skipping {symbol} {strike} {option_type} - in cooldown period after {status} until {can_reenter_after}")
+                        return True
 
                 # No conflicts found, can proceed with order
                 return False
@@ -574,8 +577,16 @@ class StrategyTracker:
             # Process each active order
             orders_to_remove = []
 
-            for key, order in self.active_orders.items():
+            # Create a copy of the keys to avoid "dictionary changed size during iteration" error
+            active_order_keys = list(self.active_orders.keys())
+
+            for key in active_order_keys:
                 try:
+                    # Skip if the key is no longer in active_orders (might have been removed by another thread)
+                    if key not in self.active_orders:
+                        continue
+
+                    order = self.active_orders[key]
                     instrument_key = order['instrument_key']
 
                     # Skip if no instrument key
@@ -674,6 +685,8 @@ class StrategyTracker:
 
         except Exception as e:
             logger.error(f"Error in _update_active_orders_sync: {str(e)}")
+            import traceback
+            logger.error(traceback.format_exc())
             return []
 
     async def _get_live_prices_websocket(self, instrument_keys):
@@ -916,8 +929,8 @@ class StrategyTracker:
             url = f"{self.worker_api_url}/api/options-orders-analysis"
 
             # This endpoint doesn't take any parameters - it automatically fetches data for all instruments
-            async with requests.Session() as session:
-                response = await asyncio.to_thread(session.get, url, timeout=10)
+            # Fix: Use requests in a synchronous way with asyncio.to_thread
+            response = await asyncio.to_thread(lambda: requests.get(url, timeout=10))
 
             if response.status_code == 200:
                 result = response.json()
@@ -1032,7 +1045,7 @@ async def run_strategy_tracker():
     """Run multiple strategy trackers as parallel background processes"""
     db_service = DatabaseService()
 
-    # Create both strategy trackers with different configurations
+    # Create strategy trackers with different configurations
     strategy1 = StrategyTracker(db_service, {
         "name": "percent_change_tracker",  # Original strategy: 5% entry, 95% profit, -15% stop loss
         "entry_threshold": 5.0,
@@ -1049,10 +1062,19 @@ async def run_strategy_tracker():
         "lot_size_multiplier": 1
     })
 
-    # Run both strategies in parallel
+    strategy3 = StrategyTracker(db_service, {
+        "name": "high_risk_tracker",  # High risk strategy: 8% entry, 73% profit, -60% stop loss
+        "entry_threshold": 8.0,
+        "profit_target": 73.0,
+        "stop_loss": -60.0,
+        "lot_size_multiplier": 1
+    })
+
+    # Run all strategies in parallel
     tasks = [
         asyncio.create_task(run_single_strategy(strategy1)),
-        asyncio.create_task(run_single_strategy(strategy2))
+        asyncio.create_task(run_single_strategy(strategy2)),
+        asyncio.create_task(run_single_strategy(strategy3))
     ]
 
     try:
@@ -1060,17 +1082,17 @@ async def run_strategy_tracker():
         await asyncio.gather(*tasks)
     except KeyboardInterrupt:
         logger.info("Stopping strategy tracker background processes due to KeyboardInterrupt")
-        for strategy in [strategy1, strategy2]:
+        for strategy in [strategy1, strategy2, strategy3]:
             if strategy.is_running:
                 await strategy.stop()
     except Exception as e:
         logger.error(f"Error in strategy tracker background processes: {str(e)}")
-        for strategy in [strategy1, strategy2]:
+        for strategy in [strategy1, strategy2, strategy3]:
             if strategy.is_running:
                 await strategy.stop()
     finally:
         # Make sure to stop all trackers even if there's an unhandled exception
-        for strategy in [strategy1, strategy2]:
+        for strategy in [strategy1, strategy2, strategy3]:
             if strategy.is_running:
                 await strategy.stop()
         logger.info("All strategy tracker processes have been stopped")
