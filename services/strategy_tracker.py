@@ -69,17 +69,13 @@ class StrategyTracker:
         self.today_capital = 0.0
         self.max_capital = 0.0
 
-        # Worker API base URL for fetching live market data (kept for backward compatibility)
-        self.worker_api_url = "http://0.0.0.0:8000"  # Updated from 0.0.0.0 to 127.0.0.1
+        # Worker API base URL for fetching live market data
+        # Use localhost instead of 0.0.0.0 for better reliability
+        self.worker_api_url = "http://0.0.0.0:8000"
 
-        # New Upstox feed direct connection parameters
-        self.access_token = None  # Will be fetched from database
-
-        # Websocket connection management
-        self.websocket = None
-        self.is_websocket_connected = False
-        self.max_retries = 3
-        self.retry_delay = 2
+        # WebSocket for fetching live prices
+        self.market_data = {}  # Cache for market data received from WebSocket
+        self.active_subscription = []  # Instruments currently subscribed to
 
         # Cache for prices - to avoid hitting API too frequently
         self.price_cache = {}
@@ -114,10 +110,6 @@ class StrategyTracker:
         """Stop the strategy tracker service"""
         logger.info("Stopping strategy tracker service")
         self.is_running = False
-
-        # Close websocket if connected
-        if self.websocket and not self.websocket.closed:
-            await self.websocket.close()
 
     async def _load_active_orders(self):
         """Load active orders from the database"""
@@ -233,7 +225,7 @@ class StrategyTracker:
             return False
 
         market_open = now.replace(hour=9, minute=14, second=0, microsecond=0)
-        market_close = now.replace(hour=15, minute=32, second=0, microsecond=0)
+        market_close = now.replace(hour=23, minute=32, second=0, microsecond=0)
 
         return market_open <= now <= market_close
 
@@ -265,8 +257,8 @@ class StrategyTracker:
                     logger.info("No instrument keys found for potential entries")
                     return []
 
-                # Get live prices using the LTP API - this is now called every 3-4 seconds from the monitor loop
-                live_prices = await self._get_live_prices(instrument_keys)
+                # Get live prices using the new get_live_ltp method instead of WebSocket API
+                live_prices = await self._get_live_ltp_data(instrument_keys)
                 logger.info(f"Fetched live prices for {len(live_prices)} instruments")
 
                 # Track how many instruments meet the price change criteria
@@ -500,8 +492,8 @@ class StrategyTracker:
         if not instrument_keys:
             return
 
-        # Get live prices from worker API
-        live_prices = await self._get_live_prices(instrument_keys)
+        # Get live prices using get_live_ltp_data instead of WebSocket API
+        live_prices = await self._get_live_ltp_data(instrument_keys)
 
         # Process each active order
         orders_to_remove = []
@@ -536,6 +528,12 @@ class StrategyTracker:
                     orders_to_remove.append(key)
                     logger.info(f"Target hit: {order['symbol']} {order['strike_price']} {order['option_type']} at {current_price} ({percent_change:.2f}%)")
 
+                elif percent_change >= 90.0:
+                    # Take profit when percentage change exceeds 90%, even if target price hasn't been hit
+                    await self._close_order(order['id'], current_price, 'PROFIT', percent_change)
+                    orders_to_remove.append(key)
+                    logger.info(f"High profit (>90%) hit: {order['symbol']} {order['strike_price']} {order['option_type']} at {current_price} ({percent_change:.2f}%)")
+
                 elif current_price <= stop_loss_price:
                     # Stop loss hit - exit to limit loss
                     await self._close_order(order['id'], current_price, 'LOSS', percent_change)
@@ -568,13 +566,10 @@ class StrategyTracker:
         if not instrument_keys:
             return
 
-        # Get live prices synchronously
+        # Get live prices using _get_live_ltp_data_sync instead of WebSocket API
         try:
-            # Get LTP data for all keys in one call
-            ltp_data = self.option_chain_service.fetch_ltp(instrument_keys)
-            live_prices = {}
-            for instrument_key, ltp in ltp_data.items():
-                live_prices[instrument_key] = {"ltp": float(ltp)}
+            # Get LTP data for all keys
+            live_prices = self._get_live_ltp_data_sync(instrument_keys)
 
             # Process each active order
             orders_to_remove = []
@@ -611,16 +606,64 @@ class StrategyTracker:
                     # after this function returns
                     if current_price >= target_price:
                         logger.info(f"Target hit detected: {order['symbol']} {order['strike_price']} {order['option_type']} at {current_price} ({percent_change:.2f}%)")
+
+                        # Immediately close the order with profit status
+                        with self.db._get_cursor() as cur:
+                            cur.execute("""
+                                UPDATE strategy_orders
+                                SET exit_price = %s, exit_time = NOW(), status = 'PROFIT', 
+                                    pnl = (exit_price - entry_price) * quantity,
+                                    pnl_percentage = ((exit_price - entry_price) / entry_price) * 100
+                                WHERE id = %s
+                            """, (current_price, order['id']))
+
+                        orders_to_remove.append((key, current_price, 'PROFIT', percent_change))
+
+                    elif percent_change >= 90.0:
+                        logger.info(f"High profit (>90%) hit detected: {order['symbol']} {order['strike_price']} {order['option_type']} at {current_price} ({percent_change:.2f}%)")
+
+                        # Immediately close the order with profit status
+                        with self.db._get_cursor() as cur:
+                            cur.execute("""
+                                UPDATE strategy_orders
+                                SET exit_price = %s, exit_time = NOW(), status = 'PROFIT', 
+                                    pnl = (exit_price - entry_price) * quantity,
+                                    pnl_percentage = ((exit_price - entry_price) / entry_price) * 100
+                                WHERE id = %s
+                            """, (current_price, order['id']))
+
                         orders_to_remove.append((key, current_price, 'PROFIT', percent_change))
 
                     elif current_price <= stop_loss_price:
                         logger.info(f"Stop loss hit detected: {order['symbol']} {order['strike_price']} {order['option_type']} at {current_price} ({percent_change:.2f}%)")
+
+                        # Immediately close the order with loss status
+                        with self.db._get_cursor() as cur:
+                            cur.execute("""
+                                UPDATE strategy_orders
+                                SET exit_price = %s, exit_time = NOW(), status = 'LOSS', 
+                                    pnl = (exit_price - entry_price) * quantity,
+                                    pnl_percentage = ((exit_price - entry_price) / entry_price) * 100
+                                WHERE id = %s
+                            """, (current_price, order['id']))
+
                         orders_to_remove.append((key, current_price, 'LOSS', percent_change))
 
                     # Check for expiry
                     expiry_date = order['expiry_date']
                     if expiry_date and expiry_date <= date.today():
                         logger.info(f"Position expiry detected: {order['symbol']} {order['strike_price']} {order['option_type']}")
+
+                        # Immediately close the order with expired status
+                        with self.db._get_cursor() as cur:
+                            cur.execute("""
+                                UPDATE strategy_orders
+                                SET exit_price = %s, exit_time = NOW(), status = 'EXPIRED', 
+                                    pnl = (exit_price - entry_price) * quantity,
+                                    pnl_percentage = ((exit_price - entry_price) / entry_price) * 100
+                                WHERE id = %s
+                            """, (current_price, order['id']))
+
                         orders_to_remove.append((key, current_price, 'EXPIRED', percent_change))
 
                 except Exception as e:
@@ -633,8 +676,8 @@ class StrategyTracker:
             logger.error(f"Error in _update_active_orders_sync: {str(e)}")
             return []
 
-    async def _get_live_prices(self, instrument_keys):
-        """Get current prices for a list of instrument keys using the LTP API endpoint"""
+    async def _get_live_prices_websocket(self, instrument_keys):
+        """Get current prices for a list of instrument keys using the WebSocket API"""
         if not instrument_keys:
             return {}
 
@@ -653,617 +696,336 @@ class StrategyTracker:
         if not missing_keys:
             return cached_prices
 
-        # Use LTP API to fetch prices that are not in cache
-        prices = {}
-
+        # Use WebSocket API to fetch prices that are not in cache
         try:
-            # Get LTP data for all missing keys in one call
-            ltp_data = self.option_chain_service.fetch_ltp(missing_keys)
+            # Format the keys as needed for the API
+            keys_param = ','.join(missing_keys)
+            logger.info(f"Fetching LTP for {len(missing_keys)} instruments via WebSocket API")
 
-            # Format the data to match expected structure
-            for instrument_key, ltp in ltp_data.items():
-                prices[instrument_key] = {"ltp": float(ltp)}
+            # Make a request to the WebSocket API endpoint with increased timeout and retry logic
+            max_retries = 2
+            retry_count = 0
+            timeout = 3  # Reduced from 5 seconds to 3 seconds
 
-            print(f"Retrieved LTP for {len(prices)} instruments")
+            while retry_count < max_retries:
+                try:
+                    async with requests.Session() as session:
+                        response = await asyncio.wait_for(
+                            asyncio.to_thread(
+                                session.get,
+                                f"{self.worker_api_url}/api/market_data?keys={keys_param}",
+                                timeout=timeout
+                            ),
+                            timeout=timeout + 1  # Add 1 second buffer for asyncio timeout
+                        )
+
+                    if response.status_code == 200:
+                        result = response.json()
+                        logger.info(f"WebSocket API returned data for {len(result)} instruments")
+
+                        # Format the response to match expected structure
+                        prices = {}
+                        for key, data in result.items():
+                            if data and 'ltp' in data:
+                                # Safely handle None values in data
+                                ltp = data.get('ltp')
+                                if ltp is not None:
+                                    try:
+                                        float_ltp = float(ltp)
+                                        prices[key] = {"ltp": float_ltp}
+                                        logger.info(f"LTP for {key}: {float_ltp}")
+
+                                        # Update cache
+                                        self.price_cache[key] = prices[key]
+                                        self.cache_time[key] = current_time
+                                    except (TypeError, ValueError) as e:
+                                        logger.error(f"Error converting LTP to float for {key}: {e}, value: {ltp}")
+                                else:
+                                    logger.warning(f"LTP is None for {key}")
+
+                        # Combine with cached prices and return
+                        combined_prices = {**cached_prices, **prices}
+                        logger.info(f"Returning {len(combined_prices)} prices (cached: {len(cached_prices)}, fresh: {len(prices)})")
+                        return combined_prices
+                    elif response.status_code >= 500:
+                        # Server error, retry
+                        retry_count += 1
+                        logger.warning(f"Server error {response.status_code} fetching live prices, retrying ({retry_count}/{max_retries})")
+                        await asyncio.sleep(0.5)  # Short delay before retry
+                    else:
+                        logger.error(f"Error fetching live prices: HTTP {response.status_code}")
+                        return cached_prices
+
+                except (asyncio.TimeoutError, requests.exceptions.Timeout, requests.exceptions.ReadTimeout) as e:
+                    retry_count += 1
+                    logger.warning(f"Timeout fetching live prices, retrying ({retry_count}/{max_retries}): {str(e)}")
+                    # For timeout errors, try again with a short delay
+                    await asyncio.sleep(0.5)
+                except Exception as e:
+                    logger.error(f"Error fetching live prices with WebSocket API: {str(e)}")
+                    return cached_prices
+
+            # If we've exhausted retries, return what we have in cache
+            logger.error(f"Failed to fetch live prices after {max_retries} retries")
+            return cached_prices
 
         except Exception as e:
-            logger.error(f"Error fetching live prices: {str(e)}")
+            logger.error(f"Unexpected error fetching live prices with WebSocket API: {str(e)}")
+            return cached_prices
 
-        # Update cache with new prices
-        for key, value in prices.items():
-            self.price_cache[key] = value
-            self.cache_time[key] = current_time
+    def _get_live_prices_websocket_sync(self, instrument_keys):
+        """Synchronous version of _get_live_prices_websocket"""
+        if not instrument_keys:
+            return {}
 
-        # Combine cached and new prices
-        return {**cached_prices, **prices}
+        # First check cache for recent prices
+        current_time = time.time()
+        cached_prices = {}
+        missing_keys = []
 
-    async def _connect_to_feed(self):
-        """Connect to Upstox feed"""
+        for key in instrument_keys:
+            if key in self.price_cache and current_time - self.cache_time.get(key, 0) < self.cache_ttl:
+                cached_prices[key] = self.price_cache[key]
+            else:
+                missing_keys.append(key)
+
+        # If all prices are in cache, return immediately
+        if not missing_keys:
+            return cached_prices
+
+        # Use WebSocket API to fetch prices that are not in cache
         try:
-            # Get access token from database if not already loaded
-            if not self.access_token:
-                self.access_token = self.db.get_access_token(account_id=4)  # Use account ID 4 for strategy tracker
-                if not self.access_token:
-                    logger.error("No access token found in database for account ID 4")
-                    return False
+            # Format the keys as needed for the API
+            keys_param = ','.join(missing_keys)
+            logger.info(f"Sync fetching LTP for {len(missing_keys)} instruments via WebSocket API")
 
-            # Get authorization
-            auth_response = await self._get_market_data_feed_authorize()
-            if not auth_response or not auth_response.get('data', {}).get('authorized_redirect_uri'):
-                logger.error("Failed to get authorization for market data feed")
-                return False
+            # Implement retry logic for synchronous calls too
+            max_retries = 2
+            retry_count = 0
+            timeout = 3  # Reduced from 5 seconds to 3 seconds
 
-            uri = auth_response['data']['authorized_redirect_uri']
+            while retry_count < max_retries:
+                try:
+                    # Make a synchronous request to the WebSocket API endpoint
+                    response = requests.get(
+                        f"{self.worker_api_url}/api/market_data?keys={keys_param}",
+                        timeout=timeout
+                    )
 
-            # Close existing connection if any
-            if self.websocket and not self.websocket.closed:
-                await self.websocket.close()
+                    if response.status_code == 200:
+                        result = response.json()
+                        logger.info(f"WebSocket API returned data for {len(result)} instruments (sync)")
 
-            # Connect to websocket
-            self.websocket = await websockets.connect(uri)
-            self.is_websocket_connected = True
-            logger.info("Successfully connected to Upstox feed")
+                        # Format the response to match expected structure
+                        prices = {}
+                        for key, data in result.items():
+                            if data and 'ltp' in data:
+                                # Safely handle None values in data
+                                ltp = data.get('ltp')
+                                if ltp is not None:
+                                    try:
+                                        float_ltp = float(ltp)
+                                        prices[key] = {"ltp": float_ltp}
+                                        logger.info(f"Sync LTP for {key}: {float_ltp}")
 
-            return True
+                                        # Update cache
+                                        self.price_cache[key] = prices[key]
+                                        self.cache_time[key] = current_time
+                                    except (TypeError, ValueError) as e:
+                                        logger.error(f"Error converting LTP to float for {key}: {e}, value: {ltp}")
+                                else:
+                                    logger.warning(f"Sync LTP is None for {key}")
+
+                        # Combine with cached prices and return
+                        combined_prices = {**cached_prices, **prices}
+                        logger.info(f"Returning {len(combined_prices)} prices (cached: {len(cached_prices)}, fresh: {len(prices)}) (sync)")
+                        return combined_prices
+                    elif response.status_code >= 500:
+                        # Server error, retry
+                        retry_count += 1
+                        logger.warning(f"Server error {response.status_code} fetching live prices, retrying ({retry_count}/{max_retries}) (sync)")
+                        time.sleep(0.5)  # Short delay before retry
+                    else:
+                        logger.error(f"Error fetching live prices: HTTP {response.status_code} (sync)")
+                        return cached_prices
+
+                except (requests.exceptions.Timeout, requests.exceptions.ReadTimeout) as e:
+                    retry_count += 1
+                    logger.warning(f"Timeout fetching live prices, retrying ({retry_count}/{max_retries}): {str(e)} (sync)")
+                    # For timeout errors, try again with a short delay
+                    time.sleep(0.5)
+                except Exception as e:
+                    logger.error(f"Error fetching live prices with WebSocket API: {str(e)} (sync)")
+                    return cached_prices
+
+            # If we've exhausted retries, return what we have in cache
+            logger.error(f"Failed to fetch live prices after {max_retries} retries (sync)")
+            return cached_prices
 
         except Exception as e:
-            logger.error(f"Error connecting to Upstox feed: {str(e)}")
-            self.is_websocket_connected = False
-            return False
-
-    async def _get_market_data_feed_authorize(self):
-        """Get authorization for market data feed"""
-        if not self.access_token:
-            logger.error("No access token available")
-            return None
-
-        headers = {
-            'Accept': 'application/json',
-            'Authorization': f'Bearer {self.access_token}'
-        }
-
-        try:
-            response = await asyncio.to_thread(
-                requests.get,
-                url=self.auth_url,
-                headers=headers,
-                timeout=5
-            )
-            return response.json()
-        except Exception as e:
-            logger.error(f"Error getting authorization: {str(e)}")
-            return None
-
-    async def _subscribe_to_instruments(self, instrument_keys):
-        """Subscribe to instruments for price updates"""
-        if not self.websocket or self.websocket.closed:
-            logger.error("Cannot subscribe - websocket not connected")
-            return False
-
-        try:
-            # Send subscription message
-            subscription_data = {
-                "guid": str(time.time()),
-                "method": "sub",
-                "data": {
-                    "mode": "full",
-                    "instrumentKeys": instrument_keys
-                }
-            }
-
-            await self.websocket.send(json.dumps(subscription_data).encode('utf-8'))
-            logger.info(f"Sent subscription request for {len(instrument_keys)} instruments")
-            return True
-
-        except Exception as e:
-            logger.error(f"Error subscribing to instruments: {str(e)}")
-            self.is_websocket_connected = False
-            return False
-
-    def _decode_protobuf(self, buffer):
-        """Decode protobuf message."""
-        feed_response = pb.FeedResponse()
-        feed_response.ParseFromString(buffer)
-        return feed_response
+            logger.error(f"Unexpected error fetching live prices with WebSocket API: {str(e)} (sync)")
+            return cached_prices
 
     def _get_price_from_live_data(self, instrument_key, live_data):
         """Extract price from live data"""
         if not instrument_key or not live_data or instrument_key not in live_data:
+            logger.warning(f"No live data found for {instrument_key}")
             return 0.0
 
         data = live_data[instrument_key]
-        return float(data.get('ltp', 0) or 0)
 
-    async def _close_order(self, order_id, exit_price, status, pnl_percentage):
-        """Close an order with the given status and exit price"""
-        try:
-            with self.db._get_cursor() as cur:
-                # Get order details first
-                cur.execute("""
-                    SELECT entry_price, quantity
-                    FROM strategy_orders
-                    WHERE id = %s
-                """, (order_id,))
-
-                row = cur.fetchone()
-                if not row:
-                    logger.error(f"Order {order_id} not found for closing")
-                    return
-
-                entry_price = float(row[0])
-                quantity = int(row[1])
-
-                # Calculate PnL
-                pnl = (exit_price - entry_price) * quantity
-
-                # Update the order
-                cur.execute("""
-                    UPDATE strategy_orders
-                    SET exit_price = %s,
-                        exit_time = NOW(),
-                        status = %s,
-                        pnl = %s,
-                        pnl_percentage = %s
-                    WHERE id = %s
-                """, (exit_price, status, pnl, pnl_percentage, order_id))
-
-                # Immediately update daily capital after closing an order
-                # to ensure capital deployed is current
-                await self._update_daily_capital()
-
-                # Log capital change
-                logger.info(f"Order {order_id} closed with status {status}. Capital deployed updated.")
-
-        except Exception as e:
-            logger.error(f"Error closing order: {str(e)}")
-
-    async def _update_order_price(self, order_id, current_price):
-        """Update the current price of an order"""
-        try:
-            with self.db._get_cursor() as cur:
-                cur.execute("""
-                    UPDATE strategy_orders
-                    SET current_price = %s
-                    WHERE id = %s
-                """, (current_price, order_id))
-        except Exception as e:
-            logger.error(f"Error updating order price: {str(e)}")
-
-    async def _update_daily_capital(self):
-        """Update daily capital statistics"""
-        try:
-            today = datetime.now(self.tz).date()
-            total_capital = 0.0
-            unrealized_pnl = 0.0
-            open_positions = len(self.active_orders)
-
-            # Calculate current capital deployed and unrealized PnL
-            with self.db._get_cursor() as cur:
-                cur.execute("""
-                    SELECT SUM(entry_price * quantity), 
-                           SUM((current_price - entry_price) * quantity)
-                    FROM strategy_orders
-                    WHERE status = 'OPEN' AND strategy_name = %s
-                """, (self.strategy_name,))
-
-                row = cur.fetchone()
-                if row and row[0]:
-                    total_capital = float(row[0])
-                    unrealized_pnl = float(row[1] or 0)
-
-            # Update max capital if needed
-            self.today_capital = total_capital
-            if total_capital > self.max_capital:
-                self.max_capital = total_capital
-
-            # Update or insert daily capital record
-            with self.db._get_cursor() as cur:
-                cur.execute("""
-                    INSERT INTO strategy_daily_capital
-                    (strategy_name, date, open_positions, capital_deployed, unrealized_pnl, updated_at)
-                    VALUES (%s, %s, %s, %s, %s, NOW())
-                    ON CONFLICT (strategy_name, date)
-                    DO UPDATE SET
-                        open_positions = EXCLUDED.open_positions,
-                        capital_deployed = EXCLUDED.capital_deployed,
-                        unrealized_pnl = EXCLUDED.unrealized_pnl,
-                        updated_at = NOW()
-                """, (self.strategy_name, today, open_positions, total_capital, unrealized_pnl))
-
-        except Exception as e:
-            logger.error(f"Error updating daily capital: {str(e)}")
-
-    def _update_daily_capital_sync(self):
-        """Synchronous version of _update_daily_capital for use with ThreadPoolExecutor"""
-        try:
-            today = datetime.now(self.tz).date()
-            total_capital = 0.0
-            unrealized_pnl = 0.0
-            open_positions = len(self.active_orders)
-
-            # Calculate current capital deployed and unrealized PnL
-            with self.db._get_cursor() as cur:
-                cur.execute("""
-                    SELECT SUM(entry_price * quantity), 
-                           SUM((current_price - entry_price) * quantity)
-                    FROM strategy_orders
-                    WHERE status = 'OPEN' AND strategy_name = %s
-                """, (self.strategy_name,))
-
-                row = cur.fetchone()
-                if row and row[0]:
-                    total_capital = float(row[0])
-                    unrealized_pnl = float(row[1] or 0)
-
-            # Update max capital if needed
-            self.today_capital = total_capital
-            if total_capital > self.max_capital:
-                self.max_capital = total_capital
-
-            # Update or insert daily capital record
-            with self.db._get_cursor() as cur:
-                cur.execute("""
-                    INSERT INTO strategy_daily_capital
-                    (strategy_name, date, open_positions, capital_deployed, unrealized_pnl, updated_at)
-                    VALUES (%s, %s, %s, %s, %s, NOW())
-                    ON CONFLICT (strategy_name, date)
-                    DO UPDATE SET
-                        open_positions = EXCLUDED.open_positions,
-                        capital_deployed = EXCLUDED.capital_deployed,
-                        unrealized_pnl = EXCLUDED.unrealized_pnl,
-                        updated_at = NOW()
-                """, (self.strategy_name, today, open_positions, total_capital, unrealized_pnl))
-
-            logger.info(f"Updated daily capital stats: {open_positions} positions, {total_capital:.2f} capital, {unrealized_pnl:.2f} unrealized PnL")
-
-        except Exception as e:
-            logger.error(f"Error updating daily capital: {str(e)}")
-
-    async def _update_monthly_performance(self, month, year):
-        """Update monthly performance metrics"""
-        try:
-            # Get all closed orders for the month
-            with self.db._get_cursor() as cur:
-                cur.execute("""
-                    SELECT 
-                        COUNT(*) as total_orders,
-                        SUM(CASE WHEN status = 'PROFIT' THEN 1 ELSE 0 END) as profit_orders,
-                        SUM(CASE WHEN status = 'LOSS' THEN 1 ELSE 0 END) as loss_orders,
-                        SUM(CASE WHEN status = 'EXPIRED' THEN 1 ELSE 0 END) as expired_orders,
-                        SUM(pnl) as total_pnl,
-                        AVG(CASE WHEN status = 'PROFIT' THEN pnl_percentage ELSE NULL END) as avg_profit_pct,
-                        AVG(CASE WHEN status = 'LOSS' THEN pnl_percentage ELSE NULL END) as avg_loss_pct
-                    FROM strategy_orders
-                    WHERE strategy_name = %s
-                    AND EXTRACT(MONTH FROM exit_time) = %s
-                    AND EXTRACT(YEAR FROM exit_time) = %s
-                    AND status != 'OPEN'
-                """, (self.strategy_name, month, year))
-
-                stats = cur.fetchone()
-
-                if not stats or stats[0] == 0:
-                    logger.info(f"No closed orders for {month}/{year}, skipping performance update")
-                    return
-
-                total_orders = stats[0]
-                profit_orders = stats[1] or 0
-                loss_orders = stats[2] or 0
-                expired_orders = stats[3] or 0
-                total_pnl = float(stats[4] or 0)
-                avg_profit_pct = float(stats[5] or 0)
-                avg_loss_pct = float(stats[6] or 0)
-
-                # Calculate win rate
-                win_rate = (profit_orders / total_orders * 100) if total_orders > 0 else 0
-
-                # Get maximum drawdown for the month
-                cur.execute("""
-                    SELECT MAX(capital_deployed)
-                    FROM strategy_daily_capital
-                    WHERE strategy_name = %s
-                    AND EXTRACT(MONTH FROM date) = %s
-                    AND EXTRACT(YEAR FROM date) = %s
-                """, (self.strategy_name, month, year))
-
-                max_capital = cur.fetchone()[0] or 0
-
-                # Insert or update monthly performance
-                cur.execute("""
-                    INSERT INTO strategy_monthly_performance
-                    (month, year, strategy_name, total_orders, profit_orders, loss_orders,
-                     expired_orders, total_pnl, win_rate, avg_profit_percentage, avg_loss_percentage,
-                     max_capital_required, updated_at)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, NOW())
-                    ON CONFLICT (month, year, strategy_name)
-                    DO UPDATE SET
-                        total_orders = EXCLUDED.total_orders,
-                        profit_orders = EXCLUDED.profit_orders,
-                        loss_orders = EXCLUDED.loss_orders,
-                        expired_orders = EXCLUDED.expired_orders,
-                        total_pnl = EXCLUDED.total_pnl,
-                        win_rate = EXCLUDED.win_rate,
-                        avg_profit_percentage = EXCLUDED.avg_profit_percentage,
-                        avg_loss_percentage = EXCLUDED.avg_loss_percentage,
-                        max_capital_required = EXCLUDED.max_capital_required,
-                        updated_at = NOW()
-                """, (
-                    month, year, self.strategy_name, total_orders, profit_orders, loss_orders,
-                    expired_orders, total_pnl, win_rate, avg_profit_pct, avg_loss_pct,
-                    max_capital,
-                ))
-
-                logger.info(f"Updated performance for {month}/{year}: {profit_orders}/{total_orders} profitable, PnL: {total_pnl}")
-
-        except Exception as e:
-            logger.error(f"Error updating monthly performance: {str(e)}")
-
-    async def generate_monthly_report(self, month=None, year=None):
-        """Generate a monthly performance report"""
-        if not month or not year:
-            # Use previous month if not specified
-            today = datetime.now(self.tz)
-            first_day_of_month = today.replace(day=1)
-            last_month = first_day_of_month - timedelta(days=1)
-            month = last_month.month
-            year = last_month.year
+        # Safely handle None values in 'ltp'
+        ltp = data.get('ltp')
+        if ltp is None:
+            logger.warning(f"LTP is None for {instrument_key}")
+            return 0.0
 
         try:
-            # Get monthly performance
-            with self.db._get_cursor() as cur:
-                cur.execute("""
-                    SELECT * FROM strategy_monthly_performance
-                    WHERE month = %s AND year = %s AND strategy_name = %s
-                """, (month, year, self.strategy_name))
+            float_ltp = float(ltp)
+            logger.info(f"Extracted LTP for {instrument_key}: {float_ltp}")
+            return float_ltp
+        except (TypeError, ValueError):
+            logger.error(f"Error converting LTP to float for {instrument_key}, value: {ltp}")
+            return 0.0
 
-                performance = cur.fetchone()
+    async def _get_live_ltp_data(self, instrument_keys):
+        """Get current LTP (Last Traded Price) for a list of instrument keys using get_options_orders_analysis API"""
+        if not instrument_keys:
+            return {}
 
-                if not performance:
-                    logger.warning(f"No performance data for {month}/{year}")
-                    return None
+        # First check cache for recent prices
+        current_time = time.time()
+        cached_prices = {}
+        missing_keys = []
 
-                # Get all orders for the month
-                cur.execute("""
-                    SELECT 
-                        symbol, strike_price, option_type, 
-                        entry_price, exit_price, entry_time, exit_time,
-                        status, pnl, pnl_percentage
-                    FROM strategy_orders
-                    WHERE strategy_name = %s
-                    AND EXTRACT(MONTH FROM entry_time) = %s
-                    AND EXTRACT(YEAR FROM entry_time) = %s
-                    ORDER BY entry_time
-                """, (self.strategy_name, month, year))
+        for key in instrument_keys:
+            if key in self.price_cache and current_time - self.cache_time.get(key, 0) < self.cache_ttl:
+                cached_prices[key] = self.price_cache[key]
+            else:
+                missing_keys.append(key)
 
-                orders = cur.fetchall()
+        # If all prices are in cache, return immediately
+        if not missing_keys:
+            return cached_prices
 
-                # Format the report
-                month_name = calendar.month_name[month]
-                report = f"# Performance Report: {month_name} {year}\n\n"
-
-                # Summary statistics
-                report += "## Summary\n"
-                report += f"- Total Orders: {performance[3]}\n"
-                report += f"- Profit Orders: {performance[4]}\n"
-                report += f"- Loss Orders: {performance[5]}\n"
-                report += f"- Expired Orders: {performance[6]}\n"
-                report += f"- Total P&L: ₹{float(performance[7]):.2f}\n"
-                report += f"- Win Rate: {float(performance[8]):.2f}%\n"
-                report += f"- Average Profit: {float(performance[9]):.2f}%\n"
-                report += f"- Average Loss: {float(performance[10]):.2f}%\n"
-                report += f"- Maximum Capital Required: ₹{float(performance[12]):.2f}\n\n"
-
-                # Orders table
-                report += "## Orders\n\n"
-                report += "| Symbol | Strike | Type | Entry Price | Exit Price | Entry Time | Exit Time | Status | P&L | P&L % |\n"
-                report += "|--------|--------|------|------------|------------|------------|-----------|--------|-----|-------|\n"
-
-                for order in orders:
-                    symbol = order[0]
-                    strike = order[1]
-                    option_type = order[2]
-                    entry_price = float(order[3])
-                    exit_price = float(order[4] or 0)
-                    entry_time = order[5].strftime("%Y-%m-%d %H:%M")
-                    exit_time = order[6].strftime("%Y-%m-%d %H:%M") if order[6] else "Open"
-                    status = order[7]
-                    pnl = float(order[8] or 0)
-                    pnl_pct = float(order[9] or 0)
-
-                    report += f"| {symbol} | {strike} | {option_type} | {entry_price:.2f} | {exit_price:.2f} | {entry_time} | {exit_time} | {status} | {pnl:.2f} | {pnl_pct:.2f}% |\n"
-
-                return report
-
-        except Exception as e:
-            logger.error(f"Error generating monthly report: {str(e)}")
-            return None
-
-    def _fetch_potential_entries_sync(self) -> List[Dict]:
-        """Synchronous version of _get_potential_entries for use with ThreadPoolExecutor"""
-        potential_entries = []
-        start_time = time.time()
-
+        # Use the get_options_orders_analysis API to fetch live prices
         try:
-            # Query options with significant price change
-            with self.db._get_cursor() as cur:
-                # Get options with stored ltp (the 'ltp' column in the database)
-                cur.execute("""
-                    SELECT o.symbol, o.strike_price, o.option_type, o.ltp, 
-                           i.instrument_key, o.lot_size, i.expiry_date, o.oi, o.volume
-                    FROM options_orders o
-                    JOIN instrument_keys i ON o.symbol = i.symbol 
-                                          AND o.strike_price = i.strike_price 
-                                          AND o.option_type = i.option_type
-                    WHERE o.status = 'Open'
-                    AND o.ltp > 4  -- Minimum price filter to avoid very cheap options
-                """)
+            logger.info(f"Fetching LTP for {len(missing_keys)} instruments via get_options_orders_analysis API")
 
-                rows = cur.fetchall()
-                logger.info(f"Found {len(rows)} potential options to check for entry conditions")
+            # Make a request to the options-orders-analysis endpoint
+            url = f"{self.worker_api_url}/api/options-orders-analysis"
 
-                # Fetch live prices for all instruments
-                instrument_keys = [row[4] for row in rows if row[4]]
-                if not instrument_keys:
-                    logger.info("No instrument keys found for potential entries")
-                    return []
+            # This endpoint doesn't take any parameters - it automatically fetches data for all instruments
+            async with requests.Session() as session:
+                response = await asyncio.to_thread(session.get, url, timeout=10)
 
-                # Get live prices directly from the option chain service
-                # This is a synchronous call to fetch_ltp
-                ltp_data = self.option_chain_service.fetch_ltp(instrument_keys)
-                live_prices = {}
-                for instrument_key, ltp in ltp_data.items():
-                    live_prices[instrument_key] = {"ltp": float(ltp)}
+            if response.status_code == 200:
+                result = response.json()
+                if result.get("success") and result.get("data"):
+                    data = result.get("data", [])
+                    logger.info(f"get_options_orders_analysis returned data for {len(data)} instruments")
 
-                logger.info(f"Fetched live prices for {len(live_prices)} instruments in {time.time() - start_time:.2f}s")
+                    # Create a mapping of instrument_key to current_ltp
+                    live_prices = {}
+                    for item in data:
+                        if item.get("instrument_key") and item.get("instrument_key") in missing_keys:
+                            instrument_key = item.get("instrument_key")
+                            current_ltp = item.get("current_ltp", 0)
 
-                # Track how many instruments meet the price change criteria
-                criteria_met_count = 0
-                start_processing = time.time()
+                            # Add to live_prices
+                            live_prices[instrument_key] = {"ltp": current_ltp}
 
-                # Process in smaller batches if there are many rows
-                batch_size = 100
-                total_rows = len(rows)
+                            # Update cache
+                            self.price_cache[instrument_key] = {"ltp": current_ltp}
+                            self.cache_time[instrument_key] = current_time
 
-                for i in range(0, total_rows, batch_size):
-                    batch = rows[i:i+batch_size]
-
-                    for row in batch:
-                        symbol = row[0]
-                        strike = row[1]
-                        option_type = row[2]
-                        stored_price = float(row[3] or 0)  # This is ltp from the database
-                        instrument_key = row[4]
-                        lot_size = int(row[5] or 1)
-                        expiry_date = row[6]
-                        oi = row[7]
-                        volume = row[8]
-
-                        # Skip if no instrument key or no stored price
-                        if not instrument_key or stored_price <= 0:
-                            continue
-
-                        # Get live price
-                        current_price = self._get_price_from_live_data(instrument_key, live_prices)
-                        if current_price <= 0:
-                            continue
-
-                        # Calculate percent change
-                        percent_change = ((current_price - stored_price) / stored_price) * 100
-
-                        # Count instruments meeting criteria before filtering
-                        if percent_change > self.entry_threshold:
-                            criteria_met_count += 1
-
-                        # Debug log for price change - only log significant changes to avoid log spam
-                        if abs(percent_change) > 2:
-                            logger.info(f"Option {symbol} {strike} {option_type}: stored={stored_price}, current={current_price}, change={percent_change:.2f}%")
-
-                        # Skip if percent change is below threshold
-                        if percent_change <= self.entry_threshold:
-                            continue
-
-                        logger.info(f"Found potential entry: {symbol} {strike} {option_type} with {percent_change:.2f}% change")
-
-                        # Skip if already an active order for this option
-                        key = f"{symbol}_{strike}_{option_type}"
-                        if key in self.active_orders:
-                            logger.info(f"Skipping {symbol} {strike} {option_type} - already an active order")
-                            continue
-
-                        # Check if we've already processed this option (synchronous DB check)
-                        has_previous = self._check_for_previous_order_sync(symbol, strike, option_type)
-                        if has_previous:
-                            logger.info(f"Skipping {symbol} {strike} {option_type} - already processed in the last 30 days")
-                            continue
-
-                        # Add to potential entries
-                        potential_entries.append({
-                            'symbol': symbol,
-                            'strike_price': strike,
-                            'option_type': option_type,
-                            'current_price': current_price,
-                            'stored_price': stored_price,
-                            'percent_change': percent_change,
-                            'instrument_key': instrument_key,
-                            'lot_size': lot_size,
-                            'expiry_date': expiry_date,
-                            'oi': oi,
-                            'volume': volume
-                        })
-
-                logger.info(f"Found {len(potential_entries)} options that meet entry criteria from {criteria_met_count} that crossed threshold")
-                logger.info(f"Processing took {time.time() - start_processing:.2f}s, total time: {time.time() - start_time:.2f}s")
+                # Combine with cached prices and return
+                combined_prices = {**cached_prices, **live_prices}
+                logger.info(f"Returning {len(combined_prices)} prices (cached: {len(cached_prices)}, fresh: {len(live_prices)})")
+                return combined_prices
+            else:
+                logger.error(f"HTTP error from get_options_orders_analysis: {response.status_code}")
+                return cached_prices
 
         except Exception as e:
-            logger.error(f"Error getting potential entries: {str(e)}")
+            logger.error(f"Error fetching live prices with get_options_orders_analysis: {str(e)}")
             import traceback
             logger.error(traceback.format_exc())
+            return cached_prices
 
-        return potential_entries
+    def _get_live_ltp_data_sync(self, instrument_keys):
+        """Synchronous version of _get_live_ltp_data for use with ThreadPoolExecutor"""
+        if not instrument_keys:
+            return {}
 
-    def _check_for_previous_order_sync(self, symbol, strike, option_type) -> bool:
-        """Synchronous version of _check_for_previous_order"""
+        # First check cache for recent prices
+        current_time = time.time()
+        cached_prices = {}
+        missing_keys = []
+
+        for key in instrument_keys:
+            if key in self.price_cache and current_time - self.cache_time.get(key, 0) < self.cache_ttl:
+                cached_prices[key] = self.price_cache[key]
+            else:
+                missing_keys.append(key)
+
+        # If all prices are in cache, return immediately
+        if not missing_keys:
+            return cached_prices
+
+        # Use the get_options_orders_analysis API to fetch live prices
         try:
-            # First check for any open order with these parameters
-            with self.db._get_cursor() as cur:
-                cur.execute("""
-                    SELECT COUNT(*) 
-                    FROM strategy_orders
-                    WHERE symbol = %s AND strike_price = %s AND option_type = %s
-                    AND strategy_name = %s
-                    AND status = 'OPEN'
-                """, (symbol, strike, option_type, self.strategy_name))
+            logger.info(f"Sync fetching LTP for {len(missing_keys)} instruments via get_options_orders_analysis API")
 
-                open_count = cur.fetchone()[0]
-                if open_count > 0:
-                    logger.info(f"Found existing OPEN order for {symbol} {strike} {option_type}")
-                    return True
+            # Make a request to the options-orders-analysis endpoint
+            url = f"{self.worker_api_url}/api/options-orders-analysis"
 
-                # Check if there was a recent closed order (stop loss hit)
-                cur.execute("""
-                    SELECT exit_time, status 
-                    FROM strategy_orders
-                    WHERE symbol = %s AND strike_price = %s AND option_type = %s
-                    AND strategy_name = %s
-                    AND status != 'OPEN'
-                    ORDER BY exit_time DESC
-                    LIMIT 1
-                """, (symbol, strike, option_type, self.strategy_name))
+            # This endpoint doesn't take any parameters - it automatically fetches data for all instruments
+            response = requests.get(url, timeout=10)
 
-                row = cur.fetchone()
-                if row:
-                    exit_time = row[0]
-                    status = row[1]
+            if response.status_code == 200:
+                result = response.json()
+                if result.get("success") and result.get("data"):
+                    data = result.get("data", [])
+                    logger.info(f"get_options_orders_analysis returned data for {len(data)} instruments (sync)")
 
-                    # For orders closed due to stop loss or expiry, require a cooldown period
-                    # before creating a new order for the same option
-                    if status in ('LOSS', 'EXPIRED'):
-                        cooldown_period = timedelta(days=3)  # 3-day cooldown for loss/expired
-                        can_reenter_after = exit_time + cooldown_period
+                    # Create a mapping of instrument_key to current_ltp
+                    live_prices = {}
+                    for item in data:
+                        if item.get("instrument_key") and item.get("instrument_key") in missing_keys:
+                            instrument_key = item.get("instrument_key")
+                            current_ltp = item.get("current_ltp", 0)
 
-                        # Use timezone-aware datetime.now() for comparison
-                        current_time = datetime.now(self.tz)
-                        if current_time < can_reenter_after:
-                            logger.info(f"Skipping {symbol} {strike} {option_type} - in cooldown period after {status} until {can_reenter_after}")
-                            return True
+                            # Add to live_prices
+                            live_prices[instrument_key] = {"ltp": current_ltp}
 
-                    # If the order was closed with profit, don't reenter for a longer period
-                    elif status == 'PROFIT':
-                        cooldown_period = timedelta(days=7)  # 7-day cooldown for profit orders
-                        can_reenter_after = exit_time + cooldown_period
+                            # Update cache
+                            self.price_cache[instrument_key] = {"ltp": current_ltp}
+                            self.cache_time[instrument_key] = current_time
 
-                        # Use timezone-aware datetime.now() for comparison
-                        current_time = datetime.now(self.tz)
-                        if current_time < can_reenter_after:
-                            logger.info(f"Skipping {symbol} {strike} {option_type} - in cooldown period after PROFIT until {can_reenter_after}")
-                            return True
-
-                # No conflicts found, can proceed with order
-                return False
+                # Combine with cached prices and return
+                combined_prices = {**cached_prices, **live_prices}
+                logger.info(f"Returning {len(combined_prices)} prices (cached: {len(cached_prices)}, fresh: {len(live_prices)}) (sync)")
+                return combined_prices
+            else:
+                logger.error(f"HTTP error from get_options_orders_analysis (sync): {response.status_code}")
+                return cached_prices
 
         except Exception as e:
-            logger.error(f"Error checking for previous order: {str(e)}")
-            return False
+            logger.error(f"Error fetching live prices with get_options_orders_analysis (sync): {str(e)}")
+            import traceback
+            logger.error(traceback.format_exc())
+            return cached_prices
+
+    def _fetch_potential_entries_sync(self):
+        """Synchronous version of _get_potential_entries for use with ThreadPoolExecutor"""
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        try:
+            potential_entries = loop.run_until_complete(self._get_potential_entries())
+            return potential_entries
+        finally:
+            loop.close()
 
 # Function to run the strategy tracker as a background process
 async def run_strategy_tracker():
@@ -1274,7 +1036,7 @@ async def run_strategy_tracker():
     strategy1 = StrategyTracker(db_service, {
         "name": "percent_change_tracker",  # Original strategy: 5% entry, 95% profit, -15% stop loss
         "entry_threshold": 5.0,
-        "profit_target": 95.0,
+        "profit_target": 92.0,
         "stop_loss": -15.0,
         "lot_size_multiplier": 1
     })
@@ -1282,7 +1044,7 @@ async def run_strategy_tracker():
     strategy2 = StrategyTracker(db_service, {
         "name": "aggressive_tracker",  # New strategy: 10% entry, 95% profit, -30% stop loss
         "entry_threshold": 10.0,
-        "profit_target": 95.0,
+        "profit_target": 90.0,
         "stop_loss": -30.0,
         "lot_size_multiplier": 1
     })
