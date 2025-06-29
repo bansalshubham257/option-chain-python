@@ -383,22 +383,22 @@ class UpstoxFeedWorker:
                             })
 
                         # Save to database with upsert logic to handle 5-minute intervals
-                        try:
-                            self.db.save_total_oi_data(total_oi_records)
-                        except Exception as e:
-                            print(f"Error saving total OI data: {e}")
+                        #try:
+                        #    self.db.save_total_oi_data(total_oi_records)
+                        #except Exception as e:
+                        #    print(f"Error saving total OI data: {e}")
 
                     # Continue processing individual OI records
                     #self.db.save_oi_volume_batch_feed(data)
                     records_count = len(data)
                 elif task_type == 'stock_prices':
-                    self.db.update_stock_prices_batch(data)
+                    #self.db.update_stock_prices_batch(data)
                     records_count = len(data)
                 elif task_type == 'options':
                     self.db.save_options_data('options', data)
                     records_count = len(data)
                 elif task_type == 'futures':
-                    self.db.save_futures_data('futures', data)
+                    #self.db.save_futures_data('futures', data)
                     records_count = len(data)
                 else:
                     records_count = 0
