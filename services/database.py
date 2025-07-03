@@ -1663,6 +1663,94 @@ class DatabaseService:
             return False
 
 
+    def update_only_stock_data(self, symbol, interval, data, info_data=None):
+        """Update stock data with daily recalculation of pivot points and indicators"""
+        try:
+            # Convert to DataFrame if it's not already
+            if not isinstance(data, pd.DataFrame):
+                if isinstance(data, dict):
+                    data = pd.DataFrame(data)
+                else:
+                    raise TypeError(f"Expected DataFrame or dict, got {type(data)}")
+
+            # Make copy to avoid modifying original
+            df = data.copy()
+
+            # Ensure the index is datetime
+            if not isinstance(df.index, pd.DatetimeIndex):
+                df.index = pd.to_datetime(df.index)
+
+
+
+            # Take only the most recent valid data point
+            latest_data = df.iloc[-1] if not df.empty else None
+            if latest_data is None:
+                print(f"No valid data available for {symbol} at interval {interval}.")
+                return False
+
+            latest_data = latest_data.apply(lambda x: self._convert_numpy_types(x))
+
+            # Extract values for current data
+            timestamp = latest_data.name.to_pydatetime()
+            high = float(latest_data['High'])
+            low = float(latest_data['Low'])
+            close = float(latest_data['Close'])
+            Open = float(latest_data['Open'])
+            volume = float(latest_data['Volume']) if 'Volume' in latest_data else 0
+
+
+            if len(df) > 1:
+                prev_close = float(df.iloc[-2]['Close'])
+                price_change = close - prev_close
+                percent_change = (price_change / prev_close) * 100 if prev_close != 0 else 0
+            else:
+                price_change = None
+                percent_change = None
+
+
+
+            # Update database using a single query with upsert
+            with self._get_cursor() as cur:
+                upsert_sql = """
+                    INSERT INTO stock_data_cache (
+                        symbol, interval, timestamp, open, high, low, close, volume,
+                        price_change, percent_change
+                    ) VALUES (
+                        %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
+                    )
+                    ON CONFLICT (symbol, interval)
+                    DO UPDATE SET
+                        timestamp = EXCLUDED.timestamp,
+                        open = EXCLUDED.open, high = EXCLUDED.high, low = EXCLUDED.low,
+                        close = EXCLUDED.close, volume = EXCLUDED.volume, price_change = EXCLUDED.price_change,
+                        percent_change = EXCLUDED.percent_change
+                """
+
+                params = (
+                    symbol,                                                    # 1
+                    interval,                                                  # 2
+                    self._convert_numpy_types(timestamp),                      # 3
+                    self._convert_numpy_types(Open),                     # 4
+                    self._convert_numpy_types(high),                           # 5
+                    self._convert_numpy_types(low),                            # 6
+                    self._convert_numpy_types(close),                          # 7
+                    self._convert_numpy_types(volume),                         # 8
+
+                    self._convert_numpy_types(price_change),                  # 16
+                    self._convert_numpy_types(percent_change),                # 17
+
+                )
+
+                cur.execute(upsert_sql, params)
+
+            return True
+        except Exception as e:
+            import traceback
+            print(f"Error updating {symbol} data: {str(e)}")
+            traceback.print_exc()
+            return False
+
+
     def get_stock_data(self, symbol, interval):
         """Get cached stock data"""
         with self._get_cursor() as cur:
