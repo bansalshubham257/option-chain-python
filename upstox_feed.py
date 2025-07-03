@@ -40,17 +40,19 @@ class UpstoxFeedWorker:
         if not self.access_tokens:
             print("Warning: No access tokens found in database, falling back to Config")
             self.access_tokens.append(Config.ACCESS_TOKEN)
-        
+
         self.ssl_context = ssl.create_default_context()
         self.ssl_context.check_hostname = False
         self.ssl_context.verify_mode = ssl.CERT_NONE
         self.running = False
 
         # Connection settings - Updated for multiple connections
-        self.MAX_CONNECTIONS = 2  # Two connections to handle 6000 instruments
-        self.MAX_KEYS_PER_CONNECTION = 3000  # Maximum of 3000 keys per connection
-        self.RECONNECT_DELAY = 1  # seconds
-        self.CONNECTION_DELAY = 2  # seconds between connections
+        self.MAX_CONNECTIONS = len(self.access_tokens)  # Number of connections equal to available tokens
+        self.MAX_KEYS_PER_CONNECTION = 3000  # Each connection handles 3000 keys
+
+        # Increase connection delays to prevent rate limiting
+        self.RECONNECT_DELAY = 2  # seconds
+        self.CONNECTION_DELAY = 5  # seconds between connections
 
         # Keep track of connections
         self.connections = []
@@ -919,21 +921,69 @@ class UpstoxFeedWorker:
             if not instrument:
                 return None, None, None, None
 
-            # Handle firstLevelWithGreeks format
-            if 'firstLevelWithGreeks' not in feed_data:
+            # Handle fullFeed format (new structure)
+            if 'fullFeed' in feed_data:
+                market_ff = feed_data.get('fullFeed', {}).get('marketFF', {})
+                ltpc = market_ff.get('ltpc', {})
+                ltp = ltpc.get('ltp')
+                oi = market_ff.get('oi')
+                volume = market_ff.get('vtt')
+                greeks = market_ff.get('optionGreeks', {})
+                iv = market_ff.get('iv')
+
+                # Get market depth (bid/ask quotes)
+                market_level = market_ff.get('marketLevel', {})
+                bid_ask_quotes = market_level.get('bidAskQuote', [])
+
+                # Get first level depth for backward compatibility
+                first_depth = {}
+
+                # Calculate max bid and ask quantities from all 5 levels
+                max_bid_qty = 0
+                max_ask_qty = 0
+
+                if bid_ask_quotes and len(bid_ask_quotes) > 0:
+                    # Use first level for first_depth (for backward compatibility)
+                    first_quote = bid_ask_quotes[0]
+                    first_depth = {
+                        'bidQ': first_quote.get('bidQ'),
+                        'bidP': first_quote.get('bidP'),
+                        'askQ': first_quote.get('askQ'),
+                        'askP': first_quote.get('askP')
+                    }
+
+                    # Find maximum bid and ask quantities across all levels
+                    for quote in bid_ask_quotes:
+                        try:
+                            bid_q = int(quote.get('bidQ', 0)) if quote.get('bidQ') else 0
+                            ask_q = int(quote.get('askQ', 0)) if quote.get('askQ') else 0
+                            max_bid_qty = max(max_bid_qty, bid_q)
+                            max_ask_qty = max(max_ask_qty, ask_q)
+                        except (ValueError, TypeError):
+                            continue
+
+            # Handle legacy firstLevelWithGreeks format (for backward compatibility)
+            elif 'firstLevelWithGreeks' in feed_data:
+                feed_struct = feed_data['firstLevelWithGreeks']
+                ltpc = feed_struct.get('ltpc', {})
+                ltp = ltpc.get('ltp')
+                oi = feed_struct.get('oi')
+                volume = feed_struct.get('vtt')
+                greeks = feed_struct.get('optionGreeks', {})
+                iv = feed_struct.get('iv')
+                first_depth = feed_struct.get('firstDepth', {})
+                bid_ask_quotes = []  # Empty for legacy format
+
+                # For legacy format, we only have one level
+                try:
+                    max_bid_qty = int(first_depth.get('bidQ', 0)) if first_depth.get('bidQ') else 0
+                    max_ask_qty = int(first_depth.get('askQ', 0)) if first_depth.get('askQ') else 0
+                except (ValueError, TypeError):
+                    max_bid_qty, max_ask_qty = 0, 0
+            else:
                 return None, None, None, None
 
-            feed_struct = feed_data['firstLevelWithGreeks']
-            ltpc = feed_struct.get('ltpc', {})
-            ltp = ltpc.get('ltp')
-            oi = feed_struct.get('oi')
-            volume = feed_struct.get('vtt')
-            greeks = feed_struct.get('optionGreeks', {})
-            first_depth = feed_struct.get('firstDepth', {})
-            iv = feed_struct.get('iv')
-
             prev_close = instrument.get('prev_close')
-            price_change = (ltp - prev_close) if ltp and prev_close else 0
             pct_change = ((ltp - prev_close) / prev_close * 100) if ltp and prev_close else 0
 
             oi_record = None
@@ -946,17 +996,13 @@ class UpstoxFeedWorker:
                 lot_size = instrument.get('lot_size', 1)
 
                 if instrument['option_type'] in ['CE', 'PE']:  # Option
-                    bid_qty = first_depth.get('bidQ', 0)
-                    ask_qty = first_depth.get('askQ', 0)
-
-                    try:
-                        bid_qty = int(bid_qty) if bid_qty else 0
-                        ask_qty = int(ask_qty) if ask_qty else 0
-                    except (ValueError, TypeError):
-                        bid_qty, ask_qty = 0, 0
+                    # Use max quantities across all levels
+                    bid_qty = max_bid_qty
+                    ask_qty = max_ask_qty
 
                     # Only process if price is valid and quantities meet threshold
-                    if ltp and ltp >= 2.5 and (bid_qty > 0 or ask_qty > 0):
+                    print("bid_qty:", bid_qty, "ask_qty:", ask_qty, "stock:", instrument['symbol'], "strike_price:", instrument['strike_price'], "option_type:", instrument['option_type'])
+                    if ltp and ltp >= 3.3 and (bid_qty > 0 or ask_qty > 0):
                         threshold = self.OPTIONS_THRESHOLD * lot_size
                         if bid_qty >= threshold or ask_qty >= threshold:
                             option_order = {
@@ -995,59 +1041,9 @@ class UpstoxFeedWorker:
                                 'gamma': greeks.get('gamma'),
                                 'delta': greeks.get('delta'),
                                 'iv': iv,
-                                'pop': greeks.get('pop', 0)
+                                'pop': greeks.get('pop', 0),
+                                'rho': greeks.get('rho')
                             }
-
-                elif instrument['option_type'] == 'FU':  # Future
-                    bid_qty = first_depth.get('bidQ', 0)
-                    ask_qty = first_depth.get('askQ', 0)
-
-                    try:
-                        bid_qty = int(bid_qty) if bid_qty else 0
-                        ask_qty = int(ask_qty) if ask_qty else 0
-                    except (ValueError, TypeError):
-                        bid_qty, ask_qty = 0, 0
-
-                    threshold = self.FUTURES_THRESHOLD * lot_size
-                    if bid_qty >= threshold or ask_qty >= threshold:
-                        future_order = {
-                            'stock': instrument['symbol'],
-                            'ltp': ltp,
-                            'bid_qty': bid_qty,
-                            'ask_qty': ask_qty,
-                            'lot_size': lot_size,
-                            'timestamp': current_time
-                        }
-
-                    # OI data for futures
-                    if oi is not None and volume is not None:
-                        oi_record = {
-                            'symbol': instrument['symbol'],
-                            'expiry': instrument['expiry_date'],
-                            'strike': 0,
-                            'option_type': 'FU',
-                            'oi': oi,
-                            'volume': volume,
-                            'price': ltp,
-                            'timestamp': current_time,
-                            'pct_change': pct_change,
-                            'vega': None,
-                            'theta': None,
-                            'gamma': None,
-                            'delta': None,
-                            'iv': None,
-                            'pop': None
-                        }
-
-            elif instrument['instrument_type'] in ['EQUITY', 'INDEX']:
-                symbol = f"{instrument['symbol']}.NS" if not instrument['symbol'].endswith('.NS') else instrument['symbol']
-                stock_data = {
-                    'symbol': symbol,
-                    'close': ltp,
-                    'price_change': price_change,
-                    'percent_change': pct_change,
-                    'timestamp': current_time,
-                }
 
             return oi_record, stock_data, option_order, future_order
 
@@ -1068,7 +1064,7 @@ class UpstoxFeedWorker:
                         "guid": str(uuid.uuid4()),
                         "method": "unsub",
                         "data": {
-                            "mode": "option_greeks",
+                            "mode": "full",
                             "instrumentKeys": sub_batch
                         }
                     }
@@ -1083,7 +1079,7 @@ class UpstoxFeedWorker:
                 "guid": str(uuid.uuid4()),
                 "method": "sub",
                 "data": {
-                    "mode": "option_greeks",
+                    "mode": "full",
                     "instrumentKeys": sub_batch
                 }
             }
