@@ -209,6 +209,7 @@ class DatabaseService:
 
         return await loop.run_in_executor(None, _run_query)
 
+    
     async def get_instruments_by_keys_async(self, instrument_keys):
         """Get multiple instrument details by instrument keys (async version)."""
         if not instrument_keys:
