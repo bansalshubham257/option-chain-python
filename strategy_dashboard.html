@@ -306,7 +306,10 @@
       <div class="card">
         <div class="card-header bg-primary text-white">
           <h4>Active Orders</h4>
-          <p class="mb-0">Currently open positions with live P&L tracking</p>
+          <div class="d-flex justify-content-between align-items-center">
+            <p class="mb-0">Currently open positions with live P&L tracking</p>
+            <div>Total P&L: <span id="totalActivePnl" class="fw-bold badge" style="font-size: 1rem;">₹0.00</span></div>
+          </div>
         </div>
         <div class="card-body">
           <div class="table-responsive">
@@ -644,6 +647,24 @@
     document.getElementById('activeOrdersStart').textContent = totalItems > 0 ? startIndex + 1 : 0;
     document.getElementById('activeOrdersEnd').textContent = endIndex;
     document.getElementById('activeOrdersTotal').textContent = totalItems;
+
+    // Calculate total PnL for all active orders
+    let totalPnl = 0;
+    sortedOrders.forEach(order => {
+      const orderPnl = (order.current_price - order.entry_price) * order.quantity;
+      totalPnl += orderPnl;
+    });
+
+    // Display total PnL with appropriate class
+    const totalPnlElement = document.getElementById('totalActivePnl');
+    if (totalPnlElement) {
+      totalPnlElement.textContent = `₹${totalPnl.toFixed(2)}`;
+      if (totalPnl >= 0) {
+        totalPnlElement.className = 'fw-bold badge bg-success';
+      } else {
+        totalPnlElement.className = 'fw-bold badge bg-danger';
+      }
+    }
 
     // Update pagination buttons
     updatePaginationButtons('activeOrders', totalItems, currentPage, itemsPerPage);
