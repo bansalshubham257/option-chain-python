@@ -226,7 +226,7 @@ class StrategyTracker:
             return False
 
         market_open = now.replace(hour=9, minute=14, second=0, microsecond=0)
-        market_close = now.replace(hour=23, minute=32, second=0, microsecond=0)
+        market_close = now.replace(hour=15, minute=32, second=0, microsecond=0)
 
         return market_open <= now <= market_close
 
