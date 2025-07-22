@@ -1270,7 +1270,8 @@ async def get_options_orders_analysis():
                 'is_greater_than_50pct': is_greater_than_50pct,  # Include the flag
                 'is_greater_than_75pct': is_greater_than_75pct,  # Include the flag
                 'lowest_point': lowest_point,  # Include the lowest point
-                'role': order.get('role', 'Unknown')  # Include role if available
+                'role': order.get('role', 'Unknown'),  # Include role if available
+                'pcr': float(order.get('pcr', 0) or 0)
             })
 
         # Update status in database for orders that need it
