@@ -363,6 +363,7 @@ color: #495057;
                         <th>Strike</th>
                         <th>Type</th>
                         <th>Role</th>
+                        <th>PCR</th>
                         <th>Original LTP</th>
                         <th>Current LTP</th>
                         <th>Change %</th>
@@ -397,6 +398,7 @@ color: #495057;
                         <th>Strike</th>
                         <th>Type</th>
                         <th>Role</th>
+                        <th>PCR</th>
                         <th>Original LTP</th>
                         <th>Current LTP</th>
                         <th>Change %</th>
@@ -433,6 +435,7 @@ color: #495057;
                         <th>Strike</th>
                         <th>Type</th>
                         <th>Role</th>
+                        <th>PCR</th>
                         <th>Original LTP</th>
                         <th>Current LTP</th>
                         <th>Change %</th>
@@ -467,6 +470,7 @@ color: #495057;
                         <th>Strike</th>
                         <th>Type</th>
                         <th>Role</th>
+                        <th>PCR</th>
                         <th>Original LTP</th>
                         <th>Current LTP</th>
                         <th>Change %</th>
@@ -637,6 +641,7 @@ color: #495057;
               <th>Vega</th>
               <th>Vega Change</th>
               <th>POP</th>
+              <th>PCR</th>
             </tr>
             </thead>
             <tbody id="dataTableBody">
@@ -816,7 +821,7 @@ document.querySelectorAll('#highlightedColorFilters input[type="checkbox"]').for
   }
 
   // Base API URL - use explicit full URL with scheme
-  const baseApiUrl = 'https://livefeed-production-4791.up.railway.app';
+  const baseApiUrl = 'https://live-feed-azqo.onrender.com';
 
   // Initialize the page
   document.addEventListener('DOMContentLoaded', function() {
@@ -1240,6 +1245,7 @@ function renderHighlightedOptionsTable() {
           <td>${order.strike_price}</td>
           <td>${order.option_type}</td>
           <td>${order.role || 'Unknown'}</td>
+          <td>${formatLargeNumber(order.pcr || 0)}</td>
           <td>${daysCaptured}</td>
           <td>${storedLtp.toFixed(2)}</td>
           <td>${currentLtp.toFixed(2)}</td>
@@ -1581,6 +1587,7 @@ function renderHighlightedOptionsTable() {
               <td>${order.strike_price}</td>
               <td>${order.option_type}</td>
               <td>${order.role || 'Unknown'}</td>
+              <td>${order.pcr.toFixed(2)}</td>
               <td>${storedLtp.toFixed(2)}</td>
               <td>${currentLtp.toFixed(2)}</td>
               <td class="profit">+${percentChange.toFixed(2)}%</td>
@@ -1814,6 +1821,7 @@ function renderHighlightedOptionsTable() {
               <td>${order.vega ? order.vega.toFixed(2) : 'N/A'}</td>
               <td class="${order.vega_change > 0 ? 'profit' : 'loss'}">${formatGreekChange(order.vega_change)}</td>
               <td>${order.pop ? order.pop.toFixed(2) + '%' : 'N/A'}</td>
+              <td>${order.pcr ? order.pcr.toFixed(2) : 'N/A'}</td>
           `;
 
           tableBody.appendChild(row);
@@ -2250,4 +2258,3 @@ function applySort(data) {
 
 </body>
 </html>
-
