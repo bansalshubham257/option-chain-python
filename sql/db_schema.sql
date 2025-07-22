@@ -777,4 +777,8 @@ CREATE INDEX idx_strategy_orders_strategy ON strategy_orders(strategy_name);
 CREATE INDEX idx_strategy_performance_month_year ON strategy_monthly_performance(month, year);
 CREATE INDEX idx_strategy_capital_date ON strategy_daily_capital(date);
 
+-- Add PCR column to options_orders table with default value 0
+ALTER TABLE options_orders ADD COLUMN IF NOT EXISTS pcr DECIMAL DEFAULT 0;
+
+
 
