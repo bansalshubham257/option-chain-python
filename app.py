@@ -1377,6 +1377,7 @@ def run_scanner_worker():
 
 def run_db_clearing_worker():
     """Background worker that runs during the configured window to clear old database entries."""
+    run_stock_data_updater_copy()
     last_clear_date = None
     ist = pytz.timezone('Asia/Kolkata')
 
