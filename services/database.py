@@ -797,7 +797,6 @@ class DatabaseService:
         with self._get_cursor() as cur:
             print("cur", cur)
             cur.execute("DELETE FROM futures_orders")
-            cur.execute("DELETE FROM total_oi_history")
             cur.execute("DELETE FROM buildup_results")
             cur.execute("DELETE FROM fno_analytics")
             cur.execute("DELETE FROM instrument_keys")
