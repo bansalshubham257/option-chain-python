@@ -839,6 +839,47 @@ def run_stock_data_updater():
             print(f"Error in stock data updater: {e}")
             time.sleep(300)
 
+
+def run_stock_data_updater_copy():
+    """Optimized stock data updater that only processes 1d interval"""
+
+    interval = '1d'
+
+    # Configuration for batch processing
+    stocks_per_worker = 20
+    max_workers = 20  # Increase workers since we're only handling one interval
+
+
+    while True:
+        try:
+            ist = pytz.timezone('Asia/Kolkata')
+            now = datetime.now(ist)
+
+            # Clear cache on new day
+
+            # Check market hours
+            if now.weekday() in Config.TRADING_DAYS and Config.MARKET_OPEN <= now.time() <= Config.MARKET_CLOSE:
+                print(f"{now}: Running stock data update for 1d interval only...")
+
+                # Get FNO stocks
+                fno_stocks = option_chain_service.get_fno_stocks_with_symbols()
+
+                start_time = time.time()
+                success_count = update_stocks_for_interval(fno_stocks, interval, stocks_per_worker, max_workers)
+                total_time = time.time() - start_time
+
+                print(f"✅ FNO stocks completed: {success_count} stocks in {total_time:.2f}s")
+                print(f"{now}: 1d interval stock data update completed")
+
+                time.sleep(30)  # 30 minutes between updates
+            else:
+                # Sleep when market is closed
+                time.sleep(1800)  # 30 minutes
+
+        except Exception as e:
+            print(f"Error in stock data updater: {e}")
+            time.sleep(300)
+
 def update_stocks_for_interval(stocks, interval, stocks_per_worker, max_workers):
     """Process all stocks for a specific interval with parallel workers"""
     from concurrent.futures import ThreadPoolExecutor
@@ -921,7 +962,7 @@ def process_stock_chunk(stock_chunk, interval, chunk_idx, total_chunks):
 
             if not data.empty:
                 # Process the data
-                success = database_service.update_stock_data(stock, interval, data, info_data)
+                success = database_service.update_only_stock_data(stock, interval, data, info_data)
                 if success:
                     success_count += 1
             else:
@@ -955,7 +996,7 @@ def update_stock_batch(stocks, interval):
                 data = tickers.tickers[stock].history(period=period, interval=interval_str)
 
                 if not data.empty:
-                    success = database_service.update_stock_data(stock, interval, data)
+                    success = database_service.update_only_stock_data(stock, interval, data)
                     if success:
                         success_count += 1
             except Exception as e:
@@ -1376,7 +1417,7 @@ def run_background_workers():
 
     option_chain_thread = threading.Thread(target=run_option_chain_worker, daemon=True)
     oi_buildup_thread = threading.Thread(target=option_chain_service.run_analytics_worker, daemon=True)
-    stock_data_thread = threading.Thread(target=run_stock_data_updater, daemon=True)
+    stock_data_thread = threading.Thread(target=run_stock_data_updater_copy, daemon=True)
     scanner_thread = threading.Thread(target=run_scanner_worker, daemon=True)
     financials_thread = threading.Thread(target=run_financials_worker, daemon=True)
     db_clearing_thread = threading.Thread(target=run_db_clearing_worker, daemon=True)
@@ -1403,9 +1444,9 @@ def run_background_workers():
 
     #option_chain_thread.start()
     #oi_buildup_thread.start()
-    #stock_data_thread.start()
+    stock_data_thread.start()
     #financials_thread.start()
-    db_clearing_thread.start()
+    #db_clearing_thread.start()
     #instrument_keys_thread.start()
     #prev_close_thread.start()
     #consolidation_thread.start()
