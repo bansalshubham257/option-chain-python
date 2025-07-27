@@ -806,6 +806,11 @@ document.querySelectorAll('#highlightedColorFilters input[type="checkbox"]').for
   // NEW global variable for color filter on highlighted options
   let activeColorFilter = "all";
 
+  // Set default sort for highlighted table to %change descending
+  highlightedSort = { column: "percent_change", direction: "desc" };
+  // Set default sort for all trades table to %change descending
+  currentSort = { column: "percent_change", direction: "desc" };
+
   // List of index symbols to hide
   const indexSymbols = ['NIFTY', 'SENSEX', 'BANKNIFTY', 'FINNIFTY', 'MIDCPNIFTY', 'BANKEX'];
 
