@@ -1115,8 +1115,17 @@ document.querySelectorAll('#highlightedColorFilters input[type="checkbox"]').for
                                    'highlight-yellow', 'highlight-purple'];
           highlightClasses.forEach(cls => row.classList.remove(cls));
 
-          // Apply highlight if this option is highlighted
-          if (highlightedOptions[optionKey]) {
+          // Custom green highlight logic
+          // Find the order in allOrdersData
+          const order = allOrdersData.find(o => `${o.symbol}-${o.strike_price}-${o.option_type}` === optionKey);
+          if (order && order.is_greater_than_50pct && !order.is_greater_than_75pct && order.percent_change < 25 && order.percent_change > -10) {
+              row.classList.add('highlight-green');
+              // Add to highlightedOptions if not already present
+              if (!highlightedOptions[optionKey]) {
+                  highlightedOptions[optionKey] = 'green';
+                  saveHighlightedOptions();
+              }
+          } else if (highlightedOptions[optionKey]) {
               row.classList.add(`highlight-${highlightedOptions[optionKey]}`);
           }
       });
@@ -1483,7 +1492,7 @@ function renderHighlightedOptionsTable() {
       const sortedLowMediumData = [...lowMediumData].sort((a, b) => b.percent_change - a.percent_change);
       const sortedMediumHighData = [...mediumHighData].sort((a, b) => b.percent_change - a.percent_change);
       const sortedHighData = [...highData].sort((a, b) => b.percent_change - a.percent_change);
-      const sortedVeryHighData = [...veryHighData].sort((a, b) => b.percent_change - a.percent_change);
+      const sortedVeryHighData = [...veryHighData].sort((a, b) => b.percent_change - a.percentChange);
 
       // Render tables with live bid/ask data
       renderPriceRangeTable(sortedLowMediumData, 'lowMediumTableBody');
