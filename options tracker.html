@@ -1071,14 +1071,14 @@ document.querySelectorAll('#highlightedColorFilters input[type="checkbox"]').for
       document.getElementById('contextMenu').style.display = 'none';
   }
 
-  // Function to save highlighted options to session storage
+  // Function to save highlighted options to local storage
   function saveHighlightedOptions() {
-      sessionStorage.setItem('highlightedOptions', JSON.stringify(highlightedOptions));
+      localStorage.setItem('highlightedOptions', JSON.stringify(highlightedOptions));
   }
 
-  // Function to load highlighted options from session storage
+  // Function to load highlighted options from local storage
   function loadHighlightedOptions() {
-      const saved = sessionStorage.getItem('highlightedOptions');
+      const saved = localStorage.getItem('highlightedOptions');
       if (saved) {
           highlightedOptions = JSON.parse(saved);
           renderHighlightedOptionsTable();
