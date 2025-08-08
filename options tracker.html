@@ -308,6 +308,7 @@ color: #495057;
             <button type="button" class="btn btn-outline-primary filter-btn" data-filter="seller">Seller</button>
             <button type="button" class="btn btn-outline-primary filter-btn active" data-filter="open">Open</button>
             <button type="button" class="btn btn-outline-primary filter-btn" data-filter="done">Done</button>
+            <button type="button" class="btn btn-outline-primary filter-btn" data-filter="new">New Only</button>
             <button type="button" class="btn btn-outline-secondary" id="clearFiltersBtn">Clear Filters</button>
           </div>
         </div>
@@ -563,6 +564,7 @@ color: #495057;
                 <th>Role</th>
                 <th>PCR</th>
                 <th>Days</th>
+                <th>Time (IST)</th>
                 <th>Original LTP</th>
                 <th>Current LTP</th>
                 <th class="sortable" data-sort="highlighted_change">Change %</th>
@@ -616,8 +618,9 @@ color: #495057;
               <th class="sortable" data-sort="symbol">Symbol</th>
               <th>Strike</th>
               <th>Type</th>
-              <th>Role</th>
-              <th>Days Captured</th>
+              <th class="sortable" data-sort="role">Role</th>
+              <th class="sortable" data-sort="daysCaptured">Days Captured</th>
+              <th class="sortable" data-sort="timestamp">Time (IST)</th>
               <th>Original LTP</th>
               <th>Current LTP</th>
               <th class="sortable" data-sort="percent_change">Change %</th>
@@ -827,7 +830,7 @@ document.querySelectorAll('#highlightedColorFilters input[type="checkbox"]').for
   }
 
   // Base API URL - use explicit full URL with scheme
-  const baseApiUrl = 'https://tracker-livefeed-api-production.up.railway.app';
+  const baseApiUrl = 'https://live-feed-azqo.onrender.com';
 
   // Initialize the page
   document.addEventListener('DOMContentLoaded', function() {
@@ -1262,6 +1265,7 @@ function renderHighlightedOptionsTable() {
           <td>${order.role || 'Unknown'}</td>
           <td>${formatLargeNumber(order.pcr || 0)}</td>
           <td>${daysCaptured}</td>
+          <td>${formatISTTime(order.timestamp)}</td>
           <td>${storedLtp.toFixed(2)}</td>
           <td>${currentLtp.toFixed(2)}</td>
           <td class="${percentChange > 0 ? 'profit' : 'loss'}">${percentChange.toFixed(2)}%</td>
@@ -1701,6 +1705,24 @@ function renderHighlightedOptionsTable() {
       return diffDays;
   }
 
+  // Convert UTC timestamp to IST time format (DD, HH:MM)
+  function formatISTTime(timestamp) {
+      if (!timestamp) return 'N/A';
+
+      // Create a date object from the timestamp
+      const date = new Date(timestamp);
+
+      // IST is UTC+5:30, so add 5 hours and 30 minutes to UTC time
+      const istDate = new Date(date.getTime() + (5 * 60 + 30) * 60000);
+
+      // Format time as DD, HH:MM
+      const day = istDate.getUTCDate().toString().padStart(2, '0');
+      const hours = istDate.getUTCHours().toString().padStart(2, '0');
+      const minutes = istDate.getUTCMinutes().toString().padStart(2, '0');
+
+      return `${day}, ${hours}:${minutes}`;
+  }
+
   function calculateChange(currentValue, originalValue) {
       if (currentValue === null || originalValue === null) return null;
       if (originalValue === 0) return currentValue;
@@ -1812,6 +1834,7 @@ function renderHighlightedOptionsTable() {
               <td>${order.option_type}</td>
               <td>${order.role || 'Unknown'}</td>
               <td>${order.daysCaptured || 'N/A'}</td>
+              <td>${formatISTTime(order.timestamp)}</td>
               <td>${storedLtp.toFixed(2)}</td>
               <td>${currentLtp.toFixed(2)}</td>
               <td class="${percentChange > 0 ? 'profit' : 'loss'}">${percentChange.toFixed(2)}%</td>
@@ -1934,11 +1957,13 @@ function renderHighlightedOptionsTable() {
           const profitLossFilters = activeFilters.filter(f => f === 'profit' || f === 'loss');
           const roleFilters = activeFilters.filter(f => f === 'buyer' || f === 'seller');
           const statusFilters = activeFilters.filter(f => f === 'open' || f === 'done');
+          const newFilters = activeFilters.filter(f => f === 'new');
 
           // Default all categories to true if no filters in that category
           let matchesProfitLoss = profitLossFilters.length === 0;
           let matchesRole = roleFilters.length === 0;
           let matchesStatus = statusFilters.length === 0;
+          let matchesNew = newFilters.length === 0;
 
           // Check profit/loss category
           if (profitLossFilters.length > 0) {
@@ -1967,8 +1992,21 @@ function renderHighlightedOptionsTable() {
               });
           }
 
+          // Check new/unassigned category
+          if (newFilters.length > 0) {
+              matchesNew = newFilters.some(filter => {
+                  if (filter === 'new') {
+                      // Check if not assigned to any percentage table (not in any milestone)
+                      return !order.is_greater_than_25pct &&
+                             !order.is_greater_than_50pct &&
+                             !order.is_greater_than_75pct;
+                  }
+                  return false;
+              });
+          }
+
           // All categories must match (AND between categories)
-          return matchesProfitLoss && matchesRole && matchesStatus;
+          return matchesProfitLoss && matchesRole && matchesStatus && matchesNew;
       });
   }
 
