@@ -47,8 +47,8 @@ class UpstoxFeedWorker:
         self.running = False
 
         # Connection settings - Updated for multiple connections
-        self.MAX_CONNECTIONS = len(self.access_tokens)  # Number of connections equal to available tokens
-        self.MAX_KEYS_PER_CONNECTION = 3000  # Each connection handles 3000 keys
+        self.MAX_CONNECTIONS = 4  # Fixed number of connections (4)
+        self.MAX_KEYS_PER_CONNECTION = 1500  # Each connection handles max 1500 keys as per API limit
 
         # Increase connection delays to prevent rate limiting
         self.RECONNECT_DELAY = 2  # seconds
@@ -99,7 +99,7 @@ class UpstoxFeedWorker:
             'futures': {'count': 0, 'time': 0}
         }
         self.last_stats_time = time.time()
-        
+
         # Market hours check interval
         self.MARKET_CHECK_INTERVAL = 60  # Check market hours every 60 seconds
 
@@ -162,7 +162,7 @@ class UpstoxFeedWorker:
                 days_until_next = min((day - current_weekday) % 7 for day in Config.TRADING_DAYS)
                 if days_until_next == 0:  # Already past market hours on a trading day
                     days_until_next = min((day + 7 - current_weekday) % 7 for day in Config.TRADING_DAYS)
-                    
+
                 print(f"Not a trading day. Waiting until next trading day ({days_until_next} days from now)")
                 await asyncio.sleep(3600)  # Check again in an hour
             elif current_time < Config.MARKET_OPEN:
@@ -170,7 +170,7 @@ class UpstoxFeedWorker:
                 market_open_today = datetime.combine(now.date(), Config.MARKET_OPEN)
                 market_open_today = pytz.timezone('Asia/Kolkata').localize(market_open_today)
                 seconds_until_open = (market_open_today - now).total_seconds()
-                
+
                 print(f"Market not open yet. Opening in {seconds_until_open/60:.1f} minutes")
                 # Sleep until market opens (with a small buffer)
                 await asyncio.sleep(min(seconds_until_open, 300))
@@ -192,7 +192,7 @@ class UpstoxFeedWorker:
                 print("Market has reopened. Restarting feed connections.")
                 # Refresh instrument keys
                 await self.fetch_instrument_keys()
-            
+
             # Check market status periodically
             await asyncio.sleep(self.MARKET_CHECK_INTERVAL)
 
@@ -565,7 +565,7 @@ class UpstoxFeedWorker:
                 if active_connections >= len(self.connection_key_batches):
                     await asyncio.sleep(0.5)
                     continue
-                
+
                 # Start connections for any missing batches
                 for i, key_batch in enumerate(self.connection_key_batches):
                     # Skip if we already have a connection for this batch
@@ -698,10 +698,15 @@ class UpstoxFeedWorker:
     async def _websocket_reader(self, websocket, key_batch, connection_id):
         """Dedicated task for reading from websocket."""
         try:
+            ping_failures = 0
+            max_ping_failures = 3  # Allow up to 3 consecutive ping failures before reconnecting
+
             while self.running:
                 try:
                     # Reduced timeout for faster detection of connection issues
                     message = await asyncio.wait_for(websocket.recv(), timeout=0.5)
+                    # Reset ping failures counter on successful message
+                    ping_failures = 0
                     decoded = self.decode_protobuf(message)
                     data_dict = MessageToDict(decoded)
 
@@ -711,11 +716,19 @@ class UpstoxFeedWorker:
                 except asyncio.TimeoutError:
                     # More frequent but lightweight pings
                     try:
+                        # Send ping and wait for pong with increased timeout
                         pong_waiter = await websocket.ping()
-                        await asyncio.wait_for(pong_waiter, timeout=0.5)
-                    except:
-                        print(f"Connection {connection_id}: Ping failed, reconnecting")
-                        break
+                        await asyncio.wait_for(pong_waiter, timeout=1.0)  # Increased from 0.5 to 1.0
+                        # Reset ping failures counter on successful ping
+                        ping_failures = 0
+                    except Exception as e:
+                        # Increment ping failures counter
+                        ping_failures += 1
+                        if ping_failures >= max_ping_failures:
+                            print(f"Connection {connection_id}: Multiple ping failures ({ping_failures}), reconnecting")
+                            break
+                        else:
+                            print(f"Connection {connection_id}: Ping failure {ping_failures}/{max_ping_failures}, trying again")
                 except Exception as e:
                     print(f"Connection {connection_id}: Reader error: {e}")
                     break
@@ -869,7 +882,7 @@ class UpstoxFeedWorker:
             else:
                 print("Warning: No access tokens available")
                 return None
-        
+
         headers = {
             'Accept': 'application/json',
             'Authorization': f'Bearer {token}'
@@ -1002,7 +1015,7 @@ class UpstoxFeedWorker:
 
                     # Only process if price is valid and quantities meet threshold
                     print("bid_qty:", bid_qty, "ask_qty:", ask_qty, "stock:", instrument['symbol'], "strike_price:", instrument['strike_price'], "option_type:", instrument['option_type'])
-                    if ltp and ltp >= 3.3 and (bid_qty > 0 or ask_qty > 0):
+                    if ltp and ltp >= 5 and (bid_qty > 0 or ask_qty > 0):
                         threshold = self.OPTIONS_THRESHOLD * lot_size
                         if bid_qty >= threshold or ask_qty >= threshold:
                             option_order = {
