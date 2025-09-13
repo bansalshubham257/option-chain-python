@@ -311,6 +311,16 @@ color: #495057;
             <button type="button" class="btn btn-outline-primary filter-btn" data-filter="new">New Only</button>
             <button type="button" class="btn btn-outline-secondary" id="clearFiltersBtn">Clear Filters</button>
           </div>
+          <!-- Date range filter buttons -->
+          <div class="btn-group mt-2" role="group">
+            <span class="me-2 align-self-center"><strong>Date:</strong></span>
+            <button type="button" class="btn btn-outline-info date-filter-btn" data-days="1">1 Day</button>
+            <button type="button" class="btn btn-outline-info date-filter-btn" data-days="2">2 Days</button>
+            <button type="button" class="btn btn-outline-info date-filter-btn" data-days="3">3 Days</button>
+            <button type="button" class="btn btn-outline-info date-filter-btn" data-days="7">1 Week</button>
+            <button type="button" class="btn btn-outline-info date-filter-btn" data-days="0" data-default="true">All Time</button>
+            <button type="button" class="btn btn-outline-secondary" id="customDateRangeBtn" data-bs-toggle="modal" data-bs-target="#customDateRangeModal">Custom Range</button>
+          </div>
         </div>
       </div>
     </div>
@@ -805,6 +815,10 @@ document.querySelectorAll('#highlightedColorFilters input[type="checkbox"]').for
   let highlightedOptions = {};
   let contextMenuTarget = null;
   let highlightedSort = { column: null, direction: 'asc' };
+
+  // NEW global variables for date filtering
+  let activeDateFilter = 0; // 0 = all time, 1 = 1 day, 2 = 2 days, etc.
+  let customDateRange = { start: null, end: null };
 
   // NEW global variable for color filter on highlighted options
   let activeColorFilter = "all";
@@ -2307,6 +2321,246 @@ function applySort(data) {
       // Apply highlighting to the table after rendering
       applyHighlightingToTable(recoveryTableBody);
   }
+
+// Date Filtering Functions
+
+// Function to create and show a custom date range modal
+function createCustomDateRangeModal() {
+  // Create modal backdrop
+  const modalBackdrop = document.createElement('div');
+  modalBackdrop.className = 'modal-backdrop fade show';
+  document.body.appendChild(modalBackdrop);
+
+  // Create modal HTML
+  const modalHtml = `
+    <div class="modal fade show" id="customDateRangeModal" tabindex="-1" style="display: block;" aria-modal="true" role="dialog">
+      <div class="modal-dialog">
+        <div class="modal-content">
+          <div class="modal-header">
+            <h5 class="modal-title">Select Custom Date Range</h5>
+            <button type="button" class="btn-close" id="closeCustomDateModal"></button>
+          </div>
+          <div class="modal-body">
+            <div class="mb-3">
+              <label for="startDate" class="form-label">Start Date</label>
+              <input type="date" class="form-control" id="startDate" required>
+            </div>
+            <div class="mb-3">
+              <label for="endDate" class="form-label">End Date</label>
+              <input type="date" class="form-control" id="endDate" required>
+            </div>
+          </div>
+          <div class="modal-footer">
+            <button type="button" class="btn btn-secondary" id="cancelCustomDateRange">Cancel</button>
+            <button type="button" class="btn btn-primary" id="applyCustomDateRange">Apply</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+
+  // Add modal to body
+  const modalContainer = document.createElement('div');
+  modalContainer.innerHTML = modalHtml;
+  document.body.appendChild(modalContainer);
+
+  // Set current dates if any
+  if (customDateRange.start) {
+    document.getElementById('startDate').value = customDateRange.start;
+  } else {
+    // Set default start date to 7 days ago
+    const defaultStart = new Date();
+    defaultStart.setDate(defaultStart.getDate() - 7);
+    document.getElementById('startDate').value = formatDateForInput(defaultStart);
+  }
+
+  if (customDateRange.end) {
+    document.getElementById('endDate').value = customDateRange.end;
+  } else {
+    // Set default end date to today
+    document.getElementById('endDate').value = formatDateForInput(new Date());
+  }
+
+  // Helper function to format date for input field
+  function formatDateForInput(date) {
+    return date.toISOString().split('T')[0];
+  }
+
+  // Handle cancel/close
+  function closeModal() {
+    document.body.removeChild(modalBackdrop);
+    document.body.removeChild(modalContainer);
+  }
+
+  document.getElementById('closeCustomDateModal').addEventListener('click', closeModal);
+  document.getElementById('cancelCustomDateRange').addEventListener('click', closeModal);
+
+  // Handle apply
+  document.getElementById('applyCustomDateRange').addEventListener('click', function() {
+    const startDate = document.getElementById('startDate').value;
+    const endDate = document.getElementById('endDate').value;
+
+    if (startDate && endDate) {
+      // Clear active state from all date filter buttons
+      document.querySelectorAll('.date-filter-btn').forEach(btn => btn.classList.remove('active'));
+
+      // Set custom date range
+      customDateRange.start = startDate;
+      customDateRange.end = endDate;
+
+      // Reset the days filter since we're using custom range
+      activeDateFilter = -1;
+
+      // Apply filters with new custom date range
+      applyFilters();
+
+      // Close modal
+      closeModal();
+    }
+  });
+}
+
+// Function to check if an order is within the active date filter
+function isWithinDateFilter(order) {
+  if (!order.timestamp) return true;
+
+  const orderDate = new Date(order.timestamp);
+  const currentDate = new Date();
+
+  // Handle custom date range
+  if (customDateRange.start && customDateRange.end) {
+    const startDate = new Date(customDateRange.start);
+    const endDate = new Date(customDateRange.end);
+    // Set end date to end of day
+    endDate.setHours(23, 59, 59, 999);
+
+    return orderDate >= startDate && orderDate <= endDate;
+  }
+
+  // Handle day-based filters
+  if (activeDateFilter > 0) {
+    const filterDate = new Date();
+    filterDate.setDate(currentDate.getDate() - activeDateFilter);
+    filterDate.setHours(0, 0, 0, 0);
+
+    return orderDate >= filterDate;
+  }
+
+  // Default case: no date filter (all time)
+  return true;
+}
+
+// Modified function to filter data based on active filters with date filtering
+function filterDataByActiveFilters(data) {
+  // Ensure index data is filtered out first
+  data = filterOutIndexData(data);
+
+  // Apply date filtering
+  data = data.filter(order => isWithinDateFilter(order));
+
+  // If no filters or only 'all' filter is active, return date-filtered data
+  if (activeFilters.length === 0) {
+    return data;
+  }
+
+  return data.filter(order => {
+    // Group filters by category
+    const profitLossFilters = activeFilters.filter(f => f === 'profit' || f === 'loss');
+    const roleFilters = activeFilters.filter(f => f === 'buyer' || f === 'seller');
+    const statusFilters = activeFilters.filter(f => f === 'open' || f === 'done');
+    const newFilters = activeFilters.filter(f => f === 'new');
+
+    // Default all categories to true if no filters in that category
+    let matchesProfitLoss = profitLossFilters.length === 0;
+    let matchesRole = roleFilters.length === 0;
+    let matchesStatus = statusFilters.length === 0;
+    let matchesNew = newFilters.length === 0;
+
+    // Check profit/loss category
+    if (profitLossFilters.length > 0) {
+      matchesProfitLoss = profitLossFilters.some(filter => {
+        if (filter === 'profit') return order.percent_change > 0;
+        if (filter === 'loss') return order.percent_change < 0;
+        return false;
+      });
+    }
+
+    // Check role category
+    if (roleFilters.length > 0) {
+      matchesRole = roleFilters.some(filter => {
+        if (filter === 'buyer') return order.role === 'Buyer';
+        if (filter === 'seller') return order.role === 'Seller';
+        return false;
+      });
+    }
+
+    // Check status category
+    if (statusFilters.length > 0) {
+      matchesStatus = statusFilters.some(filter => {
+        if (filter === 'open') return order.status === 'Open';
+        if (filter === 'done') return order.status === 'Done';
+        return false;
+      });
+    }
+
+    // Check new/unassigned category
+    if (newFilters.length > 0) {
+      matchesNew = newFilters.some(filter => {
+        if (filter === 'new') {
+          // Check if not assigned to any percentage table (not in any milestone)
+          return !order.is_greater_than_25pct &&
+                !order.is_greater_than_50pct &&
+                !order.is_greater_than_75pct;
+        }
+        return false;
+      });
+    }
+
+    // All categories must match (AND between categories)
+    return matchesProfitLoss && matchesRole && matchesStatus && matchesNew;
+  });
+}
+
+// Set up date filter buttons event listeners
+function setupDateFilterButtons() {
+  // Set up date filter buttons
+  document.querySelectorAll('.date-filter-btn').forEach(btn => {
+    btn.addEventListener('click', function() {
+      // Remove active class from all date filter buttons
+      document.querySelectorAll('.date-filter-btn').forEach(b => b.classList.remove('active'));
+
+      // Add active class to clicked button
+      this.classList.add('active');
+
+      // Update active date filter
+      activeDateFilter = parseInt(this.dataset.days);
+
+      // Reset custom date range when using preset filters
+      customDateRange = { start: null, end: null };
+
+      // Apply filters with new date filter
+      applyFilters();
+    });
+  });
+
+  // Set up custom date range button
+  document.getElementById('customDateRangeBtn').addEventListener('click', function() {
+    createCustomDateRangeModal();
+  });
+
+  // Set the default "All Time" date filter as active
+  const defaultDateFilter = document.querySelector('.date-filter-btn[data-default="true"]');
+  if (defaultDateFilter) {
+    defaultDateFilter.classList.add('active');
+  }
+}
+
+// Initialize the date filters when the document is loaded
+document.addEventListener('DOMContentLoaded', function() {
+  // Call setup function
+  setupDateFilterButtons();
+});
+
 </script>
 
 </body>
