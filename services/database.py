@@ -209,7 +209,6 @@ class DatabaseService:
 
         return await loop.run_in_executor(None, _run_query)
 
-    
     async def get_instruments_by_keys_async(self, instrument_keys):
         """Get multiple instrument details by instrument keys (async version)."""
         if not instrument_keys:
@@ -796,9 +795,6 @@ class DatabaseService:
         print("inside clear_old_data")
         with self._get_cursor() as cur:
             print("cur", cur)
-            cur.execute("DELETE FROM futures_orders")
-            cur.execute("DELETE FROM buildup_results")
-            cur.execute("DELETE FROM fno_analytics")
             cur.execute("DELETE FROM instrument_keys")
 
 
@@ -2994,6 +2990,5 @@ class DatabaseService:
         except Exception as e:
             print(f"Error saving upstox account: {str(e)}")
             return False
-
 
 
