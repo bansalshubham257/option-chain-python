@@ -1,7 +1,7 @@
 import asyncio
 import json
 import ssl
-from datetime import datetime
+from datetime import datetime, time as dt_time
 
 import requests
 import websockets
@@ -50,6 +50,160 @@ websocket_lock = asyncio.Lock()
 active_websocket_connections = {}
 
 db_service = DatabaseService()
+
+def is_market_hours():
+    """Check if current time is within market hours (9:15 AM to 3:30 PM IST)"""
+    import pytz
+
+    ist = pytz.timezone('Asia/Kolkata')
+    now = datetime.now(ist)
+
+    # Market hours: 9:15 AM to 3:30 PM on weekdays
+    if now.weekday() >= 5:  # Saturday = 5, Sunday = 6
+        return False
+
+    market_start = dt_time(9, 15)  # 9:15 AM
+    market_end = dt_time(15, 30)   # 3:30 PM
+    current_time = now.time()
+
+    return market_start <= current_time <= market_end
+
+async def options_orders_monitor():
+    """Background task to continuously monitor options orders and update status"""
+    print("Starting options orders monitor...")
+
+    while True:
+        try:
+            # Only run during market hours
+            if not is_market_hours():
+                await asyncio.sleep(60)  # Check every minute when market is closed
+                continue
+
+            # Get all options orders from database
+            options_orders = db_service.get_full_options_orders()
+            if not options_orders:
+                await asyncio.sleep(30)  # Check every 30 seconds if no orders
+                continue
+
+            # Get all instrument keys from options orders
+            instrument_keys = [order['instrument_key'] for order in options_orders if order.get('instrument_key')]
+
+            if not instrument_keys:
+                await asyncio.sleep(30)
+                continue
+
+            # Update active subscription to ensure we get live data for these instruments
+            global active_subscription
+            # Add new instruments to subscription without removing existing ones
+            new_instruments = [key for key in instrument_keys if key not in active_subscription]
+            if new_instruments:
+                active_subscription.extend(new_instruments)
+                print(f"Options monitor: Added {len(new_instruments)} new instruments to subscription")
+
+            # Wait a bit for market data to be available
+            await asyncio.sleep(5)
+
+            # Process orders and check for status updates
+            orders_to_update = []
+
+            for order in options_orders:
+                instrument_key = order.get('instrument_key')
+                if not instrument_key or instrument_key not in market_data:
+                    continue
+
+                live_data = market_data[instrument_key]
+
+                # Get stored and current LTP
+                try:
+                    stored_ltp = float(order.get('ltp', 0) or 0)
+                    current_ltp = float(live_data.get('ltp', stored_ltp) or stored_ltp)
+
+                    if stored_ltp == 0:
+                        continue
+
+                    percent_change = ((current_ltp - stored_ltp) / stored_ltp) * 100
+                except (TypeError, ValueError, ZeroDivisionError):
+                    continue
+
+                # Get current status and flags
+                current_status = order.get('status', 'Open')
+                is_less_than_25pct = order.get('is_less_than_25pct', False)
+                is_less_than_50pct = order.get('is_less_than_50pct', False)
+                is_greater_than_25pct = order.get('is_greater_than_25pct', False)
+                is_greater_than_50pct = order.get('is_greater_than_50pct', False)
+                is_greater_than_75pct = order.get('is_greater_than_75pct', False)
+
+                # Track lowest price point
+                lowest_point = order.get('lowest_point', min(current_ltp, stored_ltp))
+                if current_ltp < lowest_point:
+                    lowest_point = current_ltp
+
+                # Check conditions for updating
+                need_update = False
+
+                # Check for "Done" status (>95% change)
+                if abs(percent_change) > 95 and current_status != 'Done':
+                    current_status = 'Done'
+                    need_update = True
+                    print(f"Options monitor: Marking {order['symbol']} {order['strike_price']} {order['option_type']} as Done (change: {percent_change:.2f}%)")
+
+                # Check price thresholds
+                if current_ltp < (stored_ltp * 0.25) and not is_less_than_25pct:
+                    is_less_than_25pct = True
+                    need_update = True
+                    print(f"Options monitor: {order['symbol']} {order['strike_price']} {order['option_type']} dropped below 25% of original price")
+
+                if current_ltp < (stored_ltp * 0.5) and not is_less_than_50pct:
+                    is_less_than_50pct = True
+                    need_update = True
+                    print(f"Options monitor: {order['symbol']} {order['strike_price']} {order['option_type']} dropped below 50% of original price")
+
+                if current_ltp > (stored_ltp * 1.25) and not is_greater_than_25pct:
+                    is_greater_than_25pct = True
+                    need_update = True
+                    print(f"Options monitor: {order['symbol']} {order['strike_price']} {order['option_type']} gained above 25% of original price")
+
+                if current_ltp > (stored_ltp * 1.50) and not is_greater_than_50pct:
+                    is_greater_than_50pct = True
+                    need_update = True
+                    print(f"Options monitor: {order['symbol']} {order['strike_price']} {order['option_type']} gained above 50% of original price")
+
+                if current_ltp > (stored_ltp * 1.75) and not is_greater_than_75pct:
+                    is_greater_than_75pct = True
+                    need_update = True
+                    print(f"Options monitor: {order['symbol']} {order['strike_price']} {order['option_type']} gained above 75% of original price")
+
+                # Add to update list if needed
+                if need_update:
+                    orders_to_update.append({
+                        'symbol': order['symbol'],
+                        'strike_price': order['strike_price'],
+                        'option_type': order['option_type'],
+                        'new_status': current_status,
+                        'is_less_than_25pct': is_less_than_25pct,
+                        'is_less_than_50pct': is_less_than_50pct,
+                        'is_greater_than_25pct': is_greater_than_25pct,
+                        'is_greater_than_50pct': is_greater_than_50pct,
+                        'is_greater_than_75pct': is_greater_than_75pct,
+                        'lowest_point': lowest_point
+                    })
+
+            # Update database if there are changes
+            if orders_to_update:
+                try:
+                    db_service.update_options_orders_status(orders_to_update)
+                    print(f"Options monitor: Updated status for {len(orders_to_update)} orders")
+                except Exception as e:
+                    print(f"Options monitor: Error updating database: {e}")
+
+            # Wait before next check (during market hours, check every 30 seconds)
+            await asyncio.sleep(30)
+
+        except Exception as e:
+            print(f"Options monitor error: {e}")
+            import traceback
+            traceback.print_exc()
+            await asyncio.sleep(60)  # Wait longer on error
 
 def get_market_data_feed_authorize_v3():
     """Get authorization for market data feed."""
@@ -1123,7 +1277,7 @@ async def get_options_orders_analysis():
             try:
                 stored_ltp = float(order.get('ltp', 0) or 0)
                 current_ltp = float(live_data.get('ltp', stored_ltp) or stored_ltp)
-                
+
                 percent_change = 0
                 if stored_ltp and stored_ltp != 0:
                     percent_change = ((current_ltp - stored_ltp) / stored_ltp) * 100
@@ -1136,11 +1290,11 @@ async def get_options_orders_analysis():
             # Get live OI and volume from market data
             live_oi = float(live_data.get('oi', 0) or 0)
             live_volume = float(live_data.get('volume', 0) or 0)
-            
+
             # Get original OI and volume
             original_oi = float(order.get('oi', 0) or 0)
             original_volume = float(order.get('volume', 0) or 0)
-            
+
             # Calculate OI and volume changes
             oi_change = ((live_oi - original_oi) / original_oi * 100) if original_oi != 0 else 0
             volume_change = ((live_volume - original_volume) / original_volume * 100) if original_volume != 0 else 0
@@ -1169,14 +1323,14 @@ async def get_options_orders_analysis():
 
             # Check if status should be "Done" (> 100% change)
             current_status = order.get('status', 'Open')
-            
+
             # Get current less than flags and initialize recovery flags
             is_less_than_25pct = order.get('is_less_than_25pct', False)
             is_less_than_50pct = order.get('is_less_than_50pct', False)
             is_greater_than_25pct = order.get('is_greater_than_25pct', False)
             is_greater_than_50pct = order.get('is_greater_than_50pct', False)
             is_greater_than_75pct = order.get('is_greater_than_75pct', False)
-            
+
             # Track lowest price point
             lowest_point = order.get('lowest_point', min(current_ltp, stored_ltp))
             if current_ltp < lowest_point:
@@ -1184,16 +1338,16 @@ async def get_options_orders_analysis():
 
             # Check conditions for updating
             need_update = False
-            
+
             if abs(percent_change) > 95 and current_status != 'Done':
                 current_status = 'Done'  # Update for response
                 need_update = True
-            
+
             # Calculate if price is less than 25% or 50% of original price
             if current_ltp < (stored_ltp * 0.25) and not is_less_than_25pct:
                 is_less_than_25pct = True
                 need_update = True
-                
+
             if current_ltp < (stored_ltp * 0.5) and not is_less_than_50pct:
                 is_less_than_50pct = True
                 need_update = True
@@ -1209,7 +1363,7 @@ async def get_options_orders_analysis():
             if current_ltp > (stored_ltp * 1.75) and not is_greater_than_75pct:
                 is_greater_than_75pct = True
                 need_update = True
-                
+
             # Mark for update in database if needed
             if need_update:
                 orders_to_update.append({
@@ -1508,5 +1662,8 @@ if __name__ == '__main__':
 
     # Ensure active_subscription is empty at startup
     active_subscription = []
+
+    # Start the options orders monitor in the background
+    asyncio.get_event_loop().create_task(options_orders_monitor())
 
     start_services()
