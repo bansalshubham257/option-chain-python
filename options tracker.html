@@ -826,8 +826,10 @@ document.querySelectorAll('#highlightedColorFilters input[type="checkbox"]').for
 
   // Set default sort for highlighted table to %change descending
   highlightedSort = { column: "percent_change", direction: "desc" };
-  // Set default sort for all trades table to %change descending
-  currentSort = { column: "percent_change", direction: "desc" };
+  // Set default sort for all trades table to Today's Return descending - only if no sort is currently set
+  if (!currentSort.column) {
+      currentSort = { column: "todays_return", direction: "desc" };
+  }
 
   // List of index symbols to hide
   const indexSymbols = ['NIFTY', 'SENSEX', 'BANKNIFTY', 'FINNIFTY', 'MIDCPNIFTY', 'BANKEX'];
@@ -1241,27 +1243,38 @@ function renderHighlightedOptionsTable() {
       const currentLtp = safeValue(order.current_ltp);
       const storedLtp = safeValue(order.stored_ltp);
       const percentChange = safeValue(order.percent_change);
-      const todaysReturn = safeValue(order.todays_return);
+
+      // Fix todaysReturn calculation here too
+      const prevClose = safeValue(order.prev_close);
+      let todaysReturn = 0;
+
+      if (prevClose && prevClose > 0 && currentLtp && currentLtp > 0) {
+          todaysReturn = ((currentLtp - prevClose) / prevClose) * 100;
+      } else {
+          // Try alternative field names
+          const altPrevClose = order.previousClose || order.prev_ltp || order.yesterday_close || order.close_price;
+          if (altPrevClose && altPrevClose > 0 && currentLtp && currentLtp > 0) {
+              todaysReturn = ((currentLtp - altPrevClose) / altPrevClose) * 100;
+          }
+      }
+
       const daysCaptured = order.daysCaptured || 'N/A';
 
       const bidQ = formatLargeNumber(order.stored_bidq || 0);
       const askQ = formatLargeNumber(order.stored_askq || 0);
 
-          // Get live bid and ask data
+      // Get live bid and ask data
+      const liveBidQ = safeValue(order.bidQ);
+      const liveAskQ = safeValue(order.askQ);
 
-          const liveBidQ = safeValue(order.bidQ);
-          const liveAskQ = safeValue(order.askQ);
+      // Format live bid and ask quantities
+      const liveBidQDisplay = formatLargeNumber(liveBidQ);
+      const liveAskQDisplay = formatLargeNumber(liveAskQ);
 
-          // Format live bid and ask quantities
-          const liveBidQDisplay = formatLargeNumber(liveBidQ);
-          const liveAskQDisplay = formatLargeNumber(liveAskQ);
-
-          // Check if bid or ask quantities exceed threshold
-          const lotSize = order.lot_size || 1;
-          const highBidQty = liveBidQ > (50 * lotSize);
-          const highAskQty = liveAskQ > (50 * lotSize);
-
-
+      // Check if bid or ask quantities exceed threshold
+      const lotSize = order.lot_size || 1;
+      const highBidQty = liveBidQ > (50 * lotSize);
+      const highAskQty = liveAskQ > (50 * lotSize);
 
       // Format bid and ask with highlighting if needed
       const bidQtyClass = highBidQty ? 'high-quantity' : '';
@@ -1797,11 +1810,8 @@ function renderHighlightedOptionsTable() {
           const storedLtp = safeValue(order.stored_ltp);
           const prevClose = safeValue(order.prev_close);
           const percentChange = safeValue(order.percent_change);
-          let todaysReturn = 0;
-          if (prevClose > 0) {
-              todaysReturn = ((currentLtp - prevClose) / prevClose) * 100;
-          }
-          order.todays_return = todaysReturn;
+          const todaysReturn = safeValue(order.todays_return);
+
 
           // Format the status with appropriate CSS class
           const statusClass = order.status === 'Done' ? 'status-done' : 'status-open';
@@ -1862,7 +1872,7 @@ function renderHighlightedOptionsTable() {
               <td>${storedLtp.toFixed(2)}</td>
               <td>${currentLtp.toFixed(2)}</td>
               <td class="${percentChange > 0 ? 'profit' : 'loss'}">${percentChange.toFixed(2)}%</td>
-              <td class="${todaysReturn > 0 ? 'profit' : 'loss'}">${todaysReturn.toFixed(2)}%</td>
+              <td>${todaysReturn.toFixed(2)}%</td>
               <td>${milestone}</td>
               <td>${statusDisplay}</td>
               <td class="${bidQtyClass}">${bidQ}</td>
@@ -1888,8 +1898,11 @@ function renderHighlightedOptionsTable() {
           `;
 
           tableBody.appendChild(row);
-  });
-}
+      });
+
+      // Apply highlighting to the table after rendering
+      applyHighlightingToTable(tableBody);
+  }
 
   // Helper function to get RGB values for a color name
   function getColorRGB(color) {
