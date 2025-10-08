@@ -320,6 +320,15 @@
                         <button type="button" class="btn btn-outline-success table-filter-btn" data-table="3rd">3rd Table</button>
                         <button type="button" class="btn btn-outline-success table-filter-btn" data-table="4th">4th Table</button>
                     </div>
+                    <!-- Stock filter dropdown -->
+                    <div class="btn-group mt-2" role="group">
+                        <span class="me-2 align-self-center"><strong>Stock:</strong></span>
+                        <select id="stockFilterDropdown" class="form-select" style="max-width: 200px; display: inline-block;">
+                            <option value="all" selected>All Stocks</option>
+                            <!-- Stock options will be dynamically populated -->
+                        </select>
+                        <button type="button" class="btn btn-outline-secondary ms-2" id="clearStockFilterBtn">Clear</button>
+                    </div>
                     <!-- Date range filter buttons -->
                     <div class="btn-group mt-2" role="group">
                         <span class="me-2 align-self-center"><strong>Date:</strong></span>
@@ -837,6 +846,9 @@
     // NEW global variable for table filters
     let activeTableFilter = "all";
 
+    // NEW global variable for stock filter
+    let activeStockFilter = "all";
+
     // Set default sort for highlighted table to %change descending
     highlightedSort = { column: "percent_change", direction: "desc" };
     // Set default sort for all trades table to Today's Return descending - only if no sort is currently set
@@ -914,6 +926,25 @@
             activeFilters = [];
             applyFilters();
         });
+
+        // Set up stock filter dropdown
+        const stockFilterDropdown = document.getElementById('stockFilterDropdown');
+        if (stockFilterDropdown) {
+            stockFilterDropdown.addEventListener('change', function() {
+                activeStockFilter = this.value;
+                applyFilters();
+            });
+        }
+
+        // Set up clear stock filter button
+        const clearStockFilterBtn = document.getElementById('clearStockFilterBtn');
+        if (clearStockFilterBtn) {
+            clearStockFilterBtn.addEventListener('click', function() {
+                document.getElementById('stockFilterDropdown').value = 'all';
+                activeStockFilter = 'all';
+                applyFilters();
+            });
+        }
 
         // Set up data view tabs
         document.querySelectorAll('#dataViewTabs .nav-link').forEach(tab => {
@@ -1480,6 +1511,8 @@
 
                     // Get lot size for this instrument if available
                     let lot_size = 1;
+                    // Try to get lot size for this instrument - we'll fetch this for price range tables
+
 
                     return {
                         ...order,
@@ -1529,6 +1562,62 @@
             // Don't show alert as it might be disruptive with auto-refresh
             console.error('Error loading data. Please try again.');
         }
+    }
+
+    // Function to populate the stock filter dropdown with unique stock symbols
+    function populateStockFilter(data) {
+        const stockFilterDropdown = document.getElementById('stockFilterDropdown');
+        if (!stockFilterDropdown) return;
+
+        // Extract unique stock symbols
+        const uniqueStocks = [...new Set(data.map(item => item.symbol))];
+
+        // Sort alphabetically
+        uniqueStocks.sort();
+
+        // Keep the current selected value if exists
+        const currentValue = stockFilterDropdown.value;
+
+        // Clear existing options except the "All Stocks" option
+        while (stockFilterDropdown.options.length > 1) {
+            stockFilterDropdown.remove(1);
+        }
+
+        // Add each unique stock as an option
+        uniqueStocks.forEach(stock => {
+            const option = document.createElement('option');
+            option.value = stock;
+            option.textContent = stock;
+            stockFilterDropdown.appendChild(option);
+        });
+
+        // Restore previous selection if valid, otherwise default to "all"
+        if (uniqueStocks.includes(currentValue)) {
+            stockFilterDropdown.value = currentValue;
+        } else {
+            stockFilterDropdown.value = 'all';
+            activeStockFilter = 'all';
+        }
+    }
+
+    // Function to set up context menu
+    function setupContextMenu() {
+        // Add context menu listeners to all tables that show options
+        const tables = ['dataTableBody', 'lowMediumTableBody', 'mediumHighTableBody',
+                        'highTableBody', 'veryHighTableBody', 'recoveryTableBody', 'highlightedTableBody'];
+
+        tables.forEach(tableId => {
+            const table = document.getElementById(tableId);
+            if (table) {
+                table.addEventListener('contextmenu', showContextMenu);
+            }
+        });
+
+        // Set up click handlers for context menu items
+        const contextMenuItems = document.querySelectorAll('.context-menu-item');
+        contextMenuItems.forEach(item => {
+            item.addEventListener('click', handleContextMenuClick);
+        });
     }
 
     // Function to render price range tables
@@ -2084,12 +2173,15 @@
 
                 console.log("Fetched data:", allOrdersData);  // Debug log
 
+                populateStockFilter(allOrdersData);
+
                 // Check if we have data before rendering
                 if (allOrdersData.length === 0) {
                     console.warn("No data received from API");
                     document.getElementById('lastUpdated').textContent = new Date().toLocaleString() + " (No data)";
                     return;
                 }
+
 
                 renderCurrentView();
                 updateStats(); // Make sure this is called after data is processed
@@ -2578,6 +2670,7 @@
         document.getElementById('buyerSellerRatio').textContent = `${buyerCount}:${sellerCount} / ${openCount}:${doneCount}`;
     }
 
+    // Filter Table function - for backward compatibility
     function filterTable(filter) {
         // For backward compatibility, set this filter as the only active filter
         activeFilters = [filter];
@@ -2614,8 +2707,10 @@
         // Ensure index data is filtered out first
         data = filterOutIndexData(data);
 
-        // Apply date filtering
-        data = data.filter(order => isWithinDateFilter(order));
+        // Apply stock filtering if not "all"
+        if (activeStockFilter !== "all") {
+            data = data.filter(order => order.symbol === activeStockFilter);
+        }
 
         // Apply table filtering if not "all"
         if (activeTableFilter !== "all") {
@@ -3128,13 +3223,18 @@
     return true;
   }
 
-  // Modified function to filter data based on active filters with date filtering
+    // Modified function to filter data based on active filters with date filtering
   function filterDataByActiveFilters(data) {
     // Ensure index data is filtered out first
     data = filterOutIndexData(data);
 
     // Apply date filtering
     data = data.filter(order => isWithinDateFilter(order));
+
+    // Apply stock filtering if not "all"
+    if (activeStockFilter !== "all") {
+        data = data.filter(order => order.symbol === activeStockFilter);
+    }
 
     // Apply table filtering if not "all"
     if (activeTableFilter !== "all") {
