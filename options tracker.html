@@ -235,6 +235,44 @@
             vertical-align: middle;
         }
 
+        // Add this to your existing styles section
+.custom-range-filters {
+    padding: 10px;
+    border: 1px solid #dee2e6;
+    border-radius: 4px;
+    margin-top: 10px;
+    background-color: #f8f9fa;
+}
+
+.custom-range-filters label {
+    font-weight: 500;
+    margin-right: 10px;
+}
+
+.custom-range-filters input {
+    width: 80px;
+}
+
+.range-filter-active {
+    background-color: #d4edda;
+    border-color: #c3e6cb;
+}
+
+
+#hideStocksMultiselect {
+    height: auto;
+    min-height: 100px;
+}
+
+#hideStocksMultiselect option {
+    padding: 5px;
+}
+
+#hideStocksMultiselect option:checked {
+    background-color: #0d6efd;
+    color: white;
+}
+
         /* Add this to your existing styles */
     .color-badge {
     display: inline-block;
@@ -302,33 +340,67 @@
                 <div>
                     <div class="btn-group" role="group">
                         <button type="button" class="btn btn-outline-primary filter-btn" data-filter="all">All</button>
-                        <button type="button" class="btn btn-outline-primary filter-btn" data-filter="profit">Profit</button>
-                        <button type="button" class="btn btn-outline-primary filter-btn" data-filter="loss">Loss</button>
-                        <button type="button" class="btn btn-outline-primary filter-btn" data-filter="buyer">Buyer</button>
-                        <button type="button" class="btn btn-outline-primary filter-btn" data-filter="seller">Seller</button>
-                        <button type="button" class="btn btn-outline-primary filter-btn active" data-filter="open">Open</button>
-                        <button type="button" class="btn btn-outline-primary filter-btn" data-filter="done">Done</button>
-                        <button type="button" class="btn btn-outline-primary filter-btn" data-filter="new">New Only</button>
-                        <button type="button" class="btn btn-outline-secondary" id="clearFiltersBtn">Clear Filters</button>
+                        <button type="button" class="btn btn-outline-primary filter-btn" data-filter="profit">Profit
+                        </button>
+                        <button type="button" class="btn btn-outline-primary filter-btn" data-filter="loss">Loss
+                        </button>
+                        <button type="button" class="btn btn-outline-primary filter-btn" data-filter="buyer">Buyer
+                        </button>
+                        <button type="button" class="btn btn-outline-primary filter-btn" data-filter="seller">Seller
+                        </button>
+                        <button type="button" class="btn btn-outline-primary filter-btn active" data-filter="open">
+                            Open
+                        </button>
+                        <button type="button" class="btn btn-outline-primary filter-btn" data-filter="done">Done
+                        </button>
+                        <button type="button" class="btn btn-outline-primary filter-btn" data-filter="new">New Only
+                        </button>
+                        <button type="button" class="btn btn-outline-secondary" id="clearFiltersBtn">Clear Filters
+                        </button>
                     </div>
                     <!-- Table filter buttons -->
                     <div class="btn-group mt-2" role="group">
                         <span class="me-2 align-self-center"><strong>Table:</strong></span>
-                        <button type="button" class="btn btn-outline-success table-filter-btn" data-table="all" data-default="true">All Tables</button>
-                        <button type="button" class="btn btn-outline-success table-filter-btn" data-table="new">New</button>
-                        <button type="button" class="btn btn-outline-success table-filter-btn" data-table="2nd">2nd Table</button>
-                        <button type="button" class="btn btn-outline-success table-filter-btn" data-table="3rd">3rd Table</button>
-                        <button type="button" class="btn btn-outline-success table-filter-btn" data-table="4th">4th Table</button>
+                        <button type="button" class="btn btn-outline-success table-filter-btn" data-table="all"
+                                data-default="true">All Tables
+                        </button>
+                        <button type="button" class="btn btn-outline-success table-filter-btn" data-table="new">New
+                        </button>
+                        <button type="button" class="btn btn-outline-success table-filter-btn" data-table="2nd">2nd
+                            Table
+                        </button>
+                        <button type="button" class="btn btn-outline-success table-filter-btn" data-table="3rd">3rd
+                            Table
+                        </button>
+                        <button type="button" class="btn btn-outline-success table-filter-btn" data-table="4th">4th
+                            Table
+                        </button>
                     </div>
+
                     <!-- Stock filter dropdown -->
                     <div class="btn-group mt-2" role="group">
                         <span class="me-2 align-self-center"><strong>Stock:</strong></span>
-                        <select id="stockFilterDropdown" class="form-select" style="max-width: 200px; display: inline-block;">
+                        <select id="stockFilterDropdown" class="form-select"
+                                style="max-width: 200px; display: inline-block;">
                             <option value="all" selected>All Stocks</option>
                             <!-- Stock options will be dynamically populated -->
                         </select>
-                        <button type="button" class="btn btn-outline-secondary ms-2" id="clearStockFilterBtn">Clear</button>
+                        <button type="button" class="btn btn-outline-secondary ms-2" id="clearStockFilterBtn">Clear
+                        </button>
                     </div>
+
+                    <!-- New Hide Stocks multi-select filter -->
+                    <!-- Replace the hide stocks multiselect with checkboxes -->
+                    <div class="btn-group mt-2" role="group">
+                        <span class="me-2 align-self-center"><strong>Hide Stocks:</strong></span>
+                        <div class="border p-2 bg-light" style="max-width: 400px; max-height: 200px; overflow-y: auto;">
+                            <div id="hideStocksCheckboxes" class="d-flex flex-wrap">
+                                <!-- Checkboxes will be dynamically added here -->
+                            </div>
+                        </div>
+                        <button type="button" class="btn btn-outline-secondary ms-2" id="clearHideStocksBtn">Clear</button>
+                    </div>
+
                     <!-- Date range filter buttons -->
                     <div class="btn-group mt-2" role="group">
                         <span class="me-2 align-self-center"><strong>Date:</strong></span>
@@ -336,8 +408,40 @@
                         <button type="button" class="btn btn-outline-info date-filter-btn" data-days="2">2 Days</button>
                         <button type="button" class="btn btn-outline-info date-filter-btn" data-days="3">3 Days</button>
                         <button type="button" class="btn btn-outline-info date-filter-btn" data-days="7">1 Week</button>
-                        <button type="button" class="btn btn-outline-info date-filter-btn" data-days="0" data-default="true">All Time</button>
-                        <button type="button" class="btn btn-outline-secondary" id="customDateRangeBtn" data-bs-toggle="modal" data-bs-target="#customDateRangeModal">Custom Range</button>
+                        <button type="button" class="btn btn-outline-info date-filter-btn" data-days="0"
+                                data-default="true">All Time
+                        </button>
+                        <button type="button" class="btn btn-outline-secondary" id="customDateRangeBtn"
+                                data-bs-toggle="modal" data-bs-target="#customDateRangeModal">Custom Range
+                        </button>
+                    </div>
+
+                    <!-- Add this after the date range filter buttons -->
+                    <div class="mt-2 custom-range-filters">
+                        <div class="d-flex align-items-center mb-2">
+                            <span class="me-2"><strong>Custom Ranges:</strong></span>
+                            <div class="me-3">
+                                <label for="changePercentMin">Change% From:</label>
+                                <input type="number" id="changePercentMin" class="form-control form-control-sm d-inline-block" placeholder="-30">
+                            </div>
+                            <div class="me-3">
+                                <label for="changePercentMax">To:</label>
+                                <input type="number" id="changePercentMax" class="form-control form-control-sm d-inline-block" placeholder="-10">
+                            </div>
+                            <div class="me-3">
+                                <label for="todaysReturnMin">Today's Return% From:</label>
+                                <input type="number" id="todaysReturnMin" class="form-control form-control-sm d-inline-block" placeholder="40">
+                            </div>
+                            <div class="me-3">
+                                <label for="todaysReturnMax">To:</label>
+                                <input type="number" id="todaysReturnMax" class="form-control form-control-sm d-inline-block" placeholder="100">
+                            </div>
+                            <button type="button" class="btn btn-success me-2" id="applyRangeFilters">Apply Ranges</button>
+                            <button type="button" class="btn btn-outline-secondary" id="clearRangeFilters">Clear Ranges</button>
+                        </div>
+                        <div id="activeRangeFilters" class="small text-muted" style="display: none;">
+                            Active filters: <span id="activeRangeFiltersText"></span>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -540,31 +644,36 @@
                             <div class="form-check form-check-inline">
                                 <input class="form-check-input" type="checkbox" id="colorRed" value="red" checked>
                                 <label class="form-check-label" for="colorRed">
-                                    <span class="color-badge" style="background-color: rgba(255, 99, 132, 0.3);"></span> Red
+                                    <span class="color-badge" style="background-color: rgba(255, 99, 132, 0.3);"></span>
+                                    Red
                                 </label>
                             </div>
                             <div class="form-check form-check-inline">
                                 <input class="form-check-input" type="checkbox" id="colorGreen" value="green" checked>
                                 <label class="form-check-label" for="colorGreen">
-                                    <span class="color-badge" style="background-color: rgba(75, 192, 192, 0.3);"></span> Green
+                                    <span class="color-badge" style="background-color: rgba(75, 192, 192, 0.3);"></span>
+                                    Green
                                 </label>
                             </div>
                             <div class="form-check form-check-inline">
                                 <input class="form-check-input" type="checkbox" id="colorBlue" value="blue" checked>
                                 <label class="form-check-label" for="colorBlue">
-                                    <span class="color-badge" style="background-color: rgba(54, 162, 235, 0.3);"></span> Blue
+                                    <span class="color-badge" style="background-color: rgba(54, 162, 235, 0.3);"></span>
+                                    Blue
                                 </label>
                             </div>
                             <div class="form-check form-check-inline">
                                 <input class="form-check-input" type="checkbox" id="colorYellow" value="yellow" checked>
                                 <label class="form-check-label" for="colorYellow">
-                                    <span class="color-badge" style="background-color: rgba(255, 206, 86, 0.3);"></span> Yellow
+                                    <span class="color-badge" style="background-color: rgba(255, 206, 86, 0.3);"></span>
+                                    Yellow
                                 </label>
                             </div>
                             <div class="form-check form-check-inline">
                                 <input class="form-check-input" type="checkbox" id="colorPurple" value="purple" checked>
                                 <label class="form-check-label" for="colorPurple">
-                                    <span class="color-badge" style="background-color: rgba(153, 102, 255, 0.3);"></span> Purple
+                                    <span class="color-badge"
+                                          style="background-color: rgba(153, 102, 255, 0.3);"></span> Purple
                                 </label>
                             </div>
                         </div>
@@ -693,7 +802,8 @@
             <div class="card">
                 <div class="card-header bg-success text-white">
                     <h4>Price Recovery Options</h4>
-                    <p class="mb-0">Options that previously dropped below 25% or 50% of original price but have now recovered</p>
+                    <p class="mb-0">Options that previously dropped below 25% or 50% of original price but have now
+                        recovered</p>
                 </div>
                 <div class="card-body">
                     <div class="table-responsive">
@@ -766,6 +876,12 @@
     purple: true
   };
 
+  // Add these to your global variables
+let customRangeFilters = {
+    changePercent: { min: -50, max: 100 }, // Default: -50% to +100%
+    todaysReturn: { min: -30, max: 50 }    // Default: -30% to +50%
+};
+
     // Add this to your DOMContentLoaded event listener:
   document.querySelectorAll('#highlightedColorFilters input[type="checkbox"]').forEach(checkbox => {
     checkbox.addEventListener('change', function() {
@@ -825,6 +941,12 @@
         if(document.querySelector('.columns-inner')) {
             document.querySelector('.columns-inner').style.padding = '0';
         }
+
+        // Populate custom range filter inputs on page load
+        document.getElementById('changePercentMin').value = customRangeFilters.changePercent.min;
+        document.getElementById('changePercentMax').value = customRangeFilters.changePercent.max;
+        document.getElementById('todaysReturnMin').value = customRangeFilters.todaysReturn.min;
+        document.getElementById('todaysReturnMax').value = customRangeFilters.todaysReturn.max;
     });
 
     // Global variables
@@ -848,6 +970,9 @@
 
     // NEW global variable for stock filter
     let activeStockFilter = "all";
+
+    // NEW global variable for hide stocks filter
+    let activeHideStocksFilter = [];
 
     // Set default sort for highlighted table to %change descending
     highlightedSort = { column: "percent_change", direction: "desc" };
@@ -945,6 +1070,88 @@
                 applyFilters();
             });
         }
+        // Set up hide stocks multi-select filter
+// Set up hide stocks multi-select filter
+const hideStocksMultiselect = document.getElementById('hideStocksMultiselect');
+if (hideStocksMultiselect) {
+    hideStocksMultiselect.addEventListener('change', function(e) {
+        // Get all selected options
+        activeHideStocksFilter = Array.from(this.selectedOptions).map(opt => opt.value);
+
+        // Apply the filter
+        renderCurrentView();
+    });
+}
+
+// Set up clear hide stocks button
+// Set up clear hide stocks button
+const clearHideStocksBtn = document.getElementById('clearHideStocksBtn');
+if (clearHideStocksBtn) {
+    clearHideStocksBtn.addEventListener('click', function() {
+        // Uncheck all checkboxes
+        document.querySelectorAll('.hide-stock-checkbox').forEach(cb => {
+            cb.checked = false;
+        });
+
+        // Clear the filter array
+        activeHideStocksFilter = [];
+
+        // Apply the filter
+        renderCurrentView();
+    });
+}
+
+// Set up custom range filters
+const applyRangeFiltersBtn = document.getElementById('applyRangeFilters');
+if (applyRangeFiltersBtn) {
+    applyRangeFiltersBtn.addEventListener('click', function() {
+        const changePercentMin = document.getElementById('changePercentMin').value;
+        const changePercentMax = document.getElementById('changePercentMax').value;
+        const todaysReturnMin = document.getElementById('todaysReturnMin').value;
+        const todaysReturnMax = document.getElementById('todaysReturnMax').value;
+
+        // Update custom range filters
+        customRangeFilters.changePercent.min = changePercentMin ? parseFloat(changePercentMin) : null;
+        customRangeFilters.changePercent.max = changePercentMax ? parseFloat(changePercentMax) : null;
+        customRangeFilters.todaysReturn.min = todaysReturnMin ? parseFloat(todaysReturnMin) : null;
+        customRangeFilters.todaysReturn.max = todaysReturnMax ? parseFloat(todaysReturnMax) : null;
+
+        // Update UI to show active filters
+        updateActiveRangeFiltersUI();
+
+        // Apply filters
+        applyFilters();
+
+        // Add visual indicator that custom ranges are active
+        document.querySelector('.custom-range-filters').classList.add('range-filter-active');
+    });
+}
+
+const clearRangeFiltersBtn = document.getElementById('clearRangeFilters');
+if (clearRangeFiltersBtn) {
+    clearRangeFiltersBtn.addEventListener('click', function() {
+        // Clear input fields
+        document.getElementById('changePercentMin').value = '';
+        document.getElementById('changePercentMax').value = '';
+        document.getElementById('todaysReturnMin').value = '';
+        document.getElementById('todaysReturnMax').value = '';
+
+        // Clear filters
+        customRangeFilters = {
+            changePercent: { min: null, max: null },
+            todaysReturn: { min: null, max: null }
+        };
+
+        // Hide active filters text
+        document.getElementById('activeRangeFilters').style.display = 'none';
+
+        // Apply filters
+        applyFilters();
+
+        // Remove visual indicator
+        document.querySelector('.custom-range-filters').classList.remove('range-filter-active');
+    });
+}
 
         // Set up data view tabs
         document.querySelectorAll('#dataViewTabs .nav-link').forEach(tab => {
@@ -1538,12 +1745,15 @@
 
                 console.log("Fetched data:", allOrdersData);  // Debug log
 
+                populateStockFilter(allOrdersData);
+
                 // Check if we have data before rendering
                 if (allOrdersData.length === 0) {
                     console.warn("No data received from API");
                     document.getElementById('lastUpdated').textContent = new Date().toLocaleString() + " (No data)";
                     return;
                 }
+
 
                 renderCurrentView();
                 updateStats(); // Make sure this is called after data is processed
@@ -1598,7 +1808,66 @@
             stockFilterDropdown.value = 'all';
             activeStockFilter = 'all';
         }
+
+        // Also populate the hide stocks multiselect
+        populateHideStocksMultiselect(uniqueStocks);
     }
+
+    // Function to populate the hide stocks multiselect with unique stock symbols
+    // Function to populate hide stocks with checkboxes instead of multiselect
+function populateHideStocksMultiselect(uniqueStocks) {
+    const hideStocksContainer = document.getElementById('hideStocksCheckboxes');
+    if (!hideStocksContainer) return;
+
+    // Clear existing checkboxes
+    hideStocksContainer.innerHTML = '';
+
+    // Add each unique stock as a checkbox
+    uniqueStocks.forEach(stock => {
+        // Create checkbox container
+        const checkboxDiv = document.createElement('div');
+        checkboxDiv.className = 'form-check form-check-inline me-2 mb-1';
+
+        // Create checkbox input
+        const checkbox = document.createElement('input');
+        checkbox.type = 'checkbox';
+        checkbox.className = 'form-check-input hide-stock-checkbox';
+        checkbox.id = `hide-stock-${stock}`;
+        checkbox.value = stock;
+
+        // Check if this stock was previously selected to hide
+        if (activeHideStocksFilter.includes(stock)) {
+            checkbox.checked = true;
+        }
+
+        // Create label
+        const label = document.createElement('label');
+        label.className = 'form-check-label';
+        label.htmlFor = `hide-stock-${stock}`;
+        label.textContent = stock;
+
+        // Append to container
+        checkboxDiv.appendChild(checkbox);
+        checkboxDiv.appendChild(label);
+        hideStocksContainer.appendChild(checkboxDiv);
+    });
+
+    // Add event listeners to checkboxes
+    document.querySelectorAll('.hide-stock-checkbox').forEach(checkbox => {
+        checkbox.addEventListener('change', updateHideStocksFilter);
+    });
+}
+
+// Function to update the hide stocks filter when checkboxes change
+function updateHideStocksFilter() {
+    // Get all checked values
+    activeHideStocksFilter = Array.from(
+        document.querySelectorAll('.hide-stock-checkbox:checked')
+    ).map(cb => cb.value);
+
+    // Apply the filter
+    renderCurrentView();
+}
 
     // Function to set up context menu
     function setupContextMenu() {
@@ -1651,7 +1920,7 @@
         // Sort data by percent_change in descending order
         const sortedLowMediumData = [...lowMediumData].sort((a, b) => b.percent_change - a.percent_change);
         const sortedMediumHighData = [...mediumHighData].sort((a, b) => b.percent_change - a.percent_change);
-        const sortedHighData = [...highData].sort((a, b) => b.percent_change - a.percent_change);
+        const sortedHighData = [...highData].sort((a, b) => b.percent_change - a.percentChange);
         const sortedVeryHighData = [...veryHighData].sort((a, b) => b.percent_change - a.percentChange);
 
         // Render tables with live bid/ask data
@@ -1874,6 +2143,38 @@
 
         return `${day}, ${hours}:${minutes}`;
     }
+
+    // Function to update the active range filters UI
+function updateActiveRangeFiltersUI() {
+    const activeFiltersDiv = document.getElementById('activeRangeFilters');
+    const activeFiltersText = document.getElementById('activeRangeFiltersText');
+
+    let filterTexts = [];
+
+    if (customRangeFilters.changePercent.min !== null || customRangeFilters.changePercent.max !== null) {
+        const minText = customRangeFilters.changePercent.min !== null ? customRangeFilters.changePercent.min + '%' : 'any';
+        const maxText = customRangeFilters.changePercent.max !== null ? customRangeFilters.changePercent.max + '%' : 'any';
+        filterTexts.push(`Change% between ${minText} and ${maxText}`);
+    }
+
+    if (customRangeFilters.todaysReturn.min !== null || customRangeFilters.todaysReturn.max !== null) {
+        const minText = customRangeFilters.todaysReturn.min !== null ? customRangeFilters.todaysReturn.min + '%' : 'any';
+        const maxText = customRangeFilters.todaysReturn.max !== null ? customRangeFilters.todaysReturn.max + '%' : 'any';
+        filterTexts.push(`Today's Return% between ${minText} and ${maxText}`);
+    }
+
+    if (filterTexts.length > 0) {
+        activeFiltersText.textContent = filterTexts.join(' AND ');
+        activeFiltersDiv.style.display = 'block';
+    } else {
+        activeFiltersDiv.style.display = 'none';
+    }
+}
+
+// Helper function for safe value handling
+function safeValue(value, defaultValue = 0) {
+    return (value === null || value === undefined) ? defaultValue : value;
+}
 
     function calculateChange(currentValue, originalValue) {
         if (currentValue === null || originalValue === null) return null;
@@ -2707,9 +3008,17 @@
         // Ensure index data is filtered out first
         data = filterOutIndexData(data);
 
+        // Apply date filtering
+        data = data.filter(order => isWithinDateFilter(order));
+
         // Apply stock filtering if not "all"
         if (activeStockFilter !== "all") {
             data = data.filter(order => order.symbol === activeStockFilter);
+        }
+
+        // Apply hide stocks filter if any stocks are selected to hide
+        if (activeHideStocksFilter && activeHideStocksFilter.length > 0) {
+            data = data.filter(order => !activeHideStocksFilter.includes(order.symbol));
         }
 
         // Apply table filtering if not "all"
@@ -2734,7 +3043,44 @@
             });
         }
 
-        // If no filters or only 'all' filter is active, return date-filtered data
+      if (customRangeFilters.changePercent.min !== null ||
+        customRangeFilters.changePercent.max !== null ||
+        customRangeFilters.todaysReturn.min !== null ||
+        customRangeFilters.todaysReturn.max !== null) {
+
+        data = data.filter(order => {
+            let matchesChangePercent = true;
+            let matchesTodaysReturn = true;
+
+            // Check Change Percent range
+            if (customRangeFilters.changePercent.min !== null) {
+    const percentChange = safeValue(order.percent_change);
+    matchesChangePercent = matchesChangePercent &&
+        (percentChange >= customRangeFilters.changePercent.min);
+}
+            if (customRangeFilters.changePercent.max !== null) {
+    const percentChange = safeValue(order.percent_change);
+    matchesChangePercent = matchesChangePercent &&
+        (percentChange <= customRangeFilters.changePercent.max);
+}
+
+            // Check Today's Return range
+            if (customRangeFilters.todaysReturn.min !== null) {
+                const todaysReturn = safeValue(order.todays_return);
+                matchesTodaysReturn = matchesTodaysReturn &&
+                    (todaysReturn >= customRangeFilters.todaysReturn.min);
+            }
+            if (customRangeFilters.todaysReturn.max !== null) {
+                const todaysReturn = safeValue(order.todays_return);
+                matchesTodaysReturn = matchesTodaysReturn &&
+                    (todaysReturn <= customRangeFilters.todaysReturn.max);
+            }
+
+            return matchesChangePercent && matchesTodaysReturn;
+        });
+    }
+
+ // If no filters or only 'all' filter is active, return date-filtered data
         if (activeFilters.length === 0) {
           return data;
         }
@@ -2795,10 +3141,10 @@
             // All categories must match (AND between categories)
             return matchesProfitLoss && matchesRole && matchesStatus && matchesNew;
         });
-    }
+  }
 
-    // Helper function to apply current sort to data
-    // Helper function to apply current sort to data
+  // Helper function to apply current sort to data
+  // Helper function to apply current sort to data
   function applySort(data) {
       if (!currentSort.column) return data;
 
@@ -3236,6 +3582,11 @@
         data = data.filter(order => order.symbol === activeStockFilter);
     }
 
+    // Apply hide stocks filter if any stocks are selected to hide
+    if (activeHideStocksFilter && activeHideStocksFilter.length > 0) {
+        data = data.filter(order => !activeHideStocksFilter.includes(order.symbol));
+    }
+
     // Apply table filtering if not "all"
     if (activeTableFilter !== "all") {
         data = data.filter(order => {
@@ -3255,6 +3606,44 @@
                 return order.is_greater_than_75pct;
             }
             return true;
+        });
+    }
+
+    // Apply custom range filters
+    if (customRangeFilters.changePercent.min !== null ||
+        customRangeFilters.changePercent.max !== null ||
+        customRangeFilters.todaysReturn.min !== null ||
+        customRangeFilters.todaysReturn.max !== null) {
+
+        data = data.filter(order => {
+            let matchesChangePercent = true;
+            let matchesTodaysReturn = true;
+
+            // Check Change Percent range
+            if (customRangeFilters.changePercent.min !== null) {
+                const percentChange = safeValue(order.percent_change);
+                matchesChangePercent = matchesChangePercent &&
+                    (percentChange >= customRangeFilters.changePercent.min);
+            }
+            if (customRangeFilters.changePercent.max !== null) {
+                const percentChange = safeValue(order.percent_change);
+                matchesChangePercent = matchesChangePercent &&
+                    (percentChange <= customRangeFilters.changePercent.max);
+            }
+
+            // Check Today's Return range
+            if (customRangeFilters.todaysReturn.min !== null) {
+                const todaysReturn = safeValue(order.todays_return);
+                matchesTodaysReturn = matchesTodaysReturn &&
+                    (todaysReturn >= customRangeFilters.todaysReturn.min);
+            }
+            if (customRangeFilters.todaysReturn.max !== null) {
+                const todaysReturn = safeValue(order.todays_return);
+                matchesTodaysReturn = matchesTodaysReturn &&
+                    (todaysReturn <= customRangeFilters.todaysReturn.max);
+            }
+
+            return matchesChangePercent && matchesTodaysReturn;
         });
     }
 
