@@ -75,6 +75,40 @@
             display: none !important;
         }
 
+        /* Copy button for symbols */
+        .copy-btn {
+            cursor: pointer;
+            color: #0d6efd;
+            margin-left: 5px;
+            font-size: 0.8rem;
+            opacity: 0.7;
+        }
+
+        .copy-btn:hover {
+            opacity: 1;
+        }
+
+        .symbol-container {
+            display: flex;
+            align-items: center;
+        }
+
+        .copied-tooltip {
+            position: absolute;
+            background-color: #28a745;
+            color: white;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-size: 0.7rem;
+            opacity: 0;
+            transition: opacity 0.2s;
+            pointer-events: none;
+        }
+
+        .copied-tooltip.show {
+            opacity: 1;
+        }
+
         /* Original styles */
         .profit {
             color: green;
@@ -753,8 +787,7 @@
                         <thead>
                         <tr>
                             <th class="sortable" data-sort="symbol">Symbol</th>
-                            <th>Strike</th>
-                            <th>Type</th>
+                            <th class="sortable" data-sort="symbol">Copy</th>
                             <th class="sortable" data-sort="role">Role</th>
                             <th class="sortable" data-sort="daysCaptured">Days Captured</th>
                             <th class="sortable" data-sort="timestamp">Time (IST)</th>
@@ -2887,9 +2920,10 @@ function safeValue(value, defaultValue = 0) {
             }
 
             row.innerHTML = `
-                <td>${symbolDisplay}</td>
-                <td>${order.strike_price}</td>
-                <td>${order.option_type}</td>
+                <td>${symbolDisplay} ${order.strike_price} ${order.option_type}</td>
+                <button class="copy-btn" onclick="copyTradingSymbol('${symbolDisplay} ${order.strike_price} ${order.option_type}')">
+            📋
+        </button>
                 <td>${order.role || 'Unknown'}</td>
                 <td>${order.daysCaptured || 'N/A'}</td>
                 <td>${formatISTTime(order.timestamp)}</td>
@@ -3749,6 +3783,15 @@ function safeValue(value, defaultValue = 0) {
     // Call setup function
     setupDateFilterButtons();
   });
+
+    // Copy trading symbol function
+function copyTradingSymbol(symbol) {
+    navigator.clipboard.writeText(symbol).then(() => {
+        // Optional: Show feedback to user
+    }).catch(err => {
+        console.error('Failed to copy: ', err);
+    });
+}
 
 </script>
 
