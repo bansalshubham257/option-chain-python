@@ -843,14 +843,14 @@
                         <table class="table table-hover">
                             <thead>
                             <tr>
-                                <th>Symbol</th>
+                                <th class="sortable" data-sort="symbol">Symbol</th>
                                 <th>Strike</th>
                                 <th>Type</th>
                                 <th>Role</th>
                                 <th>Days Captured</th>
                                 <th>Original LTP</th>
                                 <th>Current LTP</th>
-                                <th>Current Change %</th>
+                                <th class="sortable" data-sort="percent_change">Current Change %</th>
                                 <th>Lowest Milestone</th>  <!-- Add this line -->
                                 <th>Status</th>
                                 <th>Live Bid</th>
@@ -865,6 +865,25 @@
                         </table>
                     </div>
                 </div>
+
+                <!-- New Table for Filtered Trades -->
+                <div class="mt-4">
+                    <h3>Filtered Trades</h3>
+                    <button class="btn btn-primary mb-2" onclick="copyFilteredTrades()">Copy All</button>
+                    <table class="table table-bordered">
+                        <thead>
+                        <tr>
+                            <th>Symbol</th>
+                            <th>Strike</th>
+                            <th>Option</th>
+                        </tr>
+                        </thead>
+                        <tbody id="filteredTradesTableBody">
+                        <!-- Rows will be dynamically added here -->
+                        </tbody>
+                    </table>
+                </div>
+
             </div>
         </div>
     </div>
@@ -1986,8 +2005,9 @@ function updateHideStocksFilter() {
         // Get recovery data - options that dropped below thresholds but now have recovered
         const recoveryData = filterOutIndexData(allOrdersData).filter(order => {
             const hasDroppedBelow = order.is_less_than_25pct || order.is_less_than_50pct;
-            const hasRecovered = order.current_ltp >= order.stored_ltp;
-            return hasDroppedBelow && hasRecovered;
+            const hasRecovered = order.current_ltp > order.stored_ltp;
+            const isOpen = order.status.toLowerCase() === 'open';
+            return hasDroppedBelow && hasRecovered && isOpen;
         });
 
         // Add all recovery symbols to the set
@@ -2129,9 +2149,10 @@ function updateHideStocksFilter() {
                                       (order.lowest_point && order.lowest_point < order.stored_ltp * 0.5);
 
                     // Check if current price has recovered to equal or above original price
-                    const hasRecovered = order.current_ltp >= order.stored_ltp;
+                    const hasRecovered = order.current_ltp > order.stored_ltp;
+                    const openStatus = order.status.toLowerCase() === 'open';
 
-                    return hasBeenLow && hasRecovered;
+                    return hasBeenLow && hasRecovered && openStatus;
                 });
                 break;
         }
@@ -2600,8 +2621,9 @@ function safeValue(value, defaultValue = 0) {
         // Get recovery data - options that dropped below thresholds but now have recovered
         const recoveryData = filterOutIndexData(allOrdersData).filter(order => {
             const hasDroppedBelow = order.is_less_than_25pct || order.is_less_than_50pct;
-            const hasRecovered = order.current_ltp >= order.stored_ltp;
-            return hasDroppedBelow && hasRecovered;
+            const hasRecovered = order.current_ltp > order.stored_ltp;
+            const isOpen = order.status.toLowerCase() === 'open';
+            return hasDroppedBelow && hasRecovered && isOpen;
         });
 
         // Add all recovery symbols to the set
@@ -2743,9 +2765,10 @@ function safeValue(value, defaultValue = 0) {
                                       (order.lowest_point && order.lowest_point < order.stored_ltp * 0.5);
 
                     // Check if current price has recovered to equal or above original price
-                    const hasRecovered = order.current_ltp >= order.stored_ltp;
+                    const hasRecovered = order.current_ltp > order.stored_ltp;
+                    const openStatus = order.status.toLowerCase() === 'open';
 
-                    return hasBeenLow && hasRecovered;
+                    return hasBeenLow && hasRecovered && openStatus;
                 });
                 break;
         }
@@ -3306,10 +3329,12 @@ function safeValue(value, defaultValue = 0) {
 
             // Check if the current price has recovered to at least the original price
             // Make sure we're using the latest live price data
-            const hasRecovered = order.current_ltp >= order.stored_ltp;
+            const hasRecovered = order.current_ltp > order.stored_ltp;
+
+            const openStatus = order.status.toLowerCase() === 'open';
 
             // Both conditions must be true for this to be a recovery case
-            return hasDroppedBelow && hasRecovered;
+            return hasDroppedBelow && hasRecovered && openStatus;
         });
 
         console.log(`Found ${recoveryData.length} options with price recovery`);
@@ -3322,17 +3347,38 @@ function safeValue(value, defaultValue = 0) {
             return;
         }
 
-        // Sort by the highest percentage recovery (from lowest point to current)
-        recoveryData.sort((a, b) => {
-            // Calculate recovery percentage from lowest point for each order
-            const aLowestPoint = getLowestPoint(a);
-            const bLowestPoint = getLowestPoint(b);
+        // Apply sorting based on currentSort state or default sort
+        if (currentSort.column && (currentSort.column === 'symbol' || currentSort.column === 'percent_change')) {
+            recoveryData.sort((a, b) => {
+                let aValue, bValue;
 
-            const aRecoveryFromLowest = aLowestPoint > 0 ? (a.current_ltp / aLowestPoint) : 0;
-            const bRecoveryFromLowest = bLowestPoint > 0 ? (b.current_ltp / bLowestPoint) : 0;
+                if (currentSort.column === 'symbol') {
+                    aValue = String(a.symbol);
+                    bValue = String(b.symbol);
+                    return currentSort.direction === 'asc'
+                        ? aValue.localeCompare(bValue)
+                        : bValue.localeCompare(aValue);
+                } else if (currentSort.column === 'percent_change') {
+                    aValue = a.percent_change || 0;
+                    bValue = b.percent_change || 0;
+                    return currentSort.direction === 'asc'
+                        ? aValue - bValue
+                        : bValue - aValue;
+                }
+            });
+        } else {
+            // Default sort by the highest percentage recovery (from lowest point to current)
+            recoveryData.sort((a, b) => {
+                // Calculate recovery percentage from lowest point for each order
+                const aLowestPoint = getLowestPoint(a);
+                const bLowestPoint = getLowestPoint(b);
 
-            return bRecoveryFromLowest - aRecoveryFromLowest;
-        });
+                const aRecoveryFromLowest = aLowestPoint > 0 ? (a.current_ltp / aLowestPoint) : 0;
+                const bRecoveryFromLowest = bLowestPoint > 0 ? (b.current_ltp / bLowestPoint) : 0;
+
+                return bRecoveryFromLowest - aRecoveryFromLowest;
+            });
+        }
 
         // Helper function to determine lowest point consistently
         function getLowestPoint(order) {
@@ -3792,6 +3838,68 @@ function copyTradingSymbol(symbol) {
         console.error('Failed to copy: ', err);
     });
 }
+
+// Function to render the filtered trades table
+function renderFilteredTradesTable() {
+    const tableBody = document.getElementById('filteredTradesTableBody');
+    if (!tableBody) return;
+
+    tableBody.innerHTML = '';
+
+    const recoveryData = filterOutIndexData(allOrdersData).filter(order => {
+        const hasDroppedBelow = order.is_less_than_25pct || order.is_less_than_50pct;
+        const hasRecovered = order.current_ltp > order.stored_ltp;
+        const isOpen = order.status.toLowerCase() === 'open';
+        return hasDroppedBelow && hasRecovered && isOpen;
+      });
+
+    // Filter trades with current change > 0% and < 50% and status 'open'
+    const filteredTrades = recoveryData.filter(order =>
+        order.percent_change > 0 &&
+        order.percent_change < 50 &&
+        order.status.toLowerCase() === 'open'
+    );
+
+    // Populate the table
+    filteredTrades.forEach(order => {
+        const row = document.createElement('tr');
+        row.innerHTML = `
+            <td>${order.symbol}</td>
+            <td>${order.strike_price}</td>
+            <td>${order.option_type}</td>
+        `;
+        tableBody.appendChild(row);
+    });
+}
+
+// Function to copy all filtered trades
+function copyFilteredTrades() {
+    const recoveryData = filterOutIndexData(allOrdersData).filter(order => {
+        const hasDroppedBelow = order.is_less_than_25pct || order.is_less_than_50pct;
+        const hasRecovered = order.current_ltp > order.stored_ltp;
+        const isOpen = order.status.toLowerCase() === 'open';
+        return hasDroppedBelow && hasRecovered && isOpen;
+    });
+
+    const filteredTrades = recoveryData
+        .filter(order =>
+            order.percent_change > 0 &&
+            order.percent_change < 50 &&
+            order.status.toLowerCase() === 'open'
+        )
+        .map(order => `${order.symbol}  25 Nov ${order.strike_price} ${order.option_type}`)
+        .join(', ');
+
+    navigator.clipboard.writeText(filteredTrades).then(() => {
+        alert('Filtered trades copied to clipboard!');
+    }).catch(err => {
+        console.error('Failed to copy trades: ', err);
+    });
+}
+
+// Call this function to render the table whenever needed
+renderFilteredTradesTable();
+
 
 </script>
 
