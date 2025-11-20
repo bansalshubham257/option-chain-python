@@ -2007,8 +2007,9 @@ function updateHideStocksFilter() {
 
     // Function to render price range tables
     function renderPriceRangeTables() {
-        // Apply active filters before filtering by price range
-        let filteredData = filterDataByActiveFilters(allOrdersData);
+        // Apply active filters before filtering by price range (excluding custom ranges)
+        // Custom ranges should only affect the main All trades table
+        let filteredData = filterDataByActiveFiltersWithoutCustomRanges(allOrdersData);
 
         // Ensure index data is filtered out
         filteredData = filterOutIndexData(filteredData);
@@ -2622,9 +2623,11 @@ function safeValue(value, defaultValue = 0) {
     }
 
     // Function to render price range tables
+   // Modified function to render price range tables without index
     function renderPriceRangeTables() {
-        // Apply active filters before filtering by price range
-        let filteredData = filterDataByActiveFilters(allOrdersData);
+        // Apply active filters before filtering by price range (excluding custom ranges)
+        // Custom ranges should only affect the main All trades table
+        let filteredData = filterDataByActiveFiltersWithoutCustomRanges(allOrdersData);
 
         // Ensure index data is filtered out
         filteredData = filterOutIndexData(filteredData);
@@ -3122,6 +3125,111 @@ function safeValue(value, defaultValue = 0) {
         renderTable(applySort(higherPriceData), 'higherPriceTableBody');
         renderTable(applySort(lowerPriceData), 'lowerPriceTableBody');
         renderTable(applySort(moderateChangeData), 'moderateChangeTableBody');
+    }
+
+    // Helper function to filter data based on active filters (excluding custom ranges - for price range tables only)
+    function filterDataByActiveFiltersWithoutCustomRanges(data) {
+        // Ensure index data is filtered out first
+        data = filterOutIndexData(data);
+
+        // Apply date filtering
+        data = data.filter(order => isWithinDateFilter(order));
+
+        // Apply stock filtering if not "all"
+        if (activeStockFilter !== "all") {
+            data = data.filter(order => order.symbol === activeStockFilter);
+        }
+
+        // Apply hide stocks filter if any stocks are selected to hide
+        if (activeHideStocksFilter && activeHideStocksFilter.length > 0) {
+            data = data.filter(order => !activeHideStocksFilter.includes(order.symbol));
+        }
+
+        // Apply table filtering if not "all"
+        if (activeTableFilter !== "all") {
+            data = data.filter(order => {
+                if (activeTableFilter === "new") {
+                    // "new" filter: show orders that don't belong to any milestone table
+                    return !order.is_greater_than_25pct &&
+                           !order.is_greater_than_50pct &&
+                           !order.is_greater_than_75pct;
+                } else if (activeTableFilter === "2nd") {
+                    // "2nd table" filter: show orders in 2nd table (between +10% and +25%)
+                    return order.is_greater_than_25pct && !order.is_greater_than_50pct;
+                } else if (activeTableFilter === "3rd") {
+                    // "3rd table" filter: show orders in 3rd table (between +25% and +50%)
+                    return order.is_greater_than_50pct && !order.is_greater_than_75pct;
+                } else if (activeTableFilter === "4th") {
+                    // "4th table" filter: show orders in 4th table (greater than +50%)
+                    return order.is_greater_than_75pct;
+                }
+                return true;
+            });
+        }
+
+        // NOTE: Custom range filters are NOT applied here - they are only for the main All trades table
+        // This ensures price range analysis tables are not affected by custom ranges
+
+        // If no filters or only 'all' filter is active, return date-filtered data
+        if (activeFilters.length === 0) {
+          return data;
+        }
+
+        return data.filter(order => {
+            // Group filters by category
+            const profitLossFilters = activeFilters.filter(f => f === 'profit' || f === 'loss');
+            const roleFilters = activeFilters.filter(f => f === 'buyer' || f === 'seller');
+            const statusFilters = activeFilters.filter(f => f === 'open' || f === 'done');
+            const newFilters = activeFilters.filter(f => f === 'new');
+
+            // Default all categories to true if no filters in that category
+            let matchesProfitLoss = profitLossFilters.length === 0;
+            let matchesRole = roleFilters.length === 0;
+            let matchesStatus = statusFilters.length === 0;
+            let matchesNew = newFilters.length === 0;
+
+            // Check profit/loss category
+            if (profitLossFilters.length > 0) {
+                matchesProfitLoss = profitLossFilters.some(filter => {
+                    if (filter === 'profit') return order.percent_change > 0;
+                    if (filter === 'loss') return order.percent_change < 0;
+                    return false;
+                });
+            }
+
+            // Check role category
+            if (roleFilters.length > 0) {
+                matchesRole = roleFilters.some(filter => {
+                    if (filter === 'buyer') return order.role === 'Buyer';
+                    if (filter === 'seller') return order.role === 'Seller';
+                    return false;
+                });
+            }
+
+            // Check status category
+            if (statusFilters.length > 0) {
+                matchesStatus = statusFilters.some(filter => {
+                    if (filter === 'open') return order.status === 'Open';
+                    if (filter === 'done') return order.status === 'Done';
+                    return false;
+                });
+            }
+
+            // Check new/unassigned category
+            if (newFilters.length > 0) {
+                matchesNew = newFilters.some(filter => {
+                    if (filter === 'new') {
+                        // Check if not assigned to any percentage table (not in any milestone)
+                        return !order.is_greater_than_25pct &&
+                               !order.is_greater_than_50pct &&
+                               !order.is_greater_than_75pct;
+                    }
+                    return false;
+                });
+            }
+
+            return matchesProfitLoss && matchesRole && matchesStatus && matchesNew;
+        });
     }
 
     // Helper function to filter data based on active filters
