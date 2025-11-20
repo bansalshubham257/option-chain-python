@@ -349,6 +349,51 @@
         100% { background-color: #ffeeba; }
     }
 
+    /* Collapse button styles */
+    .collapse-btn {
+        cursor: pointer;
+        font-size: 1.2rem;
+        margin-right: 10px;
+        user-select: none;
+        padding: 0 5px;
+        transition: transform 0.3s ease;
+    }
+
+    .collapse-btn.collapsed {
+        transform: rotate(-90deg);
+    }
+
+    .table-collapsible {
+        transition: max-height 0.3s ease, opacity 0.3s ease;
+        max-height: 100%;
+        opacity: 1;
+        overflow: hidden;
+    }
+
+    .table-collapsible.collapsed {
+        max-height: 0;
+        opacity: 0;
+        display: none;
+    }
+
+    .card-header-collapsible {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        cursor: pointer;
+        user-select: none;
+    }
+
+    .card-header-collapsible:hover {
+        opacity: 0.8;
+    }
+
+    .card-header-collapsible .header-title {
+        display: flex;
+        align-items: center;
+        flex-grow: 1;
+    }
+
     .high-qty-blink {
         animation: blink-high-qty 1.5s infinite;
     }
@@ -510,10 +555,13 @@
     <div class="row price-range-section mb-3">
         <div class="col-12">
             <div class="card mb-4">
-                <div class="card-header bg-primary text-white">
-                    <h4>Price Range Analysis</h4>
+                <div class="card-header bg-primary text-white card-header-collapsible" onclick="toggleTableCollapse(this)">
+                    <div class="header-title">
+                        <span class="collapse-btn" style="display: inline-block;">▼</span>
+                        <h4 style="margin: 0;">Price Range Analysis</h4>
+                    </div>
                 </div>
-                <div class="card-body">
+                <div class="card-body table-collapsible">
                     <div class="row">
                         <!-- +10% to +25% Table -->
                         <div class="col-md-6 price-range-table">
@@ -720,11 +768,16 @@
     <div class="row mb-3">
         <div class="col-12">
             <div class="card">
-                <div class="card-header bg-warning text-dark">
-                    <h4>Highlighted Options</h4>
-                    <p class="mb-0">Options that you have highlighted for tracking appear here</p>
+                <div class="card-header bg-warning text-dark card-header-collapsible" onclick="toggleTableCollapse(this)">
+                    <div class="header-title">
+                        <span class="collapse-btn" style="display: inline-block;">▼</span>
+                        <div>
+                            <h4 style="margin: 0;">Highlighted Options</h4>
+                            <p class="mb-0" style="font-size: 0.85rem;">Options that you have highlighted for tracking appear here</p>
+                        </div>
+                    </div>
                 </div>
-                <div class="card-body">
+                <div class="card-body table-collapsible">
                     <div class="table-responsive">
                         <table class="table table-hover">
                             <thead>
@@ -781,9 +834,16 @@
 
     <div class="row">
         <div class="col-12">
-            <div id="data-container">
-                <div class="table-responsive">
-                    <table class="table table-hover">
+            <div class="card">
+                <div class="card-header bg-dark text-white card-header-collapsible" onclick="toggleTableCollapse(this)">
+                    <div class="header-title">
+                        <span class="collapse-btn" style="display: inline-block;">▼</span>
+                        <h4 style="margin: 0;">All Trades Data</h4>
+                    </div>
+                </div>
+                <div id="data-container" class="card-body table-collapsible">
+                    <div class="table-responsive">
+                        <table class="table table-hover">
                         <thead>
                         <tr>
                             <th class="sortable" data-sort="symbol">Symbol</th>
@@ -833,12 +893,16 @@
     <div class="row mt-5">
         <div class="col-12">
             <div class="card">
-                <div class="card-header bg-success text-white">
-                    <h4>Price Recovery Options</h4>
-                    <p class="mb-0">Options that previously dropped below 25% or 50% of original price but have now
-                        recovered</p>
+                <div class="card-header bg-success text-white card-header-collapsible" onclick="toggleTableCollapse(this)">
+                    <div class="header-title">
+                        <span class="collapse-btn" style="display: inline-block;">▼</span>
+                        <div>
+                            <h4 style="margin: 0;">Price Recovery Options</h4>
+                            <p class="mb-0" style="font-size: 0.85rem;">Options that previously dropped below 25% or 50% of original price but have now recovered</p>
+                        </div>
+                    </div>
                 </div>
-                <div class="card-body">
+                <div class="card-body table-collapsible">
                     <div class="table-responsive">
                         <table class="table table-hover">
                             <thead>
@@ -3900,6 +3964,57 @@ function copyFilteredTrades() {
 // Call this function to render the table whenever needed
 renderFilteredTradesTable();
 
+// Collapse Toggle Function
+function toggleTableCollapse(headerElement) {
+    // Get the next sibling that contains the table (card-body or table-collapsible)
+    let contentElement = headerElement.nextElementSibling;
+    
+    if (!contentElement) return;
+    
+    // Get the collapse button
+    const collapseBtn = headerElement.querySelector('.collapse-btn');
+    
+    // Toggle the collapsed class
+    contentElement.classList.toggle('collapsed');
+    
+    // Toggle the button rotation
+    if (collapseBtn) {
+        collapseBtn.classList.toggle('collapsed');
+    }
+    
+    // Save state to localStorage
+    const headerText = headerElement.querySelector('h4')?.textContent || 'unknown';
+    const isCollapsed = contentElement.classList.contains('collapsed');
+    const collapsedTables = JSON.parse(localStorage.getItem('collapsedTables') || '{}');
+    collapsedTables[headerText] = isCollapsed;
+    localStorage.setItem('collapsedTables', JSON.stringify(collapsedTables));
+}
+
+// Initialize collapse states on page load
+function initializeCollapseStates() {
+    const collapsedTables = JSON.parse(localStorage.getItem('collapsedTables') || '{}');
+    
+    document.querySelectorAll('.card-header-collapsible').forEach(header => {
+        const headerText = header.querySelector('h4')?.textContent || '';
+        
+        if (collapsedTables[headerText]) {
+            // Apply collapsed state
+            const contentElement = header.nextElementSibling;
+            if (contentElement) {
+                contentElement.classList.add('collapsed');
+                const collapseBtn = header.querySelector('.collapse-btn');
+                if (collapseBtn) {
+                    collapseBtn.classList.add('collapsed');
+                }
+            }
+        }
+    });
+}
+
+// Call this on DOMContentLoaded
+document.addEventListener('DOMContentLoaded', function() {
+    initializeCollapseStates();
+});
 
 </script>
 
