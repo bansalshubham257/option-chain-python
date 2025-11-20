@@ -522,6 +522,13 @@
                             Active filters: <span id="activeRangeFiltersText"></span>
                         </div>
                     </div>
+
+                    <!-- Clear Cache Button -->
+                    <div class="mt-3">
+                        <button type="button" class="btn btn-warning" id="clearCacheBtn" title="Clear all cached data including highlights and local storage">
+                            <i class="bi bi-trash"></i> Clear Cache
+                        </button>
+                    </div>
                 </div>
             </div>
         </div>
@@ -1266,6 +1273,59 @@ if (clearRangeFiltersBtn) {
 
         // Remove visual indicator
         document.querySelector('.custom-range-filters').classList.remove('range-filter-active');
+    });
+}
+
+// Set up Clear Cache button
+const clearCacheBtn = document.getElementById('clearCacheBtn');
+if (clearCacheBtn) {
+    clearCacheBtn.addEventListener('click', function() {
+        // Confirm before clearing
+        const confirmClear = confirm('Are you sure you want to clear all cached data? This will:\n\n' +
+                                     '1. Remove all highlighted options\n' +
+                                     '2. Clear all local storage data\n' +
+                                     '3. Reset the page\n\n' +
+                                     'This action cannot be undone.');
+
+        if (!confirmClear) {
+            return;
+        }
+
+        // Clear all localStorage
+        localStorage.clear();
+
+        // Clear highlighted options
+        highlightedOptions = {};
+
+        // Clear highlighted color filters
+        activeColorFilters = {
+            red: true,
+            green: true,
+            blue: true,
+            yellow: true,
+            purple: true
+        };
+
+        // Reset custom range filters
+        customRangeFilters = {
+            changePercent: { min: null, max: null },
+            todaysReturn: { min: null, max: null }
+        };
+
+        // Clear custom range filter inputs
+        document.getElementById('changePercentMin').value = '';
+        document.getElementById('changePercentMax').value = '';
+        document.getElementById('todaysReturnMin').value = '';
+        document.getElementById('todaysReturnMax').value = '';
+
+        // Hide active filters text
+        document.getElementById('activeRangeFilters').style.display = 'none';
+
+        // Show success message
+        alert('Cache cleared successfully! The page will refresh.');
+
+        // Reload the page
+        location.reload();
     });
 }
 
