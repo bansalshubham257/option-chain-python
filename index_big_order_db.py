@@ -53,13 +53,13 @@ success_positions = {}     # in-memory map of open positions (optional)
 
 # Database connection parameters
 DB_CONN_PARAMS = {
-    'dbname': os.getenv('DB_NAME', 'railway'),
-    'user': os.getenv('DB_USER', 'postgres'),
-    'password': os.getenv('DB_PASSWORD', 'LZjgyzthYpacmWhOSAnDMnMWxkntEEqe'),
-    'host': os.getenv('DB_HOST', 'switchback.proxy.rlwy.net'),
-    'port': os.getenv('DB_PORT', '22297')
+    'dbname': os.getenv('DB_NAME', ''),
+    'user': os.getenv('DB_USER', ''),
+    'password': os.getenv('DB_PASSWORD', ''),
+    'host': os.getenv('DB_HOST', ''),
+    'port': os.getenv('DB_PORT', '')
 }
-DATABASE_URL = os.getenv('DATABASE_URL', 'postgresql://postgres:LZjgyzthYpacmWhOSAnDMnMWxkntEEqe@switchback.proxy.rlwy.net:22297/railway')
+DATABASE_URL = os.getenv('DATABASE_URL', '')
 
 # ================= DATABASE HELPERS =================
 
