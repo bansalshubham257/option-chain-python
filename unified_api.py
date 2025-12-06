@@ -28,7 +28,7 @@ app = Flask(__name__)
 CORS(app)  # Enable CORS for all routes
 
 # Database connection
-DATABASE_URL = os.getenv('DATABASE_URL', 'postgresql://postgres:LZjgyzthYpacmWhOSAnDMnMWxkntEEqe@switchback.proxy.rlwy.net:22297/railway')
+DATABASE_URL = os.getenv('DATABASE_URL', '')
 
 @contextmanager
 def get_db_connection():
