@@ -44,8 +44,8 @@ instrument_meta  = {}  # instrument_key -> metadata
 underlying_spots = {}  # underlying symbol (SBICARD, ICICIPRU, etc.) -> CMP
 index_spots      = {}  # NIFTY / SENSEX spot
 
-SUCCESS_FILE = "successful_whale_orders.csv"
-ENTRY_FILE   = "whale_entries.csv"
+SUCCESS_FILE = "/data/successful_whale_orders.csv"
+ENTRY_FILE   = "/data/whale_entries.csv"
 
 success_keys      = set()  # to avoid duplicate success records
 entry_keys        = set()  # to avoid duplicate entry rows
