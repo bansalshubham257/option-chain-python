@@ -27,13 +27,13 @@ MAX_KEYS_PER_CALL = 450
 
 # Database connection parameters
 DB_CONN_PARAMS = {
-    'dbname': os.getenv('DB_NAME', 'swingtrade_db'),
-    'user': os.getenv('DB_USER', 'swingtrade_db_user'),
-    'password': os.getenv('DB_PASSWORD', 'ZlewRq8aZKimqMwrP2LdRTuFsvhi9qDw'),
-    'host': os.getenv('DB_HOST', 'dpg-cvh8gfpu0jms73bj6gm0-a.oregon-postgres.render.com'),
-    'port': os.getenv('DB_PORT', '5432')
+    'dbname': os.getenv('DB_NAME', ''),
+    'user': os.getenv('DB_USER', ''),
+    'password': os.getenv('DB_PASSWORD', ''),
+    'host': os.getenv('DB_HOST', ''),
+    'port': os.getenv('DB_PORT', '')
 }
-DATABASE_URL = os.getenv('DATABASE_URL', 'postgresql://postgres:LZjgyzthYpacmWhOSAnDMnMWxkntEEqe@switchback.proxy.rlwy.net:22297/railway')
+DATABASE_URL = os.getenv('DATABASE_URL', '')
 
 # Upstox instruments CSVs
 URL_NSE_FO = "https://assets.upstox.com/market-quote/instruments/exchange/NSE.csv.gz"
