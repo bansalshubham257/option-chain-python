@@ -33,31 +33,41 @@
         padding: 0 !important;
     }
 
+    /* Force all table rows to have white background */
+    .table tr {
+        background-color: white !important;
+    }
+    
+    /* Table header styling */
+    .table thead th {
+        background-color: #f8f9fa !important;
+    }
+
     /* Colors for P&L */
     .profit {
-        color: green;
+        color: #00aa00 !important; /* Brighter green with !important to override any other styles */
         font-weight: bold;
     }
     .loss {
-        color: red;
+        color: #ff0000 !important; /* Brighter red with !important to override any other styles */
         font-weight: bold;
     }
 
     /* Order status styles */
     .status-open {
-        color: blue;
+        color: #0066ff !important; /* Brighter blue */
         font-weight: bold;
     }
     .status-profit {
-        color: green;
+        color: #00aa00 !important; /* Brighter green */
         font-weight: bold;
     }
     .status-loss {
-        color: red;
+        color: #ff0000 !important; /* Brighter red */
         font-weight: bold;
     }
     .status-expired {
-        color: purple;
+        color: #9900cc !important; /* Brighter purple */
         font-weight: bold;
     }
 
@@ -157,39 +167,93 @@
     .pagination {
       margin-bottom: 0;
     }
+
+    /* Collapsible section styles */
+    .collapse-btn {
+      cursor: pointer;
+      margin-left: 10px;
+      padding: 2px 10px;
+      font-size: 0.9rem;
+      border: none;
+      background: rgba(255,255,255,0.3);
+      border-radius: 3px;
+      color: white;
+    }
+
+    .collapse-btn:hover {
+      background: rgba(255,255,255,0.5);
+    }
+
+    .section-collapsed .card-body {
+      display: none;
+    }
+
+    .section-collapsed .collapse-btn:after {
+      content: "▼";
+    }
+
+    .collapse-btn:after {
+      content: "▲";
+      margin-left: 5px;
+    }
+
+    .quick-nav {
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      background: white;
+      padding: 10px 0;
+      border-bottom: 1px solid #ddd;
+      margin-bottom: 15px;
+      box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+    }
   </style>
 </head>
 <body>
 <div class="container-fluid">
   <h1 class="text-center mb-3">Strategy Performance Dashboard</h1>
 
+  <!-- Quick Navigation -->
+  <div class="quick-nav">
+    <div class="container">
+      <div class="d-flex justify-content-between align-items-center">
+        <div>
+          <button id="refreshBtn" class="btn btn-primary me-2">Refresh Data</button>
+          <span class="text-muted">Last updated: <span id="lastUpdated">Never</span></span>
+        </div>
+        <div>
+          <label for="strategySelector" class="me-2">Strategy:</label>
+          <select id="strategySelector" class="form-select form-select-sm d-inline-block" style="width: auto;">
+            <option value="all">All Strategies</option>
+            <option value="percent_change_tracker">Conservative (5% Entry, 15% SL)</option>
+            <option value="aggressive_tracker">Aggressive (10% Entry, 30% SL)</option>
+            <option value="high_risk_tracker">High Risk (8% Entry, 60% SL)</option>
+          </select>
+        </div>
+        <div>
+          <div class="btn-group" role="group">
+            <button type="button" class="btn btn-outline-primary filter-btn active" data-filter="all">All Orders</button>
+            <button type="button" class="btn btn-outline-success filter-btn" data-filter="profit">Profit</button>
+            <button type="button" class="btn btn-outline-danger filter-btn" data-filter="loss">Loss</button>
+            <button type="button" class="btn btn-outline-primary filter-btn" data-filter="open">Open</button>
+            <button type="button" class="btn btn-outline-secondary filter-btn" data-filter="expired">Expired</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <!-- Controls Row -->
   <div class="row mb-3">
-    <div class="col-md-4">
-      <div class="d-flex align-items-center">
-        <button id="refreshBtn" class="btn btn-primary me-2">Refresh Data</button>
-        <span class="text-muted">Last updated: <span id="lastUpdated">Never</span></span>
-      </div>
-    </div>
-    <div class="col-md-4 text-center">
-      <div class="form-group">
-        <label for="strategySelector" class="me-2">Strategy:</label>
-        <select id="strategySelector" class="form-select form-select-sm d-inline-block" style="width: auto;">
-          <option value="all">All Strategies</option>
-          <option value="percent_change_tracker">Conservative (5% Entry, 15% SL)</option>
-          <option value="aggressive_tracker">Aggressive (10% Entry, 30% SL)</option>
-          <option value="high_risk_tracker">High Risk (8% Entry, 60% SL)</option>
+    <div class="col-md-8">
+      <div class="input-group">
+        <label class="input-group-text" for="stockHideFilter">Hide Stocks:</label>
+        <select id="stockHideFilter" class="form-select" multiple>
+          <!-- Stock options will be dynamically populated -->
         </select>
+        <button id="clearStockFilter" class="btn btn-outline-secondary">Clear Filter</button>
       </div>
-    </div>
-    <div class="col-md-4 text-end">
-      <div class="btn-group" role="group">
-        <button type="button" class="btn btn-outline-primary filter-btn active" data-filter="all">All Orders</button>
-        <button type="button" class="btn btn-outline-success filter-btn" data-filter="profit">Profit</button>
-        <button type="button" class="btn btn-outline-danger filter-btn" data-filter="loss">Loss</button>
-        <button type="button" class="btn btn-outline-primary filter-btn" data-filter="open">Open</button>
-        <button type="button" class="btn btn-outline-secondary filter-btn" data-filter="expired">Expired</button>
-      </div>
+      <div class="text-muted mt-1 small">Select multiple stocks to hide them from all tables</div>
     </div>
   </div>
 
@@ -226,11 +290,14 @@
     <div class="col-12">
       <div class="card">
         <div class="card-header bg-primary text-white">
-          <h4>Strategy Comparison</h4>
+          <div class="d-flex justify-content-between align-items-center">
+            <h4>Strategy Comparison</h4>
+            <button class="collapse-btn" onclick="toggleSection('strategyComparisonSection')"></button>
+          </div>
         </div>
         <div class="card-body">
           <div class="table-responsive">
-            <table class="table table-striped table-bordered">
+            <table class="table table-bordered">
               <thead>
                 <tr>
                   <th>Strategy</th>
@@ -258,11 +325,14 @@
     <div class="col-12">
       <div class="card">
         <div class="card-header bg-primary text-white">
-          <h4>Strategy Summary</h4>
+          <div class="d-flex justify-content-between align-items-center">
+            <h4>Strategy Summary</h4>
+            <button class="collapse-btn" onclick="toggleSection('strategySummarySection')"></button>
+          </div>
         </div>
         <div class="card-body">
           <div class="table-responsive">
-            <table class="table table-striped table-bordered">
+            <table class="table table-bordered">
               <thead>
                 <tr>
                   <th>Strategy</th>
@@ -289,7 +359,10 @@
     <div class="col-12">
       <div class="card">
         <div class="card-header bg-primary text-white">
-          <h4>Performance Over Time</h4>
+          <div class="d-flex justify-content-between align-items-center">
+            <h4>Performance Over Time</h4>
+            <button class="collapse-btn" onclick="toggleSection('performanceChartSection')"></button>
+          </div>
         </div>
         <div class="card-body">
           <div class="chart-container">
@@ -305,7 +378,10 @@
     <div class="col-12">
       <div class="card">
         <div class="card-header bg-primary text-white">
-          <h4>Active Orders</h4>
+          <div class="d-flex justify-content-between align-items-center">
+            <h4>Active Orders</h4>
+            <button class="collapse-btn" onclick="toggleSection('activeOrdersSection')"></button>
+          </div>
           <div class="d-flex justify-content-between align-items-center">
             <p class="mb-0">Currently open positions with live P&L tracking</p>
             <div>Total P&L: <span id="totalActivePnl" class="fw-bold badge" style="font-size: 1rem;">₹0.00</span></div>
@@ -313,7 +389,7 @@
         </div>
         <div class="card-body">
           <div class="table-responsive">
-            <table class="table table-striped table-hover">
+            <table class="table table-bordered table-hover">
               <thead>
                 <tr>
                   <th class="sortable" data-sort="symbol">Symbol</th>
@@ -358,7 +434,7 @@
         </div>
         <div class="card-body">
           <div class="table-responsive">
-            <table class="table table-striped table-hover">
+            <table class="table table-bordered table-hover">
               <thead>
                 <tr>
                   <th class="sortable" data-sort="symbol">Symbol</th>
@@ -401,7 +477,7 @@
         </div>
         <div class="card-body">
           <div class="table-responsive">
-            <table class="table table-striped table-hover monthly-performance">
+            <table class="table table-bordered table-hover monthly-performance">
               <thead>
                 <tr>
                   <th>Month</th>
@@ -509,6 +585,19 @@
       });
     });
 
+    // Set up stock hide filter
+    document.getElementById('stockHideFilter').addEventListener('change', function() {
+      const selectedStocks = Array.from(this.selectedOptions).map(option => option.value);
+      applyStockHideFilter(selectedStocks);
+    });
+
+    // Set up clear filter button
+    document.getElementById('clearStockFilter').addEventListener('click', function() {
+      const stockSelect = document.getElementById('stockHideFilter');
+      stockSelect.value = ''; // Clear selection
+      applyStockHideFilter([]); // Remove filter
+    });
+
     // Initial data load
     fetchData();
 
@@ -580,6 +669,9 @@
 
       // Update the UI based on the selected strategy
       updateMetrics(summaryData);
+
+      // Populate the stock hiding filter dropdown with unique symbols
+      populateStockHideFilter([...activeOrders, ...closedOrders]);
 
       if (selectedStrategy === 'all') {
         // For "All Strategies", update the summary and comparison tables
@@ -895,10 +987,10 @@
         <td>${month.total_orders}</td>
         <td>${month.profit_orders}</td>
         <td>${month.loss_orders}</td>
-        <td>${month.win_rate.toFixed(2)}%</td>
-        <td class="${pnlClass}">₹${month.total_pnl.toFixed(2)}</td>
-        <td class="profit">${month.avg_profit_percentage.toFixed(2)}%</td>
-        <td class="loss">${month.avg_loss_percentage.toFixed(2)}%</td>
+        <td class="${month.win_rate > 0 ? 'profit' : 'loss'}">${month.win_rate.toFixed(2)}%</td>
+        <td class="${month.total_pnl >= 0 ? 'profit' : 'loss'}">₹${month.total_pnl.toFixed(2)}</td>
+        <td class="${month.avg_profit_percentage >= 0 ? 'profit' : 'loss'}">${month.avg_profit_percentage.toFixed(2)}%</td>
+        <td class="${month.avg_loss_percentage >= 0 ? 'profit' : 'loss'}">${month.avg_loss_percentage.toFixed(2)}%</td>
         <td>₹${month.max_capital_required.toFixed(2)}</td>
       `;
       tableBody.appendChild(row);
@@ -1169,9 +1261,9 @@
       row.innerHTML = `
         <td>${displayName}</td>
         <td>${strategy.total_orders}</td>
-        <td>${strategy.win_rate.toFixed(2)}%</td>
-        <td class="profit">${strategy.avg_profit_percentage.toFixed(2)}%</td>
-        <td class="loss">${strategy.avg_loss_percentage.toFixed(2)}%</td>
+        <td class="${strategy.win_rate > 0 ? 'profit' : 'loss'}">${strategy.win_rate.toFixed(2)}%</td>
+        <td class="${strategy.avg_profit_percentage >= 0 ? 'profit' : 'loss'}">${strategy.avg_profit_percentage.toFixed(2)}%</td>
+        <td class="${strategy.avg_loss_percentage >= 0 ? 'profit' : 'loss'}">${strategy.avg_loss_percentage.toFixed(2)}%</td>
         <td class="${strategy.net_pnl >= 0 ? 'profit' : 'loss'}">₹${formatNumber(strategy.net_pnl)}</td>
         <td>₹${formatNumber(strategy.max_capital)}</td>
         <td class="${strategy.roi >= 0 ? 'profit' : 'loss'}">${strategy.roi.toFixed(2)}%</td>
@@ -1286,7 +1378,7 @@
     // Group orders by day and strategy
     const dailyData = {};
 
-    sortedOrders.forEach(order => {
+    sortedOrders.forEach order => {
       // Skip if no exit time or no strategy name
       if (!order.exit_time || !order.strategy_name) return;
 
@@ -1352,6 +1444,54 @@
     renderClosedOrders(closedOrders);
   }
 
+  function applyStockHideFilter(hiddenStocks) {
+    // Filter out the hidden stocks from active and closed orders
+    const filteredActiveOrders = activeOrders.filter(order => !hiddenStocks.includes(order.symbol));
+    const filteredClosedOrders = closedOrders.filter(order => !hiddenStocks.includes(order.symbol));
+
+    // Re-render the order tables with the filtered data
+    renderActiveOrders(filteredActiveOrders);
+    renderClosedOrders(filteredClosedOrders);
+  }
+
+  // Function to populate the stock hiding filter dropdown
+  function populateStockHideFilter(orders) {
+    const stockSelect = document.getElementById('stockHideFilter');
+
+    // Save current selection if any
+    const currentSelection = Array.from(stockSelect.selectedOptions).map(option => option.value);
+
+    // Clear existing options
+    stockSelect.innerHTML = '';
+
+    // Get unique symbols from orders
+    const uniqueSymbols = [...new Set(orders.map(order => order.symbol))].sort();
+
+    // Add options for each unique symbol
+    uniqueSymbols.forEach(symbol => {
+      if (!symbol) return; // Skip empty symbols
+
+      const option = document.createElement('option');
+      option.value = symbol;
+      option.text = symbol;
+
+      // Restore previous selection if applicable
+      if (currentSelection.includes(symbol)) {
+        option.selected = true;
+      }
+
+      stockSelect.appendChild(option);
+    });
+
+    // Add select2 if available for better multi-select experience
+    if (window.jQuery && jQuery.fn.select2) {
+      jQuery('#stockHideFilter').select2({
+        placeholder: "Select stocks to hide",
+        allowClear: true
+      });
+    }
+  }
+
   // Add a new function to sort the entire dataset
   function sortDataset(data, column, direction) {
     return [...data].sort((a, b) => {
@@ -1407,7 +1547,6 @@
     });
   }
 
-  // ...existing code...
 
   function formatNumber(number) {
     return new Intl.NumberFormat('en-IN', {
