@@ -314,8 +314,8 @@ class FNOScanner:
 if __name__ == "__main__":
     scanner = FNOScanner(
         rsi_length=21,
-        rsi_target_high=65,
-        rsi_target_low=35,
+        rsi_target_high=62,
+        rsi_target_low=38,
         rsi_tolerance=2.0,           # RSI +/- 2 around 65 / 35
         price_pct_tolerance=0.0025,  # 0.25% around pivot level
         yf_fetch_period="5d",
