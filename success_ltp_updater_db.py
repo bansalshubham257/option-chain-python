@@ -623,6 +623,7 @@ def wait_until_market_open():
 
 def refresh_daily_token():
     """Refresh token if it's 6:00 AM IST (before market opens at 9:15 AM)"""
+    global ACCESS_TOKEN
     import pytz
     from datetime import datetime
 
@@ -633,7 +634,6 @@ def refresh_daily_token():
     if now.hour == 6 and now.minute == 0:
         print(f"\n🔄 Daily token refresh at {now.strftime('%H:%M:%S %Z')}")
         try:
-            global ACCESS_TOKEN
             ACCESS_TOKEN = db.get_access_token(account_id=5)
             print(f"✅ Token refreshed: {ACCESS_TOKEN[:30]}...")
             time.sleep(65)  # Wait 65 seconds to avoid re-refreshing
@@ -669,7 +669,6 @@ def main():
                 # Market just opened - fetch fresh token from DB (it was updated while closed)
                 print(f"\n✨ Market reopening - fetching fresh token from database...")
                 try:
-                    global ACCESS_TOKEN
                     ACCESS_TOKEN = db.get_access_token(account_id=5)
                     print(f"✅ Fresh token obtained: {ACCESS_TOKEN[:30]}...\n")
                 except Exception as e:
