@@ -634,7 +634,7 @@ def refresh_daily_token():
         print(f"\n🔄 Daily token refresh at {now.strftime('%H:%M:%S %Z')}")
         try:
             global ACCESS_TOKEN
-            ACCESS_TOKEN = db.get_access_token(account_id=5, force_refresh=True)
+            ACCESS_TOKEN = db.get_access_token(account_id=5)
             print(f"✅ Token refreshed: {ACCESS_TOKEN[:30]}...")
             time.sleep(65)  # Wait 65 seconds to avoid re-refreshing
         except Exception as e:
@@ -654,7 +654,7 @@ def main():
     print("🔄 Fetching fresh token...")
     try:
         global ACCESS_TOKEN
-        ACCESS_TOKEN = db.get_access_token(account_id=5, force_refresh=True)
+        ACCESS_TOKEN = db.get_access_token(account_id=5)
         print(f"✅ Token obtained: {ACCESS_TOKEN[:30]}...\n")
     except Exception as e:
         print(f"❌ Failed to get token: {e}\n")
