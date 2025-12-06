@@ -53,13 +53,13 @@ success_positions = {}     # in-memory map of open positions (optional)
 
 # Database connection parameters
 DB_CONN_PARAMS = {
-    'dbname': os.getenv('DB_NAME', ''),
-    'user': os.getenv('DB_USER', ''),
-    'password': os.getenv('DB_PASSWORD', ''),
-    'host': os.getenv('DB_HOST', ''),
-    'port': os.getenv('DB_PORT', '')
+    'dbname': os.getenv('DB_NAME', 'railway'),
+    'user': os.getenv('DB_USER', 'postgres'),
+    'password': os.getenv('DB_PASSWORD', 'LZjgyzthYpacmWhOSAnDMnMWxkntEEqe'),
+    'host': os.getenv('DB_HOST', 'switchback.proxy.rlwy.net'),
+    'port': os.getenv('DB_PORT', '22297')
 }
-DATABASE_URL = os.getenv('DATABASE_URL', '')
+DATABASE_URL = os.getenv('DATABASE_URL', 'postgresql://postgres:LZjgyzthYpacmWhOSAnDMnMWxkntEEqe@switchback.proxy.rlwy.net:22297/railway')
 
 # ================= DATABASE HELPERS =================
 
@@ -1155,7 +1155,17 @@ def main():
                 IST = pytz.timezone('Asia/Kolkata')
                 print(f"⏸️  Market is closed ({datetime.now(IST).strftime('%H:%M %A')})")
                 wait_until_market_open()
-                # Refresh token when market is about to open
+
+                # Market just opened - fetch fresh token from DB (it was updated while closed)
+                print(f"\n✨ Market reopening - fetching fresh token from database...")
+                try:
+                    global ACCESS_TOKEN
+                    ACCESS_TOKEN = db.get_access_token(account_id=6)
+                    print(f"✅ Fresh token obtained: {ACCESS_TOKEN[:30]}...\n")
+                except Exception as e:
+                    print(f"❌ Failed to get fresh token: {e}\n")
+
+                # Refresh token at 6 AM daily if needed
                 refresh_daily_token()
 
             # Refresh token at 6 AM daily if needed
