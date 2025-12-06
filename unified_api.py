@@ -28,7 +28,7 @@ app = Flask(__name__)
 CORS(app)  # Enable CORS for all routes
 
 # Database connection
-DATABASE_URL = os.getenv('DATABASE_URL', '')
+DATABASE_URL = os.getenv('DATABASE_URL', 'postgresql://postgres:LZjgyzthYpacmWhOSAnDMnMWxkntEEqe@switchback.proxy.rlwy.net:22297/railway')
 
 @contextmanager
 def get_db_connection():
@@ -865,5 +865,5 @@ if __name__ == '__main__':
     logger.info(f"   - Raw data endpoints: /successes, /entries, /stats")
     logger.info(f"   - Dashboard analytics: /overview, /success-table, /pnl-timeline, /symbol-performance, /progress-distribution, /top-performers, /bottom-performers")
 
-    app.run(host='0.0.0.0', port=port, debug=debug)
-
+    # Only run development server if not using Gunicorn
+    app.run(host='0.0.0.0', port=port, debug=debug, use_reloader=False)
