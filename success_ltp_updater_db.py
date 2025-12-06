@@ -27,13 +27,13 @@ MAX_KEYS_PER_CALL = 450
 
 # Database connection parameters
 DB_CONN_PARAMS = {
-    'dbname': os.getenv('DB_NAME', ''),
-    'user': os.getenv('DB_USER', ''),
-    'password': os.getenv('DB_PASSWORD', ''),
-    'host': os.getenv('DB_HOST', ''),
-    'port': os.getenv('DB_PORT', '')
+    'dbname': os.getenv('DB_NAME', 'swingtrade_db'),
+    'user': os.getenv('DB_USER', 'swingtrade_db_user'),
+    'password': os.getenv('DB_PASSWORD', 'ZlewRq8aZKimqMwrP2LdRTuFsvhi9qDw'),
+    'host': os.getenv('DB_HOST', 'dpg-cvh8gfpu0jms73bj6gm0-a.oregon-postgres.render.com'),
+    'port': os.getenv('DB_PORT', '5432')
 }
-DATABASE_URL = os.getenv('DATABASE_URL', '')
+DATABASE_URL = os.getenv('DATABASE_URL', 'postgresql://postgres:LZjgyzthYpacmWhOSAnDMnMWxkntEEqe@switchback.proxy.rlwy.net:22297/railway')
 
 # Upstox instruments CSVs
 URL_NSE_FO = "https://assets.upstox.com/market-quote/instruments/exchange/NSE.csv.gz"
@@ -665,7 +665,17 @@ def main():
             if not is_market_open():
                 print(f"⏸️  Market is closed ({datetime.now(pytz.timezone('Asia/Kolkata')).strftime('%H:%M %A')})")
                 wait_until_market_open()
-                # Refresh token when market is about to open
+
+                # Market just opened - fetch fresh token from DB (it was updated while closed)
+                print(f"\n✨ Market reopening - fetching fresh token from database...")
+                try:
+                    global ACCESS_TOKEN
+                    ACCESS_TOKEN = db.get_access_token(account_id=5)
+                    print(f"✅ Fresh token obtained: {ACCESS_TOKEN[:30]}...\n")
+                except Exception as e:
+                    print(f"❌ Failed to get fresh token: {e}\n")
+
+                # Refresh token at 6 AM daily if needed
                 refresh_daily_token()
 
             # Refresh token at 6 AM daily if needed
