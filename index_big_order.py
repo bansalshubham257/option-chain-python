@@ -182,6 +182,7 @@ def record_success(symbol, side, qty, price, vol_diff, oi_diff, ltp, moneyness, 
     Also store:
       - oi_same:     OI of this option at that moment
       - oi_opposite: OI of opposite option (same strike) at that moment
+      - stock_pct_change: Today's % price change of underlying stock/index
     """
     global success_keys, success_positions
 
@@ -201,6 +202,9 @@ def record_success(symbol, side, qty, price, vol_diff, oi_diff, ltp, moneyness, 
 
     ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
+    # Get daily % change of underlying stock/index
+    underlying_price, stock_pct_change = get_daily_pct_change_for_underlying(symbol)
+
     trade = {
         "unique_key": unique_key,
         "instrument_key": symbol,
@@ -211,6 +215,7 @@ def record_success(symbol, side, qty, price, vol_diff, oi_diff, ltp, moneyness, 
         "qty": qty,
         "entry_price": float(price),
         "timestamp": ts,
+        "stock_pct_change": stock_pct_change,
     }
     success_positions.setdefault(symbol, []).append(trade)
 
@@ -230,6 +235,8 @@ def record_success(symbol, side, qty, price, vol_diff, oi_diff, ltp, moneyness, 
         "pcr": pcr,
         "oi_same": oi_same,
         "oi_opposite": oi_opposite,
+        "stock_current_price": underlying_price,
+        "stock_pct_change_today": stock_pct_change,
     }
 
     fd = acquire_file_lock(SUCCESS_LOCK)
@@ -244,6 +251,7 @@ def record_success(symbol, side, qty, price, vol_diff, oi_diff, ltp, moneyness, 
 def record_entry(symbol, side, qty, price, ltp, moneyness, pcr, oi_same, oi_opposite):
     """
     Store whale ENTRY into CSV, deduped by underlying+strike+option_type+price.
+    Also records the daily % price change of underlying stock/index.
     """
     global entry_keys
 
@@ -263,6 +271,9 @@ def record_entry(symbol, side, qty, price, ltp, moneyness, pcr, oi_same, oi_oppo
 
     ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
+    # Get daily % change of underlying stock/index
+    underlying_price, stock_pct_change = get_daily_pct_change_for_underlying(symbol)
+
     row = {
         "timestamp": ts,
         "instrument_key": symbol,
@@ -276,6 +287,8 @@ def record_entry(symbol, side, qty, price, ltp, moneyness, pcr, oi_same, oi_oppo
         "pcr": pcr,
         "oi_same": oi_same,
         "oi_opposite": oi_opposite,
+        "stock_current_price": underlying_price,
+        "stock_pct_change_today": stock_pct_change,
     }
 
     try:
@@ -442,6 +455,80 @@ def extract_underlying_from_key(symbol_key: str) -> str:
     if i == 0:
         return raw
     return raw[:i]
+
+
+def get_daily_pct_change_for_underlying(symbol):
+    """
+    Get today's % price change for a stock underlying.
+
+    Returns: (current_price, pct_change)
+      - current_price: today's last traded price
+      - pct_change: (current - open) / open * 100
+      - If no data, returns (None, None)
+    """
+    underlying = extract_underlying_from_key(symbol)
+    if not underlying:
+        return None, None
+
+    # For indices, fetch live via Upstox
+    if underlying == "NIFTY":
+        try:
+            ticker_key = "NSE_INDEX|Nifty 50"
+            headers = {'Accept': 'application/json', 'Authorization': f'Bearer {ACCESS_TOKEN}'}
+            url = f"{BASE_URL_V2}/market-quote/quotes"
+            params = {'instrument_key': ticker_key}
+            resp = requests.get(url, headers=headers, params=params)
+            if resp.status_code == 200:
+                data = resp.json()
+                if data.get('status') == 'success':
+                    quote = data['data'].get(ticker_key, {})
+                    current = quote.get('last_price')
+                    ohlc = quote.get('ohlc', {})
+                    open_price = ohlc.get('open')
+                    if current and open_price and open_price > 0:
+                        pct_change = ((float(current) - float(open_price)) / float(open_price)) * 100
+                        return float(current), round(pct_change, 2)
+        except Exception:
+            pass
+        return None, None
+
+    elif underlying == "SENSEX":
+        try:
+            ticker_key = "BSE_INDEX|SENSEX"
+            headers = {'Accept': 'application/json', 'Authorization': f'Bearer {ACCESS_TOKEN}'}
+            url = f"{BASE_URL_V2}/market-quote/quotes"
+            params = {'instrument_key': ticker_key}
+            resp = requests.get(url, headers=headers, params=params)
+            if resp.status_code == 200:
+                data = resp.json()
+                if data.get('status') == 'success':
+                    quote = data['data'].get(ticker_key, {})
+                    current = quote.get('last_price')
+                    ohlc = quote.get('ohlc', {})
+                    open_price = ohlc.get('open')
+                    if current and open_price and open_price > 0:
+                        pct_change = ((float(current) - float(open_price)) / float(open_price)) * 100
+                        return float(current), round(pct_change, 2)
+        except Exception:
+            pass
+        return None, None
+
+    else:
+        # For stocks, use yfinance
+        try:
+            ticker = underlying + ".NS"
+            yf_ticker = yf.Ticker(ticker)
+            # Get today's data only
+            hist = yf_ticker.history(period="1d", interval="1m")
+            if hist is not None and not hist.empty:
+                current_price = float(hist["Close"].iloc[-1])
+                open_price = float(hist["Open"].iloc[0])
+                if open_price > 0:
+                    pct_change = ((current_price - open_price) / open_price) * 100
+                    return current_price, round(pct_change, 2)
+        except Exception:
+            pass
+        return None, None
 
 
 def get_underlying_cmp(symbol, meta=None, data=None):
