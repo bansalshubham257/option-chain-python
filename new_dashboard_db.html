@@ -1,0 +1,1463 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <title>Big Players Success Dashboard</title>
+    <style>
+        body {
+          font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+          background: #0f172a;
+          color: #e5e7eb;
+          margin: 0;
+          padding: 20px;
+        }
+        h1 {
+          margin-top: 0;
+          margin-bottom: 10px;
+        }
+        .subtitle {
+          margin-bottom: 20px;
+          color: #9ca3af;
+          font-size: 0.9rem;
+        }
+        .card {
+          background: #020617;
+          border-radius: 12px;
+          padding: 16px;
+          box-shadow: 0 10px 30px rgba(15,23,42,0.7);
+          border: 1px solid #1f2937;
+        }
+        .filters {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 12px;
+          margin-bottom: 16px;
+        }
+        .filter-group {
+          display: flex;
+          flex-direction: column;
+          gap: 4px;
+          min-width: 150px;
+        }
+        label {
+          font-size: 0.75rem;
+          text-transform: uppercase;
+          letter-spacing: 0.05em;
+          color: #9ca3af;
+        }
+        select, input[type="date"] {
+          background: #020617;
+          color: #e5e7eb;
+          border: 1px solid #374151;
+          border-radius: 6px;
+          padding: 6px 8px;
+          font-size: 0.85rem;
+          outline: none;
+        }
+        select:focus, input[type="date"]:focus {
+          border-color: #60a5fa;
+          box-shadow: 0 0 0 1px #60a5fa33;
+        }
+        .table-wrapper {
+          max-height: 70vh;
+          overflow: auto;
+          border-radius: 8px;
+          border: 1px solid #1f2937;
+        }
+        table {
+          width: 100%;
+          border-collapse: collapse;
+          font-size: 0.85rem;
+        }
+        thead {
+          position: sticky;
+          top: 0;
+          background: #020617;
+          z-index: 1;
+        }
+        th, td {
+          padding: 8px 10px;
+          text-align: left;
+          border-bottom: 1px solid #111827;
+          white-space: nowrap;
+        }
+        tr:nth-child(even) td {
+          background: #020617;
+        }
+        tr:nth-child(odd) td {
+          background: #030712;
+        }
+        th {
+          font-weight: 600;
+          color: #9ca3af;
+          cursor: pointer;
+          position: relative;
+          user-select: none;
+        }
+        th.sortable:hover {
+          color: #e5e7eb;
+          background: #020617;
+        }
+        th .sort-indicator {
+          margin-left: 4px;
+          font-size: 0.7rem;
+          opacity: 0.8;
+        }
+        .badge {
+          display: inline-flex;
+          align-items: center;
+          padding: 2px 6px;
+          border-radius: 999px;
+          font-size: 0.7rem;
+          font-weight: 600;
+        }
+        .badge-buyer {
+          background: rgba(22,163,74,0.1);
+          color: #4ade80;
+          border: 1px solid rgba(34,197,94,0.4);
+        }
+        .badge-seller {
+          background: rgba(220,38,38,0.1);
+          color: #f87171;
+          border: 1px solid rgba(239,68,68,0.4);
+        }
+        .badge-atm {
+          background: rgba(59,130,246,0.12);
+          color: #93c5fd;
+          border: 1px solid rgba(59,130,246,0.5);
+        }
+        .badge-itm {
+          background: rgba(22,163,74,0.12);
+          color: #6ee7b7;
+          border: 1px solid rgba(22,163,74,0.5);
+        }
+        .badge-otm {
+          background: rgba(249,115,22,0.12);
+          color: #fed7aa;
+          border: 1px solid rgba(249,115,22,0.5);
+        }
+        .badge-other {
+          background: rgba(148,163,184,0.12);
+          color: #cbd5f5;
+          border: 1px solid rgba(148,163,184,0.5);
+        }
+        .badge-done {
+          background: rgba(34,197,94,0.15);
+          color: #86efac;
+          border: 1px solid rgba(34,197,94,0.6);
+          font-weight: 700;
+        }
+        .badge-open {
+          background: rgba(59,130,246,0.15);
+          color: #93c5fd;
+          border: 1px solid rgba(59,130,246,0.6);
+        }
+        .badge-progress-75 {
+          background: rgba(34,197,94,0.2);
+          color: #86efac;
+          border: 1px solid rgba(34,197,94,0.5);
+          font-weight: 600;
+        }
+        .badge-progress-50 {
+          background: rgba(250,204,21,0.2);
+          color: #fde047;
+          border: 1px solid rgba(250,204,21,0.5);
+          font-weight: 600;
+        }
+        .badge-progress-25 {
+          background: rgba(249,115,22,0.2);
+          color: #fed7aa;
+          border: 1px solid rgba(249,115,22,0.5);
+          font-weight: 600;
+        }
+        .badge-progress-running {
+          background: rgba(148,163,184,0.15);
+          color: #cbd5e1;
+          border: 1px solid rgba(148,163,184,0.5);
+          font-weight: 500;
+        }
+        .badge-progress-neg25 {
+          background: rgba(249,115,22,0.2);
+          color: #fed7aa;
+          border: 1px solid rgba(249,115,22,0.5);
+          font-weight: 600;
+        }
+        .badge-progress-neg50 {
+          background: rgba(248,113,113,0.2);
+          color: #fca5a5;
+          border: 1px solid rgba(248,113,113,0.5);
+          font-weight: 600;
+        }
+        .badge-progress-neg75 {
+          background: rgba(220,38,38,0.2);
+          color: #fca5a5;
+          border: 1px solid rgba(220,38,38,0.5);
+          font-weight: 600;
+        }
+        .pill {
+          display: inline-flex;
+          align-items: center;
+          padding: 2px 6px;
+          border-radius: 999px;
+          font-size: 0.7rem;
+          border: 1px solid #374151;
+          color: #e5e7eb;
+        }
+        .pill-ce {
+          border-color: rgba(59,130,246,0.7);
+          color: #bfdbfe;
+        }
+        .pill-pe {
+          border-color: rgba(248,113,113,0.7);
+          color: #fecaca;
+        }
+        .pill-fut {
+          border-color: rgba(52,211,153,0.7);
+          color: #a7f3d0;
+        }
+        .status-bar {
+          font-size: 0.75rem;
+          color: #9ca3af;
+          margin-top: 8px;
+          display: flex;
+          justify-content: space-between;
+          gap: 10px;
+          flex-wrap: wrap;
+        }
+        .status-highlight {
+          color: #e5e7eb;
+          font-weight: 500;
+        }
+        .error {
+          color: #fecaca;
+          margin-bottom: 10px;
+          font-size: 0.8rem;
+        }
+        .pnl-positive {
+          color: #4ade80;
+        }
+        .pnl-negative {
+          color: #f97373;
+        }
+        .progress-history {
+          font-size: 0.75rem;
+          color: #9ca3af;
+          word-break: break-word;
+          max-width: 200px;
+        }
+        .progress-history-item {
+          display: inline-block;
+          padding: 1px 4px;
+          margin: 1px 2px;
+          border-radius: 3px;
+          background: rgba(148, 163, 184, 0.1);
+          border: 1px solid rgba(148, 163, 184, 0.3);
+        }
+        .progress-history-arrow {
+          margin: 0 2px;
+          color: #9ca3af;
+          font-weight: 300;
+        }
+        .pcr-bullish {
+          color: #4ade80;
+        }
+        .pcr-bearish {
+          color: #f97373;
+        }
+        .pcr-neutral {
+          color: #e5e7eb;
+        }
+        .expand-cell {
+          cursor: pointer;
+          font-size: 0.8rem;
+          color: #9ca3af;
+        }
+        .expand-cell:hover {
+          color: #e5e7eb;
+        }
+        .details-row td {
+          background: #020617 !important;
+          border-top: 1px solid #1f2937;
+        }
+        .details-box {
+          padding: 8px 4px;
+          border-radius: 6px;
+          border: 1px solid #1f2937;
+          background: #020617;
+        }
+        .details-title {
+          font-size: 0.78rem;
+          margin-bottom: 6px;
+          color: #9ca3af;
+        }
+        .details-table {
+          width: 100%;
+          border-collapse: collapse;
+          font-size: 0.78rem;
+        }
+        .details-table th, .details-table td {
+          padding: 3px 6px;
+          border-bottom: 1px solid #111827;
+        }
+        .details-table th {
+          color: #9ca3af;
+          font-weight: 500;
+        }
+        .details-table tr:last-child td {
+          border-bottom: none;
+        }
+        .stats-container {
+          display: grid;
+          grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+          gap: 12px;
+          margin-bottom: 20px;
+        }
+        .stat-card {
+          background: #020617;
+          border-radius: 12px;
+          padding: 16px;
+          border: 1px solid #1f2937;
+          box-shadow: 0 10px 30px rgba(15,23,42,0.7);
+        }
+        .stat-label {
+          font-size: 0.75rem;
+          text-transform: uppercase;
+          letter-spacing: 0.05em;
+          color: #9ca3af;
+          margin-bottom: 8px;
+        }
+        .stat-value {
+          font-size: 2rem;
+          font-weight: 700;
+          color: #4ade80;
+        }
+        .stat-value.warning {
+          color: #fbbf24;
+        }
+        .stat-value.danger {
+          color: #f87171;
+        }
+        @media (max-width: 768px) {
+          .filters {
+            flex-direction: column;
+          }
+          th, td {
+            padding: 6px 8px;
+          }
+          .stats-container {
+            grid-template-columns: 1fr;
+          }
+        }
+    </style>
+</head>
+<body>
+<h1>Big Players Success Dashboard</h1>
+<div class="subtitle">
+    Reading <code>successful_whale_orders.csv</code> from the same folder. Each row is a successfully filled big-player order.
+</div>
+
+<div id="error" class="error" style="display:none;"></div>
+
+<div class="stats-container">
+    <div class="stat-card">
+        <div class="stat-label">Total Success Trades</div>
+        <div class="stat-value" id="totalSuccessTrades">0</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-label">Total Orders Tracked</div>
+        <div class="stat-value" id="totalOrdersTracked">0</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-label">Success Rate</div>
+        <div class="stat-value" id="successRate">0%</div>
+    </div>
+    <div class="stat-card">
+        <div class="stat-label">Avg. Return</div>
+        <div class="stat-value" id="avgReturn">0%</div>
+    </div>
+</div>
+
+<div class="card">
+    <div class="filters">
+        <div class="filter-group">
+            <label for="stockFilter">Stock</label>
+            <select id="stockFilter">
+                <option value="">All</option>
+            </select>
+        </div>
+        <div class="filter-group">
+            <label for="optionTypeFilter">Option Type</label>
+            <select id="optionTypeFilter">
+                <option value="">All</option>
+                <option value="CE">CE</option>
+                <option value="PE">PE</option>
+            </select>
+        </div>
+        <div class="filter-group">
+            <label for="strikeTypeFilter">Strike Type</label>
+            <select id="strikeTypeFilter">
+                <option value="">All</option>
+                <option value="ATM">ATM</option>
+                <option value="ITM">ITM</option>
+                <option value="OTM">OTM</option>
+                <option value="OTHER">Other</option>
+            </select>
+        </div>
+        <div class="filter-group">
+            <label for="statusFilter">Trade Status</label>
+            <select id="statusFilter">
+                <option value="open">Open Trades</option>
+                <option value="done">Closed Trades</option>
+                <option value="">Both</option>
+            </select>
+        </div>
+        <div class="filter-group">
+            <label for="progressLabelFilter">Progress Label</label>
+            <select id="progressLabelFilter">
+                <option value="">All</option>
+                <option value="done">✓ Done</option>
+                <option value="+75%">+75%</option>
+                <option value="+50%">+50%</option>
+                <option value="+25%">+25%</option>
+                <option value="running">Running</option>
+                <option value="-25%">-25%</option>
+                <option value="-50%">-50%</option>
+                <option value="-75%">-75%</option>
+            </select>
+        </div>
+        <div class="filter-group">
+            <label>Day Filled (From)</label>
+            <input type="date" id="dateFromFilter" />
+        </div>
+        <div class="filter-group">
+            <label>Day Filled (To)</label>
+            <input type="date" id="dateToFilter" />
+        </div>
+    </div>
+
+    <div class="table-wrapper">
+        <table id="entriesTable">
+            <thead>
+            <tr>
+                <th></th>
+                <th class="sortable" data-sort-key="stock">Stock<span class="sort-indicator"></span></th>
+                <th>Expiry</th>
+                <th class="sortable" data-sort-key="strike">Strike<span class="sort-indicator"></span></th>
+                <th>Option</th>
+                <th>Role</th>
+                <th class="sortable" data-sort-key="price">Entry Price<span class="sort-indicator"></span></th>
+                <th class="sortable" data-sort-key="ltp">Current LTP<span class="sort-indicator"></span></th>
+                <th class="sortable" data-sort-key="pnlPct">Return<span class="sort-indicator"></span></th>
+                <th class="sortable" data-sort-key="maxReturnHigh">Max High %<span class="sort-indicator"></span></th>
+                <th class="sortable" data-sort-key="maxReturnLow">Max Low %<span class="sort-indicator"></span></th>
+                <th class="sortable" data-sort-key="status">Status<span class="sort-indicator"></span></th>
+                <th class="sortable" data-sort-key="progressLabel">Progress<span class="sort-indicator"></span></th>
+                <th class="sortable" data-sort-key="progressHistory">Progress History<span class="sort-indicator"></span></th>
+                <th class="sortable" data-sort-key="pcr">PCR<span class="sort-indicator"></span></th>
+                <th>PCR Advice</th>
+                <th class="sortable" data-sort-key="oiSame">OI (This)<span class="sort-indicator"></span></th>
+                <th class="sortable" data-sort-key="oiOpposite">OI (Opp.)<span class="sort-indicator"></span></th>
+                <th>Strike Type</th>
+                <th class="sortable" data-sort-key="daysPassed">Days Passed<span class="sort-indicator"></span></th>
+                <th>Filled Time</th>
+            </tr>
+            </thead>
+            <tbody></tbody>
+        </table>
+    </div>
+
+    <div class="status-bar" id="statusBar">
+        <div>Total fills: <span class="status-highlight" id="totalRows">0</span></div>
+        <div>Filtered: <span class="status-highlight" id="filteredRows">0</span></div>
+    </div>
+</div>
+
+<script>
+    const API_BASE_URL = "http://localhost:5001"; // Database API endpoint
+    const REFRESH_INTERVAL = 30000; // Auto-refresh every 30 seconds (30,000ms)
+
+    let allGroups = [];      // groups by stock+strike+option
+    let filteredGroups = [];
+    let currentSortKey = "pnlPct";
+    let currentSortDir = "desc"; // 'asc' or 'desc'
+
+    document.addEventListener("DOMContentLoaded", () => {
+      attachFilterListeners();
+      attachSortListeners();
+      loadDataFromDB();
+      // Load and restore filters AFTER data loads (so stock dropdown is populated)
+      setTimeout(() => {
+        loadFilterStateFromStorage();
+        applyFiltersAndRender();
+      }, 100);
+      startAutoRefresh();
+    });
+
+    // Save filters before page unload/refresh
+    window.addEventListener("beforeunload", () => {
+      saveFilterStateToStorage();
+    });
+
+    function showError(msg) {
+      const errEl = document.getElementById("error");
+      errEl.textContent = msg;
+      errEl.style.display = "block";
+    }
+
+    function clearError() {
+      const errEl = document.getElementById("error");
+      errEl.textContent = "";
+      errEl.style.display = "none";
+    }
+
+    // Save current filter state to localStorage
+    function saveFilterStateToStorage() {
+      const filterState = {
+        stock: document.getElementById("stockFilter").value,
+        optionType: document.getElementById("optionTypeFilter").value,
+        strikeType: document.getElementById("strikeTypeFilter").value,
+        status: document.getElementById("statusFilter").value,
+        progressLabel: document.getElementById("progressLabelFilter").value,
+        dateFrom: document.getElementById("dateFromFilter").value,
+        dateTo: document.getElementById("dateToFilter").value,
+        sortKey: currentSortKey,
+        sortDir: currentSortDir
+      };
+      localStorage.setItem("dashboardFilterState", JSON.stringify(filterState));
+      saveExpandedRowsState();
+    }
+
+    // Load filter state from localStorage and restore
+    function loadFilterStateFromStorage() {
+      const saved = localStorage.getItem("dashboardFilterState");
+      if (!saved) return;
+
+      try {
+        const filterState = JSON.parse(saved);
+        // Restore filter values
+        if (filterState.stock) document.getElementById("stockFilter").value = filterState.stock;
+        if (filterState.optionType) document.getElementById("optionTypeFilter").value = filterState.optionType;
+        if (filterState.strikeType) document.getElementById("strikeTypeFilter").value = filterState.strikeType;
+        if (filterState.status) document.getElementById("statusFilter").value = filterState.status;
+        if (filterState.progressLabel) document.getElementById("progressLabelFilter").value = filterState.progressLabel;
+        if (filterState.dateFrom) document.getElementById("dateFromFilter").value = filterState.dateFrom;
+        if (filterState.dateTo) document.getElementById("dateToFilter").value = filterState.dateTo;
+        // Restore sort state
+        if (filterState.sortKey) currentSortKey = filterState.sortKey;
+        if (filterState.sortDir) currentSortDir = filterState.sortDir;
+      } catch (e) {
+        console.error("Error loading filter state:", e);
+      }
+    }
+
+    // Save expanded rows state
+    function saveExpandedRowsState() {
+      const expandedRows = [];
+      document.querySelectorAll("table tbody tr[data-group-key]").forEach(tr => {
+        const nextTr = tr.nextElementSibling;
+        if (nextTr && nextTr.classList.contains("details-row")) {
+          if (nextTr.style.display !== "none") {
+            expandedRows.push(tr.getAttribute("data-group-key"));
+          }
+        }
+      });
+      localStorage.setItem("expandedRows", JSON.stringify(expandedRows));
+    }
+
+    // Restore expanded rows state
+    function restoreExpandedRowsState() {
+      const saved = localStorage.getItem("expandedRows");
+      if (!saved) return;
+
+      try {
+        const expandedRows = JSON.parse(saved);
+        document.querySelectorAll("table tbody tr[data-group-key]").forEach(tr => {
+          const groupKey = tr.getAttribute("data-group-key");
+          const nextTr = tr.nextElementSibling;
+          if (expandedRows.includes(groupKey) && nextTr && nextTr.classList.contains("details-row")) {
+            nextTr.style.display = "table-row";
+            const tdExpand = tr.querySelector("td:first-child");
+            if (tdExpand) tdExpand.textContent = "−";
+          }
+        });
+      } catch (e) {
+        console.error("Error loading expanded rows state:", e);
+      }
+    }
+
+    // Start auto-refresh: Load fresh data from DB while preserving filters
+    function startAutoRefresh() {
+      setInterval(() => {
+        // Save current filters before refresh
+        saveFilterStateToStorage();
+        // Fetch fresh data and re-apply filters silently
+        loadDataFromDBSilent();
+      }, REFRESH_INTERVAL);
+    }
+
+    // Load data from database without visual feedback (silent refresh)
+    async function loadDataFromDBSilent() {
+      try {
+        const resp = await fetch(`${API_BASE_URL}/successes?limit=10000`);
+        if (!resp.ok) return;
+        const json = await resp.json();
+        if (json.status !== 'success' || !json.data) return;
+        const entries = transformAPIToEntries(json.data);
+        allGroups = groupEntries(entries);
+        populateStockDropdown(allGroups);
+        // Re-apply current filters without resetting them
+        applyFiltersAndRender();
+      } catch (e) {
+        console.error("Silent refresh error:", e);
+      }
+    }
+
+    function formatCompactNumber(value) {
+      if (value === null || value === undefined) return "-";
+      const num = Number(value);
+      if (!isFinite(num)) return "-";
+
+      const abs = Math.abs(num);
+      if (abs >= 1_000_000_000) {
+        return (num / 1_000_000_000).toFixed(1).replace(/\.0$/, "") + "B";
+      } else if (abs >= 1_000_000) {
+        return (num / 1_000_000).toFixed(1).replace(/\.0$/, "") + "M";
+      } else if (abs >= 1_000) {
+        return (num / 1_000).toFixed(1).replace(/\.0$/, "") + "K";
+      }
+      return num.toString();
+    }
+
+    function formatPnlText(pnlAbs, pnlPct) {
+      if (pnlAbs === null || pnlPct === null) return "-";
+      const sign = pnlAbs >= 0 ? "+" : "";
+      const signPct = pnlPct >= 0 ? "+" : "";
+      return `${sign}${pnlAbs.toFixed(2)} (${signPct}${pnlPct.toFixed(1)}%)`;
+    }
+
+    function getPcrAdvice(pcr, optionType) {
+      if (pcr === null || pcr === undefined || isNaN(pcr) || pcr <= 0) {
+        return { text: "No PCR view", cls: "pcr-neutral" };
+      }
+
+      // Simple logic:
+      // - Low PCR (<0.8) -> bullish (calls favoured)
+      // - Neutral (0.8–1.2)
+      // - High PCR (>1.2) -> bearish (puts favoured)
+      if (optionType === "CE") {
+        if (pcr < 0.8) {
+          return { text: "Bullish PCR — CE long OK / Hold", cls: "pcr-bullish" };
+        } else if (pcr <= 1.2) {
+          return { text: "Neutral PCR — CE trade with caution", cls: "pcr-neutral" };
+        } else {
+          return { text: "Bearish PCR — Consider booking/avoid new CE", cls: "pcr-bearish" };
+        }
+      } else if (optionType === "PE") {
+        if (pcr > 1.2) {
+          return { text: "Bearish PCR — PE long OK / Hold", cls: "pcr-bearish" };
+        } else if (pcr >= 0.8) {
+          return { text: "Neutral PCR — PE trade with caution", cls: "pcr-neutral" };
+        } else {
+          return { text: "Bullish PCR — Consider booking/avoid new PE", cls: "pcr-bullish" };
+        }
+      } else {
+        return { text: "PCR view for options only", cls: "pcr-neutral" };
+      }
+    }
+
+    async function loadDataFromDB() {
+      clearError();
+      try {
+        const resp = await fetch(`${API_BASE_URL}/successes?limit=10000`);
+        if (!resp.ok) {
+          showError("Could not connect to database API at " + API_BASE_URL);
+          return;
+        }
+        const json = await resp.json();
+        if (json.status !== 'success' || !json.data) {
+          showError("Invalid API response: " + JSON.stringify(json));
+          return;
+        }
+        const entries = transformAPIToEntries(json.data);
+        allGroups = groupEntries(entries);
+        populateStockDropdown(allGroups);
+        applyFiltersAndRender();
+      } catch (e) {
+        console.error(e);
+        showError("Error loading from database: " + e.message);
+      }
+    }
+
+    function transformAPIToEntries(apiData) {
+      const now = new Date();
+      const entries = [];
+
+      for (const item of apiData) {
+        const underlying = item.symbol ? item.symbol.toUpperCase() : "";
+        const instKey = item.instrument_key || "";
+        const strikeStr = item.strike ? item.strike.toString() : "";
+        const optType = item.option_type ? item.option_type.toUpperCase() : "";
+
+        const parsedInst = parseFoInstrument(instKey, underlying, strikeStr, optType);
+        const stock = parsedInst.stock;
+        const expiry = parsedInst.expiry;
+        const strike = parsedInst.strike;
+
+        const side = item.side ? item.side.toUpperCase() : "";
+        const role = side === "BUY" ? "Buyer" : side === "SELL" ? "Seller" : side || "-";
+        const moneyness = item.moneyness || "";
+        const strikeType = mapMoneynessToStrikeType(moneyness);
+
+        const tsString = item.timestamp || "";
+        let daysPassed = "";
+        if (tsString) {
+          const entryDate = new Date(tsString);
+          if (!isNaN(entryDate.getTime())) {
+            const diffMs = now - entryDate;
+            daysPassed = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+          }
+        }
+
+        // Calculate PnL
+        let pnlAbs = null;
+        let pnlPct = null;
+        const price = parseFloat(item.price) || 0;
+        const ltp = parseFloat(item.ltp) || 0;
+
+        if (!isNaN(price) && price !== 0 && !isNaN(ltp) && side) {
+          if (side === "BUY") {
+            pnlAbs = (ltp - price);
+          } else if (side === "SELL") {
+            pnlAbs = (price - ltp);
+          }
+          pnlPct = (pnlAbs / price) * 100;
+        }
+
+        const csvStatus = (item.status || "").toLowerCase().trim();
+        let displayStatus = "open";
+        if (csvStatus === "done") {
+          displayStatus = "done";
+        } else if (pnlPct !== null && pnlPct >= 100) {
+          displayStatus = "done";
+        }
+
+        entries.push({
+          groupKey: `${stock}|${strike}|${optType}`,
+          stock,
+          expiry,
+          strike,
+          optionType: optType,
+          side,
+          role,
+          qty: item.qty || 0,
+          price,
+          ltp,
+          mRaw: moneyness,
+          csvStatus,
+          displayStatus,
+          pcr: item.pcr && item.pcr > 0 ? parseFloat(item.pcr) : null,
+          oiSame: parseFloat(item.oi_same) || 0,
+          oiOpposite: parseFloat(item.oi_opposite) || 0,
+          timestamp: tsString,
+          daysPassed,
+          pnlAbs,
+          pnlPct,
+          progressLabel: (item.progress_label || "running").toLowerCase().trim(),
+          progressHistory: item.progress_history || "",
+          maxReturnHigh: parseFloat(item.max_return_high) || 0,
+          maxReturnLow: parseFloat(item.max_return_low) || 0,
+        });
+      }
+
+      return entries;
+    }
+
+    function parseFoInstrument(instKey, fallbackStock, fallbackStrike, fallbackOptType) {
+      if (!instKey) {
+        return {
+          stock: fallbackStock || "-",
+          expiry: "",
+          strike: fallbackStrike ? parseFloat(fallbackStrike) : "",
+          optionType: fallbackOptType || ""
+        };
+      }
+      const parts = instKey.split(":");
+      const raw = parts.length > 1 ? parts[1] : parts[0];
+
+      const m = raw.match(/^([A-Z0-9]+)(\d{2}[A-Z]{3})(\d+)(CE|PE)$/i);
+      if (m) {
+        return {
+          stock: m[1].toUpperCase(),
+          expiry: m[2].toUpperCase(),
+          strike: parseFloat(m[3]),
+          optionType: m[4].toUpperCase()
+        };
+      }
+
+      const futMatch = raw.match(/^([A-Z0-9]+)(\d{2}[A-Z]{3})(\d+)FUT$/i);
+      if (futMatch) {
+        return {
+          stock: futMatch[1].toUpperCase(),
+          expiry: futMatch[2].toUpperCase(),
+          strike: parseFloat(futMatch[3]),
+          optionType: "FUTURE"
+        };
+      }
+
+      return {
+        stock: fallbackStock || raw.toUpperCase(),
+        expiry: "",
+        strike: fallbackStrike ? parseFloat(fallbackStrike) : "",
+        optionType: fallbackOptType || ""
+      };
+    }
+
+    function mapMoneynessToStrikeType(m) {
+      if (!m) return "OTHER";
+      if (m === "ATM") return "ATM";
+      if (m.includes("ITM")) return "ITM";
+      if (m.includes("OTM")) return "OTM";
+      return "OTHER";
+    }
+
+    function groupEntries(entries) {
+      const groupsMap = new Map();
+      for (const e of entries) {
+        const key = e.groupKey;
+        if (!groupsMap.has(key)) {
+          groupsMap.set(key, {
+            key,
+            stock: e.stock,
+            expiry: e.expiry,
+            strike: e.strike,
+            optionType: e.optionType,
+            items: []
+          });
+        }
+        groupsMap.get(key).items.push(e);
+      }
+
+      const groups = [];
+      for (const g of groupsMap.values()) {
+        // Sort items by timestamp ascending so first = earliest
+        g.items.sort((a, b) => {
+          const da = a.timestamp ? new Date(a.timestamp).getTime() : 0;
+          const db = b.timestamp ? new Date(b.timestamp).getTime() : 0;
+          return da - db;
+        });
+
+        // Use first recorded order as entry point
+        const firstEntry = g.items[0];
+        const lastEntry = g.items[g.items.length - 1];
+
+        // Recalculate PnL using first entry's price and last entry's LTP
+        // Direct calculation: (LTP - EntryPrice) / EntryPrice * 100
+        let pnlAbs = null;
+        let pnlPct = null;
+        const entryPrice = parseFloat(firstEntry.price);
+        const currentLtp = parseFloat(lastEntry.ltp);
+
+        if (!isNaN(entryPrice) && entryPrice !== 0 && !isNaN(currentLtp)) {
+          pnlAbs = currentLtp - entryPrice;
+          pnlPct = (pnlAbs / entryPrice) * 100;
+        }
+
+        // Determine status based on return
+        // Priority: CSV "done" status > calculated based on return >= 100%
+        let displayStatus = "open";
+        const csvStatus = firstEntry.csvStatus || "";
+
+        if (csvStatus === "done") {
+          // CSV explicitly says "done", use that
+          displayStatus = "done";
+        } else if (pnlPct !== null && pnlPct >= 100) {
+          // CSV is empty/open but return >= 100%, show "done" (don't write to sheet)
+          displayStatus = "done";
+        }
+
+        // Create primary object with corrected PnL and status
+        const primary = {
+          ...firstEntry,
+          pnlAbs,
+          pnlPct,
+          displayStatus
+        };
+
+        // Debug logging for suspicious entries
+        if (Math.abs(pnlPct) > 100) {
+          console.log(`[PnL Debug] ${g.stock} ${g.strike} ${g.optionType}:`, {
+            entryPrice,
+            currentLtp,
+            pnlAbs,
+            pnlPct,
+            firstEntryPrice: firstEntry.price,
+            firstEntryLtp: firstEntry.ltp,
+            lastEntryPrice: lastEntry.price,
+            lastEntryLtp: lastEntry.ltp
+          });
+        }
+
+        groups.push({
+          key: g.key,
+          stock: g.stock,
+          expiry: g.expiry,
+          strike: g.strike,
+          optionType: g.optionType,
+          primary,
+          items: g.items
+        });
+      }
+
+      return groups;
+    }
+
+    function populateStockDropdown(groups) {
+      const select = document.getElementById("stockFilter");
+      const names = [...new Set(groups.map(g => g.stock).filter(Boolean))].sort();
+      for (const n of names) {
+        const opt = document.createElement("option");
+        opt.value = n;
+        opt.textContent = n;
+        select.appendChild(opt);
+      }
+      document.getElementById("totalRows").textContent = groups.reduce((sum, g) => sum + g.items.length, 0);
+    }
+
+    function attachFilterListeners() {
+      const saveAndRender = () => {
+        applyFiltersAndRender();
+        saveFilterStateToStorage();
+      };
+      document.getElementById("stockFilter").addEventListener("change", saveAndRender);
+      document.getElementById("optionTypeFilter").addEventListener("change", saveAndRender);
+      document.getElementById("strikeTypeFilter").addEventListener("change", saveAndRender);
+      document.getElementById("statusFilter").addEventListener("change", saveAndRender);
+      document.getElementById("progressLabelFilter").addEventListener("change", saveAndRender);
+      document.getElementById("dateFromFilter").addEventListener("change", saveAndRender);
+      document.getElementById("dateToFilter").addEventListener("change", saveAndRender);
+    }
+
+    function attachSortListeners() {
+      const headers = document.querySelectorAll("th.sortable");
+      headers.forEach(th => {
+        th.addEventListener("click", () => {
+          const key = th.getAttribute("data-sort-key");
+          if (!key) return;
+          if (currentSortKey === key) {
+            currentSortDir = currentSortDir === "asc" ? "desc" : "asc";
+          } else {
+            currentSortKey = key;
+            currentSortDir = "asc";
+          }
+          applyFiltersAndRender();
+          updateSortIndicators();
+          saveFilterStateToStorage();
+        });
+      });
+    }
+
+    function updateSortIndicators() {
+      const headers = document.querySelectorAll("th.sortable");
+      headers.forEach(th => {
+        const key = th.getAttribute("data-sort-key");
+        const span = th.querySelector(".sort-indicator");
+        if (!span) return;
+        if (key === currentSortKey) {
+          span.textContent = currentSortDir === "asc" ? "▲" : "▼";
+        } else {
+          span.textContent = "";
+        }
+      });
+    }
+
+    function applyFiltersAndRender() {
+      const stockFilter = document.getElementById("stockFilter").value;
+      const optFilter   = document.getElementById("optionTypeFilter").value;
+      const strikeFilter= document.getElementById("strikeTypeFilter").value;
+      const statusFilter= document.getElementById("statusFilter").value;
+      const progressLabelFilter = document.getElementById("progressLabelFilter").value;
+      const dateFromVal = document.getElementById("dateFromFilter").value;
+      const dateToVal   = document.getElementById("dateToFilter").value;
+
+      const fromDate = dateFromVal ? new Date(dateFromVal + "T00:00:00") : null;
+      const toDate   = dateToVal ? new Date(dateToVal + "T23:59:59") : null;
+
+      filteredGroups = allGroups.filter(g => {
+        const e = g.primary;
+
+        if (stockFilter && g.stock !== stockFilter) return false;
+
+        if (optFilter && e.optionType !== optFilter) return false;
+
+        if (strikeFilter && mapMoneynessToStrikeType(e.mRaw) !== strikeFilter) return false;
+
+        if (statusFilter && e.displayStatus !== statusFilter) return false;
+
+        if (progressLabelFilter && e.progressLabel !== progressLabelFilter) return false;
+
+        if (fromDate || toDate) {
+          if (!e.timestamp) return false;
+          const d = new Date(e.timestamp);
+          if (fromDate && d < fromDate) return false;
+          if (toDate && d > toDate) return false;
+        }
+
+        return true;
+      });
+
+      sortGroups();
+      renderTable();
+      const totalRows = allGroups.reduce((sum, g) => sum + g.items.length, 0);
+      const filteredRows = filteredGroups.reduce((sum, g) => sum + g.items.length, 0);
+      document.getElementById("filteredRows").textContent = filteredRows;
+      document.getElementById("totalRows").textContent = totalRows;
+      updateStatistics();
+    }
+
+    function updateStatistics() {
+      // Total success trades (from filtered groups where displayStatus is "done")
+      const successTrades = filteredGroups.filter(g => g.primary.displayStatus === "done").length;
+
+      // Total orders tracked (all groups)
+      const totalOrders = allGroups.length;
+
+      // Success rate
+      const successRate = totalOrders > 0 ? ((successTrades / totalOrders) * 100).toFixed(1) : 0;
+
+      // Average return from all filtered groups
+      let totalReturn = 0;
+      let validReturns = 0;
+      filteredGroups.forEach(g => {
+        if (g.primary.pnlPct !== null && isFinite(g.primary.pnlPct)) {
+          totalReturn += g.primary.pnlPct;
+          validReturns++;
+        }
+      });
+      const avgReturn = validReturns > 0 ? (totalReturn / validReturns).toFixed(1) : 0;
+
+      // Update UI
+      document.getElementById("totalSuccessTrades").textContent = successTrades;
+      document.getElementById("totalOrdersTracked").textContent = totalOrders;
+      document.getElementById("successRate").textContent = successRate + "%";
+      document.getElementById("avgReturn").textContent = avgReturn + "%";
+
+      // Color code the average return
+      const avgReturnEl = document.getElementById("avgReturn");
+      avgReturnEl.classList.remove("warning", "danger");
+      if (avgReturn < 0) {
+        avgReturnEl.classList.add("danger");
+      } else if (avgReturn < 10) {
+        avgReturnEl.classList.add("warning");
+      }
+    }
+
+    function sortGroups() {
+      const key = currentSortKey;
+      const dir = currentSortDir === "asc" ? 1 : -1;
+
+      filteredGroups.sort((ga, gb) => {
+        const a = ga.primary;
+        const b = gb.primary;
+        let va, vb;
+
+        switch (key) {
+          case "stock":
+            va = ga.stock;
+            vb = gb.stock;
+            break;
+          case "strike":
+            va = a.strike || 0;
+            vb = b.strike || 0;
+            break;
+          case "price":
+            va = a.price || 0;
+            vb = b.price || 0;
+            break;
+          case "ltp":
+            va = a.ltp || 0;
+            vb = b.ltp || 0;
+            break;
+          case "pnlPct":
+            va = a.pnlPct || 0;
+            vb = b.pnlPct || 0;
+            break;
+          case "maxReturnHigh":
+            va = a.maxReturnHigh || 0;
+            vb = b.maxReturnHigh || 0;
+            break;
+          case "maxReturnLow":
+            va = a.maxReturnLow || 0;
+            vb = b.maxReturnLow || 0;
+            break;
+          case "pcr":
+            va = a.pcr || 0;
+            vb = b.pcr || 0;
+            break;
+          case "oiSame":
+            va = a.oiSame || 0;
+            vb = b.oiSame || 0;
+            break;
+          case "oiOpposite":
+            va = a.oiOpposite || 0;
+            vb = b.oiOpposite || 0;
+            break;
+          case "daysPassed":
+            va = a.daysPassed || 0;
+            vb = b.daysPassed || 0;
+            break;
+          case "status":
+            va = a.displayStatus || "open";
+            vb = b.displayStatus || "open";
+            break;
+          case "progressLabel":
+            va = a.progressLabel || "running";
+            vb = b.progressLabel || "running";
+            break;
+          case "progressHistory":
+            va = a.progressHistory || "";
+            vb = b.progressHistory || "";
+            break;
+          default:
+            // timestamp default
+            va = a.timestamp ? new Date(a.timestamp).getTime() : 0;
+            vb = b.timestamp ? new Date(b.timestamp).getTime() : 0;
+        }
+
+        if (typeof va === "number" && typeof vb === "number") {
+          if (va < vb) return -1 * dir;
+          if (va > vb) return 1 * dir;
+          return 0;
+        }
+
+        va = String(va).toUpperCase();
+        vb = String(vb).toUpperCase();
+        if (va < vb) return -1 * dir;
+        if (va > vb) return 1 * dir;
+        return 0;
+      });
+    }
+
+    function renderTable() {
+      const tbody = document.querySelector("#entriesTable tbody");
+      tbody.innerHTML = "";
+
+      filteredGroups.forEach((g, groupIndex) => {
+        const e = g.primary;
+
+        const tr = document.createElement("tr");
+        tr.classList.add("group-row");
+        tr.dataset.groupIndex = groupIndex.toString();
+        // Add group key for tracking expanded state across refreshes
+        tr.setAttribute("data-group-key", g.key);
+
+        // Expand cell
+        const tdExpand = document.createElement("td");
+        if (g.items.length > 1) {
+          tdExpand.classList.add("expand-cell");
+          tdExpand.textContent = "+";
+          tdExpand.title = "Click to show all fills for this strike";
+        } else {
+          tdExpand.textContent = "";
+        }
+        tr.appendChild(tdExpand);
+
+        // Stock
+        const tdStock = document.createElement("td");
+        tdStock.textContent = g.stock || "-";
+        tr.appendChild(tdStock);
+
+        // Expiry
+        const tdExpiry = document.createElement("td");
+        tdExpiry.textContent = g.expiry || "-";
+        tr.appendChild(tdExpiry);
+
+        // Strike
+        const tdStrike = document.createElement("td");
+        tdStrike.textContent = e.strike !== "" && e.strike !== null ? e.strike : "-";
+        tr.appendChild(tdStrike);
+
+        // Option
+        const tdOpt = document.createElement("td");
+        if (e.optionType === "CE") {
+          tdOpt.innerHTML = '<span class="pill pill-ce">CE</span>';
+        } else if (e.optionType === "PE") {
+          tdOpt.innerHTML = '<span class="pill pill-pe">PE</span>';
+        } else if (e.optionType === "FUTURE") {
+          tdOpt.innerHTML = '<span class="pill pill-fut">FUT</span>';
+        } else {
+          tdOpt.textContent = e.optionType || "-";
+        }
+        tr.appendChild(tdOpt);
+
+        // Role
+        const tdRole = document.createElement("td");
+        if (e.role === "Buyer") {
+          tdRole.innerHTML = '<span class="badge badge-buyer">Buyer</span>';
+        } else if (e.role === "Seller") {
+          tdRole.innerHTML = '<span class="badge badge-seller">Seller</span>';
+        } else {
+          tdRole.textContent = e.role || "-";
+        }
+        tr.appendChild(tdRole);
+
+        // Entry Price
+        const tdPrice = document.createElement("td");
+        tdPrice.textContent = e.price !== undefined ? Number(e.price).toFixed(2) : "-";
+        tr.appendChild(tdPrice);
+
+        // Current LTP (from CSV)
+        const tdLtp = document.createElement("td");
+        tdLtp.textContent = e.ltp !== undefined ? Number(e.ltp).toFixed(2) : "-";
+        tr.appendChild(tdLtp);
+
+        // Return
+        const tdPnl = document.createElement("td");
+        if (e.pnlAbs !== null && e.pnlPct !== null) {
+          const cls = e.pnlAbs >= 0 ? "pnl-positive" : "pnl-negative";
+          tdPnl.classList.add(cls);
+          tdPnl.textContent = formatPnlText(e.pnlAbs, e.pnlPct);
+        } else {
+          tdPnl.textContent = "-";
+        }
+        tr.appendChild(tdPnl);
+
+        // Max High Return
+        const tdMaxHigh = document.createElement("td");
+        if (e.maxReturnHigh !== null && isFinite(e.maxReturnHigh)) {
+          const cls = e.maxReturnHigh >= 0 ? "pnl-positive" : "pnl-negative";
+          tdMaxHigh.classList.add(cls);
+          tdMaxHigh.textContent = e.maxReturnHigh.toFixed(1) + "%";
+        } else {
+          tdMaxHigh.textContent = "-";
+        }
+        tr.appendChild(tdMaxHigh);
+
+        // Max Low Return
+        const tdMaxLow = document.createElement("td");
+        if (e.maxReturnLow !== null && isFinite(e.maxReturnLow)) {
+          const cls = e.maxReturnLow >= 0 ? "pnl-positive" : "pnl-negative";
+          tdMaxLow.classList.add(cls);
+          tdMaxLow.textContent = e.maxReturnLow.toFixed(1) + "%";
+        } else {
+          tdMaxLow.textContent = "-";
+        }
+        tr.appendChild(tdMaxLow);
+
+        // Status
+        const tdStatus = document.createElement("td");
+        if (e.displayStatus === "done") {
+          tdStatus.innerHTML = '<span class="badge badge-done">Done</span>';
+        } else {
+          tdStatus.innerHTML = '<span class="badge badge-open">Open</span>';
+        }
+        tr.appendChild(tdStatus);
+
+        // Progress Label
+        const tdProgress = document.createElement("td");
+        const progressLabel = e.progressLabel || "running";
+        if (progressLabel === "done") {
+          tdProgress.innerHTML = '<span class="badge badge-done">✓ Done</span>';
+        } else if (progressLabel === "+75%") {
+          tdProgress.innerHTML = '<span class="badge badge-progress-75">+75% ◐</span>';
+        } else if (progressLabel === "+50%") {
+          tdProgress.innerHTML = '<span class="badge badge-progress-50">+50% ◑</span>';
+        } else if (progressLabel === "+25%") {
+          tdProgress.innerHTML = '<span class="badge badge-progress-25">+25% ◓</span>';
+        } else if (progressLabel === "-25%") {
+          tdProgress.innerHTML = '<span class="badge badge-progress-neg25">-25% ◓</span>';
+        } else if (progressLabel === "-50%") {
+          tdProgress.innerHTML = '<span class="badge badge-progress-neg50">-50% ◑</span>';
+        } else if (progressLabel === "-75%") {
+          tdProgress.innerHTML = '<span class="badge badge-progress-neg75">-75% ◐</span>';
+        } else {
+          tdProgress.innerHTML = '<span class="badge badge-progress-running">Running ◌</span>';
+        }
+        tr.appendChild(tdProgress);
+
+        // Progress History
+        const tdProgressHistory = document.createElement("td");
+        tdProgressHistory.classList.add("progress-history");
+        if (e.progressHistory) {
+          const steps = e.progressHistory.split("|");
+          const historyHtml = steps.map((step, idx) => {
+            let badgeClass = "badge-progress-running";
+            const cleanStep = step.trim();
+            if (cleanStep === "done") {
+              badgeClass = "badge-done";
+            } else if (cleanStep === "+75%") {
+              badgeClass = "badge-progress-75";
+            } else if (cleanStep === "+50%") {
+              badgeClass = "badge-progress-50";
+            } else if (cleanStep === "+25%") {
+              badgeClass = "badge-progress-25";
+            } else if (cleanStep === "-25%") {
+              badgeClass = "badge-progress-neg25";
+            } else if (cleanStep === "-50%") {
+              badgeClass = "badge-progress-neg50";
+            } else if (cleanStep === "-75%") {
+              badgeClass = "badge-progress-neg75";
+            }
+            return `<span class="badge ${badgeClass}" style="font-size: 0.65rem; padding: 1px 4px;">${cleanStep}</span>`;
+          }).join('<span class="progress-history-arrow">→</span>');
+          tdProgressHistory.innerHTML = historyHtml;
+        } else {
+          tdProgressHistory.textContent = "-";
+        }
+        tr.appendChild(tdProgressHistory);
+
+        // PCR
+        const tdPcr = document.createElement("td");
+        tdPcr.textContent = e.pcr !== null ? e.pcr.toFixed(2) : "-";
+        tr.appendChild(tdPcr);
+
+        // PCR advice
+        const tdAdvice = document.createElement("td");
+        const advice = getPcrAdvice(e.pcr, e.optionType);
+        tdAdvice.classList.add(advice.cls);
+        tdAdvice.textContent = advice.text;
+        tr.appendChild(tdAdvice);
+
+        // OI (This)
+        const tdOiSame = document.createElement("td");
+        tdOiSame.textContent = formatCompactNumber(e.oiSame);
+        tr.appendChild(tdOiSame);
+
+        // OI (Opposite)
+        const tdOiOpp = document.createElement("td");
+        tdOiOpp.textContent = formatCompactNumber(e.oiOpposite);
+        tr.appendChild(tdOiOpp);
+
+        // Strike Type
+        const tdStrikeType = document.createElement("td");
+        const st = mapMoneynessToStrikeType(e.mRaw);
+        if (st === "ATM") {
+          tdStrikeType.innerHTML = '<span class="badge badge-atm">ATM</span>';
+        } else if (st === "ITM") {
+          tdStrikeType.innerHTML = '<span class="badge badge-itm">ITM</span>';
+        } else if (st === "OTM") {
+          tdStrikeType.innerHTML = '<span class="badge badge-otm">OTM</span>';
+        } else {
+          tdStrikeType.innerHTML = '<span class="badge badge-other">Other</span>';
+        }
+        tr.appendChild(tdStrikeType);
+
+        // Days passed
+        const tdDays = document.createElement("td");
+        tdDays.textContent = e.daysPassed !== "" && e.daysPassed !== null ? e.daysPassed : "-";
+        tr.appendChild(tdDays);
+
+        // Timestamp
+        const tdTime = document.createElement("td");
+        tdTime.textContent = e.timestamp || "-";
+        tr.appendChild(tdTime);
+
+        tbody.appendChild(tr);
+
+        // Details row for multiple fills
+        if (g.items.length > 1) {
+          const detailsTr = document.createElement("tr");
+          detailsTr.classList.add("details-row");
+          detailsTr.dataset.groupIndex = groupIndex.toString();
+          detailsTr.style.display = "none";
+
+          const detailsTd = document.createElement("td");
+          detailsTd.colSpan = 17;
+
+          const box = document.createElement("div");
+          box.classList.add("details-box");
+
+          const title = document.createElement("div");
+          title.classList.add("details-title");
+          title.textContent = `All fills for ${g.stock} ${g.strike} ${g.optionType}`;
+          box.appendChild(title);
+
+          const innerTable = document.createElement("table");
+          innerTable.classList.add("details-table");
+          innerTable.innerHTML = `
+            <thead>
+              <tr>
+                <th>Time</th>
+                <th>Side</th>
+                <th>Qty</th>
+                <th>Entry Price</th>
+                <th>LTP</th>
+                <th>Return</th>
+                <th>PCR</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          `;
+
+          const innerTbody = innerTable.querySelector("tbody");
+          g.items.forEach(item => {
+            const r = document.createElement("tr");
+
+            const tTime = document.createElement("td");
+            tTime.textContent = item.timestamp || "-";
+            r.appendChild(tTime);
+
+            const tSide = document.createElement("td");
+            tSide.textContent = item.side || "-";
+            r.appendChild(tSide);
+
+            const tQty = document.createElement("td");
+            tQty.textContent = item.qty || "-";
+            r.appendChild(tQty);
+
+            const tPrice = document.createElement("td");
+            tPrice.textContent = item.price !== undefined ? Number(item.price).toFixed(2) : "-";
+            r.appendChild(tPrice);
+
+            const tLtp = document.createElement("td");
+            tLtp.textContent = item.ltp !== undefined ? Number(item.ltp).toFixed(2) : "-";
+            r.appendChild(tLtp);
+
+            const tPnl = document.createElement("td");
+            if (item.pnlAbs !== null && item.pnlPct !== null) {
+              const cls = item.pnlAbs >= 0 ? "pnl-positive" : "pnl-negative";
+              tPnl.classList.add(cls);
+              tPnl.textContent = formatPnlText(item.pnlAbs, item.pnlPct);
+            } else {
+              tPnl.textContent = "-";
+            }
+            r.appendChild(tPnl);
+
+            const tPcr = document.createElement("td");
+            tPcr.textContent = item.pcr !== null ? item.pcr.toFixed(2) : "-";
+            r.appendChild(tPcr);
+
+            innerTbody.appendChild(r);
+          });
+
+          box.appendChild(innerTable);
+          detailsTd.appendChild(box);
+          detailsTr.appendChild(detailsTd);
+          tbody.appendChild(detailsTr);
+
+          // Toggle logic
+          tdExpand.addEventListener("click", () => {
+            const isOpen = detailsTr.style.display !== "none";
+            detailsTr.style.display = isOpen ? "none" : "table-row";
+            tdExpand.textContent = isOpen ? "+" : "−";
+            // Save expanded state when toggled
+            saveExpandedRowsState();
+          });
+
+          // Also allow clicking anywhere on row
+          tr.addEventListener("click", (ev) => {
+            // don't double toggle if clicking the + button
+            if (ev.target === tdExpand) return;
+            const isOpen = detailsTr.style.display !== "none";
+            detailsTr.style.display = isOpen ? "none" : "table-row";
+            tdExpand.textContent = isOpen ? "+" : "−";
+            // Save expanded state whenever toggled
+            saveExpandedRowsState();
+          });
+        }
+      });
+      // Restore expanded rows after rendering
+      restoreExpandedRowsState();
+    }
+</script>
+</body>
+</html>
