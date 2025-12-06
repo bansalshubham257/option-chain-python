@@ -2,8 +2,10 @@ import os
 import time
 import io
 import gzip
+import re
 import pandas as pd
 import requests
+import yfinance as yf
 
 from services.database import DatabaseService
 
@@ -27,6 +29,105 @@ URL_MCX_FO = "https://assets.upstox.com/market-quote/instruments/exchange/MCX.cs
 def chunked(lst, size):
     for i in range(0, len(lst), size):
         yield lst[i:i+size]
+
+
+def extract_underlying_from_symbol(symbol):
+    """
+    Extract underlying stock/index symbol from trading symbol.
+    E.g., 'NSE_FO:VEDL25DEC520CE' -> 'VEDL'
+    """
+    if not symbol:
+        return None
+    try:
+        # Remove exchange prefix if present
+        if ':' in symbol:
+            symbol = symbol.split(':')[1]
+
+        # Remove date and option type (last 2-4 chars like 'CE', 'PE')
+        if symbol.endswith('CE') or symbol.endswith('PE'):
+            symbol = symbol[:-2]
+
+        # Remove strike price (last 1-5 digits)
+        match = re.match(r'^([A-Z&]+)', symbol)
+        if match:
+            return match.group(1)
+    except Exception:
+        pass
+    return None
+
+
+def get_daily_pct_change_for_underlying(symbol):
+    """
+    Get today's % price change for a stock underlying.
+
+    Returns: (current_price, pct_change)
+      - current_price: today's last traded price
+      - pct_change: (current - open) / open * 100
+      - If no data, returns (None, None)
+    """
+    underlying = extract_underlying_from_symbol(symbol)
+    if not underlying:
+        return None, None
+
+    # For indices, fetch live via Upstox
+    if underlying == "NIFTY":
+        try:
+            ticker_key = "NSE_INDEX|Nifty 50"
+            headers = {'Accept': 'application/json', 'Authorization': f'Bearer {ACCESS_TOKEN}'}
+            url = f"{BASE_URL_V3}/market-quote/quotes"
+            params = {'instrument_key': ticker_key}
+            resp = requests.get(url, headers=headers, params=params, timeout=5)
+            if resp.status_code == 200:
+                data = resp.json()
+                if data.get('status') == 'success':
+                    quote = data['data'].get(ticker_key, {})
+                    current = quote.get('last_price')
+                    ohlc = quote.get('ohlc', {})
+                    open_price = ohlc.get('open')
+                    if current and open_price and open_price > 0:
+                        pct_change = ((float(current) - float(open_price)) / float(open_price)) * 100
+                        return float(current), round(pct_change, 2)
+        except Exception:
+            pass
+        return None, None
+
+    elif underlying == "SENSEX":
+        try:
+            ticker_key = "BSE_INDEX|SENSEX"
+            headers = {'Accept': 'application/json', 'Authorization': f'Bearer {ACCESS_TOKEN}'}
+            url = f"{BASE_URL_V3}/market-quote/quotes"
+            params = {'instrument_key': ticker_key}
+            resp = requests.get(url, headers=headers, params=params, timeout=5)
+            if resp.status_code == 200:
+                data = resp.json()
+                if data.get('status') == 'success':
+                    quote = data['data'].get(ticker_key, {})
+                    current = quote.get('last_price')
+                    ohlc = quote.get('ohlc', {})
+                    open_price = ohlc.get('open')
+                    if current and open_price and open_price > 0:
+                        pct_change = ((float(current) - float(open_price)) / float(open_price)) * 100
+                        return float(current), round(pct_change, 2)
+        except Exception:
+            pass
+        return None, None
+
+    else:
+        # For stocks, use yfinance
+        try:
+            ticker = underlying + ".NS"
+            yf_ticker = yf.Ticker(ticker)
+            # Get today's data only
+            hist = yf_ticker.history(period="1d", interval="1m")
+            if hist is not None and not hist.empty:
+                current_price = float(hist["Close"].iloc[-1])
+                open_price = float(hist["Open"].iloc[0])
+                if open_price > 0:
+                    pct_change = ((current_price - open_price) / open_price) * 100
+                    return current_price, round(pct_change, 2)
+        except Exception:
+            pass
+        return None, None
 
 
 # ==== INSTRUMENTS & MAPPING ====
@@ -270,6 +371,14 @@ def update_success_csv_once():
         df["max_return_high"] = None
     if "max_return_low" not in df.columns:
         df["max_return_low"] = None
+    if "stock_current_price" not in df.columns:
+        df["stock_current_price"] = None
+    if "stock_pct_change_today" not in df.columns:
+        df["stock_pct_change_today"] = None
+    if "stock_pct_at_exit" not in df.columns:
+        df["stock_pct_at_exit"] = None
+    if "progress_history" not in df.columns:
+        df["progress_history"] = None
 
     now_str = time.strftime("%Y-%m-%d %H:%M:%S")
     updated_rows = 0
@@ -341,7 +450,7 @@ def update_success_csv_once():
             current_idx = progress_order.index(current_progress)
         except ValueError:
             current_idx = 3  # Default to "running"
-
+        
         try:
             new_idx = progress_order.index(new_progress)
         except ValueError:
@@ -355,6 +464,20 @@ def update_success_csv_once():
             progress_label = current_progress
 
         df.at[idx, "progress_label"] = progress_label
+
+        # Track progress history - record each change in order
+        progress_history_str = str(row.get("progress_history", "")).strip()
+
+        # Initialize with current progress label if empty
+        if not progress_history_str or progress_history_str == "nan":
+            progress_history_str = progress_label
+        else:
+            # Only append if progress_label is different from the last recorded one
+            history_list = progress_history_str.split("|")
+            if history_list[-1] != progress_label:
+                progress_history_str = progress_history_str + "|" + progress_label
+
+        df.at[idx, "progress_history"] = progress_history_str
 
         # Track maximum high and low returns touched
         try:
@@ -389,6 +512,15 @@ def update_success_csv_once():
         if current_status != "done":
             if pnl_pct >= 94:
                 df.at[idx, "status"] = "done"
+                # Capture stock % change at exit (when status becomes done)
+                _, stock_pct_at_exit = get_daily_pct_change_for_underlying(sym)
+                if stock_pct_at_exit is not None:
+                    df.at[idx, "stock_pct_at_exit"] = stock_pct_at_exit
+
+        # Always update current stock price and % change
+        _, current_stock_pct = get_daily_pct_change_for_underlying(sym)
+        if current_stock_pct is not None:
+            df.at[idx, "stock_pct_change_today"] = current_stock_pct
 
         updated_rows += 1
 
