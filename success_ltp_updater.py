@@ -15,8 +15,8 @@ ACCESS_TOKEN = db.get_access_token(account_id=5)
 
 BASE_URL_V3 = "https://api.upstox.com/v3"
 
-SUCCESS_FILE = "successful_whale_orders.csv"
-MAPPING_FILE = "symbol_instrument_map.csv"
+SUCCESS_FILE = "/data/successful_whale_orders.csv"
+MAPPING_FILE = "/data/symbol_instrument_map.csv"
 
 MAX_KEYS_PER_CALL = 450
 
