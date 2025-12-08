@@ -21,7 +21,6 @@ ACCESS_TOKEN = db.get_access_token(account_id=5)
 BASE_URL_V3 = "https://api.upstox.com/v3"
 
 SUCCESS_FILE = "successful_whale_orders.csv"
-MAPPING_FILE = "/data/symbol_instrument_map.csv"
 
 MAX_KEYS_PER_CALL = 450
 
@@ -44,7 +43,7 @@ URL_MCX_FO = "https://assets.upstox.com/market-quote/instruments/exchange/MCX.cs
 
 @contextmanager
 def get_db_connection():
-    """Get a database connection with automatic cleanup."""
+    """Get a database connection with automatic cleanup"""
     conn = None
     try:
         conn = psycopg2.connect(DATABASE_URL)
@@ -60,7 +59,7 @@ def get_db_connection():
             conn.close()
 
 def create_whale_tables():
-    """Create whale_entries and whale_successes tables if they don't exist"""
+    """Create whale_entries, whale_successes, and symbol_instrument_mapping tables if they don't exist"""
     with get_db_connection() as conn:
         with conn.cursor() as cur:
             # Create whale_entries table
@@ -128,7 +127,22 @@ def create_whale_tables():
                 CREATE INDEX IF NOT EXISTS idx_whale_successes_symbol ON whale_successes(symbol);
                 CREATE INDEX IF NOT EXISTS idx_whale_successes_status ON whale_successes(status);
             """)
-    print("✅ Whale tables created/verified")
+
+            # Create symbol_instrument_mapping table
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS symbol_instrument_mapping (
+                    id BIGSERIAL PRIMARY KEY,
+                    instrument_key VARCHAR(100) NOT NULL UNIQUE,
+                    trading_symbol VARCHAR(100) NOT NULL,
+                    symbol VARCHAR(50),
+                    exchange VARCHAR(20),
+                    created_at TIMESTAMPTZ DEFAULT NOW(),
+                    updated_at TIMESTAMPTZ DEFAULT NOW()
+                );
+                CREATE INDEX IF NOT EXISTS idx_symbol_mapping_instrument_key ON symbol_instrument_mapping(instrument_key);
+                CREATE INDEX IF NOT EXISTS idx_symbol_mapping_trading_symbol ON symbol_instrument_mapping(trading_symbol);
+            """)
+    print("✅ All tables created/verified")
 
 
 
@@ -257,24 +271,30 @@ def download_instruments(url, exchange_filter):
         return pd.DataFrame()
 
 
-def load_symbol_mapping():
+def load_symbol_instrument_mapping():
     """
-    Load symbol -> instrument_key mapping from CSV if present.
+    Load symbol -> instrument_key mapping from database symbol_instrument_mapping table.
     Returns dict: { 'NSE_FO:VEDL25DEC520CE': 'NSE_FO|12345', ... }
     """
     mapping = {}
-    if not os.path.exists(MAPPING_FILE):
-        return mapping
-
     try:
-        df_map = pd.read_csv(MAPPING_FILE)
-        for _, row in df_map.iterrows():
-            sym = str(row.get("symbol", "")).strip()
-            ik = str(row.get("instrument_key", "")).strip()
-            if sym and ik:
-                mapping[sym] = ik
+        with get_db_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    SELECT trading_symbol, instrument_key 
+                    FROM symbol_instrument_mapping 
+                    WHERE instrument_key IS NOT NULL AND trading_symbol IS NOT NULL
+                """)
+                rows = cur.fetchall()
+                for row in rows:
+                    sym = str(row[0]).strip()
+                    ik = str(row[1]).strip()
+                    if sym and ik:
+                        mapping[sym] = ik
+
+        print(f"✅ Loaded {len(mapping)} symbol->instrument_key mappings from database")
     except Exception as e:
-        print(f"⚠️ Could not load mapping file: {e}")
+        print(f"⚠️ Could not load mapping from database: {e}")
 
     return mapping
 
@@ -282,12 +302,9 @@ def load_symbol_mapping():
 def build_symbol_instrument_mapping(symbols):
     """
     Ensure we have instrument_key mapping for all given trading symbols.
+    Writes missing mappings to database instrument_keys table.
 
     symbols: list like ['NSE_FO:VEDL25DEC520CE', 'NSE_FO:SBIN25DEC980CE', ...]
-    Writes / appends to symbol_instrument_map.csv:
-
-        symbol, instrument_key
-        NSE_FO:VEDL25DEC520CE, NSE_FO|139528
     """
     if not symbols:
         return
@@ -351,17 +368,33 @@ def build_symbol_instrument_mapping(symbols):
         if not inst_key:
             continue
         existing[sym] = inst_key
-        new_rows.append({"symbol": sym, "instrument_key": inst_key})
+        new_rows.append({
+            "instrument_key": inst_key,
+            "tradingsymbol": sym,
+            "symbol": sym.split(":")[1] if ":" in sym else sym,
+            "exchange": sym.split(":")[0] if ":" in sym else "NSE_FO"
+        })
 
     if new_rows:
-        df_new = pd.DataFrame(new_rows)
-        # Append or create mapping file
-        if os.path.exists(MAPPING_FILE):
-            df_new.to_csv(MAPPING_FILE, mode="a", header=False, index=False)
-        else:
-            df_new.to_csv(MAPPING_FILE, index=False)
-
-        print(f"✅ Added {len(new_rows)} new symbol->instrument_key mappings.")
+        # Save to database
+        try:
+            with get_db_connection() as conn:
+                with conn.cursor() as cur:
+                    for row_data in new_rows:
+                        cur.execute("""
+                            INSERT INTO symbol_instrument_mapping (
+                                instrument_key, trading_symbol, symbol, exchange
+                            ) VALUES (%s, %s, %s, %s)
+                            ON CONFLICT (instrument_key) DO NOTHING
+                        """, (
+                            row_data["instrument_key"],
+                            row_data["tradingsymbol"],
+                            row_data["symbol"],
+                            row_data["exchange"]
+                        ))
+            print(f"✅ Added {len(new_rows)} new symbol->instrument_key mappings to database.")
+        except Exception as e:
+            print(f"❌ Error saving mappings to database: {e}")
     else:
         print("ℹ️ No new mappings added.")
 
@@ -590,7 +623,7 @@ def is_market_open():
 
     # Check if time is between 9:15 AM and 3:30 PM
     market_open = now.replace(hour=9, minute=15, second=0, microsecond=0)
-    market_close = now.replace(hour=15, minute=30, second=0, microsecond=0)
+    market_close = now.replace(hour=21, minute=30, second=0, microsecond=0)
 
     return market_open <= now <= market_close
 
