@@ -44,7 +44,7 @@ URL_MCX_FO = "https://assets.upstox.com/market-quote/instruments/exchange/MCX.cs
 
 @contextmanager
 def get_db_connection():
-    """Get a database connection with automatic cleanup"""
+    """Get a database connection with automatic cleanup."""
     conn = None
     try:
         conn = psycopg2.connect(DATABASE_URL)
