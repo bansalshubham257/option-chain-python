@@ -312,7 +312,7 @@ def build_symbol_instrument_mapping(symbols):
     symbols = sorted(set(str(s).strip() for s in symbols if s))
 
     # Load existing mapping (so we only add missing ones)
-    existing = load_symbol_mapping()
+    existing = load_symbol_instrument_mapping()
     missing = [s for s in symbols if s not in existing]
 
     if not missing:
@@ -464,21 +464,50 @@ def update_success_ltp_once():
             print("⚠️ No open positions found")
             return
 
-        # Collect all instrument keys for batch LTP fetch
+        # Collect all instrument keys for batch LTP fetch (extract just the key part, no colon)
         instrument_keys = [str(row[1]).split(':')[1] if ':' in str(row[1]) else str(row[1]) for row in rows]
 
-        # Fetch LTPs using Upstox API (if possible, otherwise we update with available data)
-        ltp_map = fetch_ltp_batch(instrument_keys)
+        # Load the mappings (they should already be in DB)
+        symbol_to_key_map = load_symbol_instrument_mapping()
+
+        # Skip building mappings if we already have them - just build for new ones if needed
+        all_symbols = [f"NSE_FO:{key}" for key in instrument_keys]
+        missing_symbols = [s for s in all_symbols if s not in symbol_to_key_map]
+        if missing_symbols:
+            build_symbol_instrument_mapping(missing_symbols)
+            # Reload after building
+            symbol_to_key_map = load_symbol_instrument_mapping()
+
+        # Fetch LTPs using Upstox API
+        # Convert symbols to full instrument keys (NSE_FO|12345 format)
+        full_instrument_keys = []
+        for sym in all_symbols:
+            if sym in symbol_to_key_map:
+                full_instrument_keys.append(symbol_to_key_map[sym])
+
+        # fetch_ltp_batch will return map with NSE_FO:SYMBOL as keys
+        ltp_map = fetch_ltp_batch(full_instrument_keys)
+
+        if not ltp_map:
+            print("⚠️ No LTP data received from API")
+            return
 
         now = time.strftime("%Y-%m-%d %H:%M:%S")
 
+        # Pre-fetch stock % change (once per update cycle, not per position)
+        stock_pct_cache = {}
+
         with get_db_connection() as conn:
             with conn.cursor() as cur:
+                updates_count = 0
+                updates_batch = []
+
                 for row in rows:
                     record_id, instrument_key, entry_price, qty, current_progress, max_high, max_low, current_status = row
 
-                    sym_key = str(instrument_key).split(':')[1] if ':' in str(instrument_key) else str(instrument_key)
-                    ltp = ltp_map.get(sym_key)
+                    # instrument_key from DB is in format NSE_FO:VEDL25DEC520CE
+                    # ltp_map keys are in same format NSE_FO:VEDL25DEC520CE
+                    ltp = ltp_map.get(instrument_key)
 
                     if ltp is None or entry_price is None or entry_price == 0:
                         continue
@@ -542,36 +571,66 @@ def update_success_ltp_once():
                         if max_low is None or pnl_pct < max_low:
                             max_low = pnl_pct
 
-                        # Get current stock % if needed
-                        _, stock_pct_change = get_daily_pct_change_for_underlying(instrument_key)
+                        # Get current stock % (cache per underlying, not per position)
+                        stock_pct_change = None
+                        underlying = extract_underlying_from_symbol(instrument_key)
+                        if underlying not in stock_pct_cache:
+                            _, stock_pct_change = get_daily_pct_change_for_underlying(instrument_key)
+                            stock_pct_cache[underlying] = stock_pct_change
+                        else:
+                            stock_pct_change = stock_pct_cache[underlying]
 
-                        cur.execute("""
-                            UPDATE whale_successes
-                            SET
-                                live_ltp = %s,
-                                live_pnl = %s,
-                                live_pnl_pct = %s,
-                                last_live_update = NOW(),
-                                progress_label = %s,
-                                max_return_high = %s,
-                                max_return_low = %s,
-                                status = %s,
-                                stock_pct_change_today = %s
-                            WHERE id = %s
-                        """, (
-                            round(ltp, 2), round(pnl_value, 2), round(pnl_pct, 2),
-                            progress_label, round(max_high, 2), round(max_low, 2),
+                        # Prepare values for update
+                        live_ltp_val = round(ltp, 2) if ltp else None
+                        live_pnl_val = round(pnl_value, 2) if pnl_value else None
+                        live_pnl_pct_val = round(pnl_pct, 2) if pnl_pct else None
+                        max_high_val = round(max_high, 2) if max_high else None
+                        max_low_val = round(max_low, 2) if max_low else None
+
+                        # Add to batch instead of executing individually
+                        updates_batch.append((
+                            live_ltp_val, live_pnl_val, live_pnl_pct_val,
+                            progress_label, max_high_val, max_low_val,
                             new_status, stock_pct_change, record_id
                         ))
+                        updates_count += 1
 
-        print(f"✅ Updated LTP & PnL for {len(rows)} positions at {now}")
+                # Execute all updates in batch (much faster)
+                if updates_batch:
+                    print(f"📝 Executing batch update with {len(updates_batch)} records...")
+                    cur.executemany("""
+                        UPDATE whale_successes
+                        SET
+                            live_ltp = %s,
+                            live_pnl = %s,
+                            live_pnl_pct = %s,
+                            last_live_update = NOW(),
+                            progress_label = %s,
+                            max_return_high = %s,
+                            max_return_low = %s,
+                            status = %s,
+                            stock_pct_change_today = %s
+                        WHERE id = %s
+                    """, updates_batch)
+                    print(f"✅ Batch update executed successfully")
+
+        print(f"✅ Updated LTP & PnL for {updates_count} positions at {now}")
 
     except Exception as e:
         print(f"⚠️ Error updating successes: {e}")
+        import traceback
+        traceback.print_exc()
 
 def fetch_ltp_batch(instrument_keys):
-    """Fetch LTP for batch of instruments"""
+    """Fetch LTP for batch of instruments and build mapping
+
+    instrument_keys: list of NSE_FO|67718 format keys
+    Returns: dict with NSE_FO:SYMBOL as key and last_price as value
+    Also populates symbol_instrument_mapping table with instrument_token data
+    """
     ltp_map = {}
+    instrument_token_map = {}  # To store NSE_FO:SYMBOL -> NSE_FO|token mapping
+
     if not instrument_keys:
         return ltp_map
 
@@ -599,12 +658,43 @@ def fetch_ltp_batch(instrument_keys):
                 if data.get("status") == "success":
                     for key, details in data.get("data", {}).items():
                         try:
+                            # key is in format NSE_FO:PAYTM25DEC1340CE
                             ltp = float(details.get("last_price", 0) or 0)
+                            instrument_token = details.get("instrument_token")  # NSE_FO|127301
+
+                            # Store LTP with the trading symbol key
                             ltp_map[key] = ltp
-                        except (ValueError, TypeError):
+
+                            # Store mapping for later (symbol -> instrument_token)
+                            if instrument_token:
+                                instrument_token_map[key] = instrument_token
+                        except (ValueError, TypeError) as e:
                             continue
         except Exception as e:
             print(f"⚠️ Error fetching LTP chunk: {e}")
+
+    # Update symbol_instrument_mapping table with instrument tokens
+    if instrument_token_map:
+        try:
+            with get_db_connection() as conn:
+                with conn.cursor() as cur:
+                    for symbol, instrument_token in instrument_token_map.items():
+                        # symbol is like NSE_FO:PAYTM25DEC1340CE
+                        # instrument_token is like NSE_FO|127301
+                        sym_part = symbol.split(':')[1] if ':' in symbol else symbol
+                        cur.execute("""
+                            INSERT INTO symbol_instrument_mapping (
+                                instrument_key, trading_symbol, symbol, exchange
+                            ) VALUES (%s, %s, %s, %s)
+                            ON CONFLICT (instrument_key) DO UPDATE SET trading_symbol = EXCLUDED.trading_symbol
+                        """, (
+                            instrument_token,  # NSE_FO|127301
+                            symbol,  # NSE_FO:PAYTM25DEC1340CE
+                            sym_part,  # PAYTM25DEC1340CE
+                            'NSE_FO'
+                        ))
+        except Exception as e:
+            print(f"⚠️ Error updating mapping table: {e}")
 
     return ltp_map
 
@@ -623,7 +713,7 @@ def is_market_open():
 
     # Check if time is between 9:15 AM and 3:30 PM
     market_open = now.replace(hour=9, minute=15, second=0, microsecond=0)
-    market_close = now.replace(hour=21, minute=30, second=0, microsecond=0)
+    market_close = now.replace(hour=15, minute=30, second=0, microsecond=0)
 
     return market_open <= now <= market_close
 
