@@ -421,6 +421,7 @@ def fetch_ltp_for_tokens(instrument_tokens):
     }
     url = f"{BASE_URL_V3}/market-quote/ltp"
     ltp_map = {}
+    api_response_map = {}  # Store API responses with their returned keys
 
     for chunk in chunked(instrument_tokens, MAX_KEYS_PER_CALL):
         try:
@@ -441,13 +442,19 @@ def fetch_ltp_for_tokens(instrument_tokens):
             for key, details in data.get("data", {}).items():
                 try:
                     ltp = float(details.get("last_price", 0) or 0)
-                    ltp_map[key] = ltp
+                    instrument_token = details.get("instrument_token")  # Get the instrument_token from API
+
+                    # Store both: API key (format: NSE_FO:SYMBOL) and instrument_token (format: NSE_FO|12345)
+                    ltp_map[key] = ltp  # Store with API key (NSE_FO:SYMBOL)
+                    if instrument_token:
+                        ltp_map[instrument_token] = ltp  # Also store with instrument_token (NSE_FO|12345)
+                        api_response_map[key] = instrument_token
                 except Exception:
                     continue
         except Exception as e:
             print(f"⚠️ Error in LTP fetch chunk: {e}")
 
-    print(f"✅ Fetched LTP for {len(ltp_map)} instruments")
+    print(f"✅ Fetched LTP for {len(ltp_map)} total entries ({len(set(api_response_map.values()))} unique instruments)")
     return ltp_map
 
 
@@ -474,6 +481,9 @@ def update_success_ltp_once():
         # Collect all instrument tokens directly from database
         instrument_tokens = [str(row[1]) for row in rows if row[1]]
 
+        print(f"📊 Found {len(rows)} open positions with {len(instrument_tokens)} instrument tokens")
+        print(f"   Sample tokens: {instrument_tokens[:3]}")
+
         # Fetch LTPs using instrument tokens directly
         ltp_map = fetch_ltp_for_tokens(instrument_tokens)
 
@@ -497,7 +507,13 @@ def update_success_ltp_once():
                     # Get LTP using instrument token directly from ltp_map
                     ltp = ltp_map.get(instrument_token)
 
-                    if ltp is None or entry_price is None or entry_price == 0:
+                    if ltp is None:
+                        # Debug: log why we're skipping
+                        print(f"  ⚠️ No LTP found for token: {instrument_token}")
+                        continue
+
+                    if entry_price is None or entry_price == 0:
+                        print(f"  ⚠️ Invalid entry_price for token {instrument_token}: {entry_price}")
                         continue
 
                     try:
@@ -583,24 +599,48 @@ def update_success_ltp_once():
                         ))
                         updates_count += 1
 
-                # Execute all updates in batch (much faster)
+                # Execute all updates in single query using temp table (much faster than executemany)
                 if updates_batch:
                     print(f"📝 Executing batch update with {len(updates_batch)} records...")
+
+                    # Create temporary table with update data (columns must match insert order)
+                    cur.execute("""
+                        CREATE TEMP TABLE batch_updates (
+                            live_ltp DECIMAL(10, 4),
+                            live_pnl DECIMAL(12, 4),
+                            live_pnl_pct DECIMAL(10, 4),
+                            progress_label VARCHAR(20),
+                            max_return_high DECIMAL(10, 4),
+                            max_return_low DECIMAL(10, 4),
+                            status VARCHAR(20),
+                            stock_pct_change_today DECIMAL(10, 4),
+                            id BIGINT
+                        )
+                    """)
+
+                    # Insert all updates into temp table
                     cur.executemany("""
-                        UPDATE whale_successes
-                        SET
-                            live_ltp = %s,
-                            live_pnl = %s,
-                            live_pnl_pct = %s,
-                            last_live_update = NOW(),
-                            progress_label = %s,
-                            max_return_high = %s,
-                            max_return_low = %s,
-                            status = %s,
-                            stock_pct_change_today = %s
-                        WHERE id = %s
+                        INSERT INTO batch_updates VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
                     """, updates_batch)
-                    print(f"✅ Batch update executed successfully")
+
+                    # Single UPDATE using JOIN (fastest method)
+                    cur.execute("""
+                        UPDATE whale_successes ws
+                        SET
+                            live_ltp = bu.live_ltp,
+                            live_pnl = bu.live_pnl,
+                            live_pnl_pct = bu.live_pnl_pct,
+                            last_live_update = NOW(),
+                            progress_label = bu.progress_label,
+                            max_return_high = bu.max_return_high,
+                            max_return_low = bu.max_return_low,
+                            status = bu.status,
+                            stock_pct_change_today = bu.stock_pct_change_today
+                        FROM batch_updates bu
+                        WHERE ws.id = bu.id
+                    """)
+
+                    print(f"✅ Batch update executed successfully in single query")
 
         print(f"✅ Updated LTP & PnL for {updates_count} positions at {now}")
 
@@ -699,8 +739,8 @@ def is_market_open():
         return False
 
     # Check if time is between 9:15 AM and 3:30 PM
-    market_open = now.replace(hour=9, minute=15, second=0, microsecond=0)
-    market_close = now.replace(hour=23, minute=30, second=0, microsecond=0)
+    market_open = now.replace(hour=9, minute=13, second=0, microsecond=0)
+    market_close = now.replace(hour=15, minute=31, second=0, microsecond=0)
 
     return market_open <= now <= market_close
 
