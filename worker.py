@@ -30,15 +30,15 @@ app.add_middleware(
         "https://aitradinglab.blogspot.com",
         "https://www.aitradinglab.in",
         "https://bansalshubham257.github.io",
-        "http://localhost:63342",
-        "http://localhost:10000",  # Add localhost with port 10000
-        "*"  # Allow all origins for development
+        "http://localhost:*",
+        "http://127.0.0.1:*",
     ],
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["*"],
+    expose_headers=["*"],
+    max_age=600,
 )
-
 # Shared data structure
 market_data: Dict[str, Dict[str, Any]] = {}
 active_subscription: List[str] = []
