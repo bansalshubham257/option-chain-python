@@ -58,6 +58,97 @@
           border-color: #60a5fa;
           box-shadow: 0 0 0 1px #60a5fa33;
         }
+        button#updateLiveBtn {
+          padding: 6px 12px;
+          background: #059669;
+          color: white;
+          border: none;
+          border-radius: 6px;
+          cursor: pointer;
+          font-weight: 600;
+          font-size: 0.85rem;
+          transition: all 0.3s ease;
+        }
+        button#updateLiveBtn:hover:not(:disabled) {
+          background: #047857;
+          box-shadow: 0 0 10px rgba(5, 150, 105, 0.3);
+        }
+        button#updateLiveBtn:disabled {
+          opacity: 0.6;
+          cursor: not-allowed;
+        }
+        button#updateLiveBtn:active:not(:disabled) {
+          background: #065f46;
+          transform: scale(0.98);
+        }
+        button#clearFiltersBtn {
+          padding: 6px 12px;
+          background: #ef4444;
+          color: white;
+          border: none;
+          border-radius: 6px;
+          cursor: pointer;
+          font-weight: 600;
+          font-size: 0.85rem;
+          transition: all 0.3s ease;
+        }
+        button#todayTradesBtn {
+          padding: 6px 12px;
+          background: #3b82f6;
+          color: white;
+          border: none;
+          border-radius: 6px;
+          cursor: pointer;
+          font-weight: 600;
+          font-size: 0.85rem;
+          transition: all 0.3s ease;
+          margin-right: 8px;
+        }
+        button#todayTradesBtn:hover {
+          background: #2563eb;
+          box-shadow: 0 0 10px rgba(59, 130, 246, 0.3);
+        }
+        button#todayTradesBtn:active {
+          background: #1d4ed8;
+          transform: scale(0.98);
+        }
+        button#clearFiltersBtn:hover {
+          background: #dc2626;
+          box-shadow: 0 0 10px rgba(239, 68, 68, 0.3);
+        }
+        button#clearFiltersBtn:active {
+          background: #b91c1c;
+          transform: scale(0.98);
+        }
+        input[type="number"] {
+          background: #020617;
+          color: #e5e7eb;
+          border: 1px solid #374151;
+          border-radius: 6px;
+          padding: 6px 8px;
+          font-size: 0.85rem;
+          outline: none;
+        }
+        input[type="number"]:focus {
+          border-color: #60a5fa;
+          box-shadow: 0 0 0 1px #60a5fa33;
+        }
+        input[type="checkbox"] {
+          cursor: pointer;
+          accent-color: #3b82f6;
+        }
+        input[type="checkbox"]:hover {
+          opacity: 0.8;
+        }
+        input[type="number"]:focus {
+          border-color: #60a5fa;
+          box-shadow: 0 0 0 1px #60a5fa33;
+        }
+        #liveUpdateStatus {
+          font-size: 0.7rem;
+          margin-top: 4px;
+          min-height: 14px;
+        }
         .table-wrapper {
           max-height: 70vh;
           overflow: auto;
@@ -380,6 +471,13 @@
 <div class="card">
     <div class="filters">
         <div class="filter-group">
+            <label>Live Updates</label>
+            <button id="updateLiveBtn" style="padding: 6px 12px; background: #059669; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: 600; font-size: 0.85rem;">
+                🔄 Fetch Live LTP
+            </button>
+            <div id="liveUpdateStatus" style="font-size: 0.7rem; color: #9ca3af; margin-top: 4px;">-</div>
+        </div>
+        <div class="filter-group">
             <label for="stockFilter">Stock</label>
             <select id="stockFilter">
                 <option value="">All</option>
@@ -412,6 +510,14 @@
             </select>
         </div>
         <div class="filter-group">
+            <label for="pnlTypeFilter">PnL Type</label>
+            <select id="pnlTypeFilter">
+                <option value="">All</option>
+                <option value="profit">Profit</option>
+                <option value="loss">Loss</option>
+            </select>
+        </div>
+        <div class="filter-group">
             <label for="progressLabelFilter">Progress Label</label>
             <select id="progressLabelFilter">
                 <option value="">All</option>
@@ -433,6 +539,29 @@
             <label>Day Filled (To)</label>
             <input type="date" id="dateToFilter" />
         </div>
+        <div class="filter-group">
+            <label>Return % (From)</label>
+            <input type="number" id="returnFromFilter" placeholder="e.g. -38" step="0.1" />
+        </div>
+        <div class="filter-group">
+            <label>Return % (To)</label>
+            <input type="number" id="returnToFilter" placeholder="e.g. -10" step="0.1" />
+        </div>
+        <div class="filter-group">
+            <label style="display: flex; align-items: center; gap: 8px; margin-top: 20px;">
+                <input type="checkbox" id="multipleEntriesFilter" style="cursor: pointer; width: 16px; height: 16px;" />
+                <span>Multiple Entries Only</span>
+            </label>
+        </div>
+        <div class="filter-group">
+            <label>&nbsp;</label>
+            <button id="todayTradesBtn" style="padding: 6px 12px; background: #3b82f6; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: 600; font-size: 0.85rem; margin-right: 8px;">
+                📅 Today's Trades
+            </button>
+            <button id="clearFiltersBtn" style="padding: 6px 12px; background: #ef4444; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: 600; font-size: 0.85rem;">
+                🔄 Clear All Filters
+            </button>
+        </div>
     </div>
 
     <div class="table-wrapper">
@@ -446,7 +575,7 @@
                 <th>Option</th>
                 <th>Role</th>
                 <th class="sortable" data-sort-key="price">Entry Price<span class="sort-indicator"></span></th>
-                <th class="sortable" data-sort-key="ltp">Current LTP<span class="sort-indicator"></span></th>
+                <th class="sortable" data-sort-key="ltp">Live LTP 🔴<span class="sort-indicator"></span></th>
                 <th class="sortable" data-sort-key="pnlPct">Return<span class="sort-indicator"></span></th>
                 <th class="sortable" data-sort-key="maxReturnHigh">Max High %<span class="sort-indicator"></span></th>
                 <th class="sortable" data-sort-key="maxReturnLow">Max Low %<span class="sort-indicator"></span></th>
@@ -484,6 +613,7 @@
     document.addEventListener("DOMContentLoaded", () => {
       attachFilterListeners();
       attachSortListeners();
+      attachLiveUpdateListeners();
       loadDataFromDB();
       // Load and restore filters AFTER data loads (so stock dropdown is populated)
       setTimeout(() => {
@@ -491,6 +621,7 @@
         applyFiltersAndRender();
       }, 100);
       startAutoRefresh();
+      startAutoLiveUpdate();
     });
 
     // Save filters before page unload/refresh
@@ -517,9 +648,13 @@
         optionType: document.getElementById("optionTypeFilter").value,
         strikeType: document.getElementById("strikeTypeFilter").value,
         status: document.getElementById("statusFilter").value,
+        pnlType: document.getElementById("pnlTypeFilter").value,
         progressLabel: document.getElementById("progressLabelFilter").value,
         dateFrom: document.getElementById("dateFromFilter").value,
         dateTo: document.getElementById("dateToFilter").value,
+        returnFrom: document.getElementById("returnFromFilter").value,
+        returnTo: document.getElementById("returnToFilter").value,
+        multipleEntriesOnly: document.getElementById("multipleEntriesFilter").checked,
         sortKey: currentSortKey,
         sortDir: currentSortDir
       };
@@ -539,9 +674,13 @@
         if (filterState.optionType) document.getElementById("optionTypeFilter").value = filterState.optionType;
         if (filterState.strikeType) document.getElementById("strikeTypeFilter").value = filterState.strikeType;
         if (filterState.status) document.getElementById("statusFilter").value = filterState.status;
+        if (filterState.pnlType) document.getElementById("pnlTypeFilter").value = filterState.pnlType;
         if (filterState.progressLabel) document.getElementById("progressLabelFilter").value = filterState.progressLabel;
         if (filterState.dateFrom) document.getElementById("dateFromFilter").value = filterState.dateFrom;
         if (filterState.dateTo) document.getElementById("dateToFilter").value = filterState.dateTo;
+        if (filterState.returnFrom) document.getElementById("returnFromFilter").value = filterState.returnFrom;
+        if (filterState.returnTo) document.getElementById("returnToFilter").value = filterState.returnTo;
+        if (filterState.multipleEntriesOnly) document.getElementById("multipleEntriesFilter").checked = filterState.multipleEntriesOnly;
         // Restore sort state
         if (filterState.sortKey) currentSortKey = filterState.sortKey;
         if (filterState.sortDir) currentSortDir = filterState.sortDir;
@@ -583,6 +722,143 @@
       } catch (e) {
         console.error("Error loading expanded rows state:", e);
       }
+    }
+
+    // Start auto-refresh: Load fresh data from DB while preserving filters
+    function startAutoRefresh() {
+      setInterval(() => {
+        // Save current filters before refresh
+        saveFilterStateToStorage();
+        // Fetch fresh data and re-apply filters silently
+        loadDataFromDBSilent();
+      }, REFRESH_INTERVAL);
+    }
+
+    // Attach live update button listener
+    function attachLiveUpdateListeners() {
+      const btn = document.getElementById("updateLiveBtn");
+      if (btn) {
+        btn.addEventListener("click", () => {
+          fetchAndUpdateLiveLTP();
+        });
+      }
+    }
+
+    // Fetch live LTP data from the new API endpoint
+    async function fetchAndUpdateLiveLTP() {
+      const btn = document.getElementById("updateLiveBtn");
+      const statusEl = document.getElementById("liveUpdateStatus");
+
+      try {
+        btn.disabled = true;
+        btn.textContent = "⏳ Fetching...";
+        statusEl.textContent = "Fetching live LTP from Upstox API...";
+        statusEl.style.color = "#fbbf24";
+
+        // Determine which status to fetch based on filter
+        const statusFilter = document.getElementById("statusFilter").value;
+        const statusParam = statusFilter || "all";
+
+        const resp = await fetch(`${API_BASE_URL}/update-live-ltp?status=${statusParam}&limit=10000`);
+
+        if (!resp.ok) {
+          throw new Error(`API error: ${resp.status}`);
+        }
+
+        const json = await resp.json();
+
+        if (json.status !== 'success') {
+          throw new Error(json.message || "API returned error");
+        }
+
+        // Update the allGroups with live LTP data
+        updateGroupsWithLiveLTP(json.data);
+
+        // Re-render the table with updated data
+        applyFiltersAndRender();
+
+        // Update UI feedback
+        const now = new Date().toLocaleTimeString();
+        statusEl.textContent = `✓ Updated ${json.updated_count} positions at ${now}`;
+        statusEl.style.color = "#4ade80";
+        btn.textContent = "🔄 Fetch Live LTP";
+
+      } catch (error) {
+        console.error("Live LTP fetch error:", error);
+        statusEl.textContent = `✗ Error: ${error.message}`;
+        statusEl.style.color = "#f87171";
+        btn.textContent = "🔄 Fetch Live LTP";
+      } finally {
+        btn.disabled = false;
+      }
+    }
+
+    // Update groups with live LTP data from API
+    function updateGroupsWithLiveLTP(liveData) {
+      if (!liveData || liveData.length === 0) return;
+
+      // Create a map for quick lookup
+      const liveMap = new Map();
+      for (const record of liveData) {
+        const key = `${record.symbol}|${record.entry_price}`;
+        liveMap.set(key, record);
+      }
+
+      // Update each group with live data
+      for (const group of allGroups) {
+        const primary = group.primary;
+
+        // Try to find matching live data
+        for (const record of liveData) {
+          if (record.symbol === primary.stock &&
+              Math.abs(parseFloat(record.entry_price) - primary.price) < 0.01) {
+
+            // Update with live LTP
+            const liveLtp = parseFloat(record.live_ltp);
+            const entryPrice = parseFloat(record.entry_price);
+
+            // Recalculate PnL with live LTP
+            let pnlAbs = null;
+            let pnlPct = null;
+
+            if (!isNaN(entryPrice) && entryPrice !== 0 && !isNaN(liveLtp)) {
+              pnlAbs = liveLtp - entryPrice;
+              pnlPct = (pnlAbs / entryPrice) * 100;
+            }
+
+            // Update primary group entry
+            primary.ltp = liveLtp;
+            primary.pnlAbs = pnlAbs;
+            primary.pnlPct = pnlPct;
+
+            // Update display status based on live PnL
+            if (record.live_progress === "done" || pnlPct >= 100) {
+              primary.displayStatus = "done";
+            }
+
+            // Update all items in the group with live LTP
+            for (const item of group.items) {
+              item.ltp = liveLtp;
+              item.pnlAbs = pnlAbs;
+              item.pnlPct = pnlPct;
+            }
+
+            break;
+          }
+        }
+      }
+    }
+
+    // Auto-update live LTP every 10 seconds (configurable)
+    const LIVE_LTP_REFRESH_INTERVAL = 10000; // 10 seconds
+    function startAutoLiveUpdate() {
+      setInterval(() => {
+        // Only auto-update if viewing "open" positions
+        const statusFilter = document.getElementById("statusFilter").value;
+        if (statusFilter === "open" || statusFilter === "") {
+          fetchAndUpdateLiveLTP();
+        }
+      }, LIVE_LTP_REFRESH_INTERVAL);
     }
 
     // Start auto-refresh: Load fresh data from DB while preserving filters
@@ -932,9 +1208,56 @@
       document.getElementById("optionTypeFilter").addEventListener("change", saveAndRender);
       document.getElementById("strikeTypeFilter").addEventListener("change", saveAndRender);
       document.getElementById("statusFilter").addEventListener("change", saveAndRender);
+      document.getElementById("pnlTypeFilter").addEventListener("change", saveAndRender);
       document.getElementById("progressLabelFilter").addEventListener("change", saveAndRender);
       document.getElementById("dateFromFilter").addEventListener("change", saveAndRender);
       document.getElementById("dateToFilter").addEventListener("change", saveAndRender);
+      document.getElementById("returnFromFilter").addEventListener("change", saveAndRender);
+      document.getElementById("returnToFilter").addEventListener("change", saveAndRender);
+      document.getElementById("multipleEntriesFilter").addEventListener("change", saveAndRender);
+
+
+      // Clear filters button
+      document.getElementById("clearFiltersBtn").addEventListener("click", clearAllFilters);
+
+      // Today's trades button
+      document.getElementById("todayTradesBtn").addEventListener("click", showTodaysTrades);
+    }
+
+    function clearAllFilters() {
+      // Reset all filter inputs to their default values
+      document.getElementById("stockFilter").value = "";
+      document.getElementById("optionTypeFilter").value = "";
+      document.getElementById("strikeTypeFilter").value = "";
+      document.getElementById("statusFilter").value = "open";
+      document.getElementById("pnlTypeFilter").value = "";
+      document.getElementById("progressLabelFilter").value = "";
+      document.getElementById("dateFromFilter").value = "";
+      document.getElementById("dateToFilter").value = "";
+      document.getElementById("returnFromFilter").value = "";
+      document.getElementById("returnToFilter").value = "";
+      document.getElementById("multipleEntriesFilter").checked = false;
+
+      // Apply filters and save state
+      applyFiltersAndRender();
+      saveFilterStateToStorage();
+    }
+
+    function showTodaysTrades() {
+      // Get today's date in YYYY-MM-DD format
+      const today = new Date();
+      const year = today.getFullYear();
+      const month = String(today.getMonth() + 1).padStart(2, '0');
+      const day = String(today.getDate()).padStart(2, '0');
+      const todayStr = `${year}-${month}-${day}`;
+
+      // Set date filters to today only
+      document.getElementById("dateFromFilter").value = todayStr;
+      document.getElementById("dateToFilter").value = todayStr;
+
+      // Apply filters and save state
+      applyFiltersAndRender();
+      saveFilterStateToStorage();
     }
 
     function attachSortListeners() {
@@ -975,12 +1298,19 @@
       const optFilter   = document.getElementById("optionTypeFilter").value;
       const strikeFilter= document.getElementById("strikeTypeFilter").value;
       const statusFilter= document.getElementById("statusFilter").value;
+      const pnlTypeFilter = document.getElementById("pnlTypeFilter").value;
       const progressLabelFilter = document.getElementById("progressLabelFilter").value;
       const dateFromVal = document.getElementById("dateFromFilter").value;
       const dateToVal   = document.getElementById("dateToFilter").value;
+      const returnFromVal = document.getElementById("returnFromFilter").value;
+      const returnToVal = document.getElementById("returnToFilter").value;
+      const multipleEntriesOnly = document.getElementById("multipleEntriesFilter").checked;
 
       const fromDate = dateFromVal ? new Date(dateFromVal + "T00:00:00") : null;
       const toDate   = dateToVal ? new Date(dateToVal + "T23:59:59") : null;
+
+      const returnFromNum = returnFromVal !== "" ? parseFloat(returnFromVal) : null;
+      const returnToNum = returnToVal !== "" ? parseFloat(returnToVal) : null;
 
       filteredGroups = allGroups.filter(g => {
         const e = g.primary;
@@ -993,6 +1323,12 @@
 
         if (statusFilter && e.displayStatus !== statusFilter) return false;
 
+        // Filter by PnL Type (Profit/Loss/Both)
+        if (pnlTypeFilter) {
+          if (pnlTypeFilter === "profit" && e.pnlPct <= 0) return false;  // Show only profit trades
+          if (pnlTypeFilter === "loss" && e.pnlPct >= 0) return false;    // Show only loss trades
+        }
+
         if (progressLabelFilter && e.progressLabel !== progressLabelFilter) return false;
 
         if (fromDate || toDate) {
@@ -1001,6 +1337,16 @@
           if (fromDate && d < fromDate) return false;
           if (toDate && d > toDate) return false;
         }
+
+        // Filter by Return % Range
+        if (returnFromNum !== null || returnToNum !== null) {
+          if (e.pnlPct === null) return false;  // Skip if no PnL data
+          if (returnFromNum !== null && e.pnlPct < returnFromNum) return false;
+          if (returnToNum !== null && e.pnlPct > returnToNum) return false;
+        }
+
+        // Filter by Multiple Entries
+        if (multipleEntriesOnly && g.items.length <= 1) return false;
 
         return true;
       });
