@@ -18,6 +18,8 @@ import psycopg2
 from contextlib import contextmanager
 import os
 from datetime import datetime
+import requests
+import time
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -29,6 +31,96 @@ CORS(app)  # Enable CORS for all routes
 
 # Database connection
 DATABASE_URL = os.getenv('DATABASE_URL', 'postgresql://postgres:LZjgyzthYpacmWhOSAnDMnMWxkntEEqe@switchback.proxy.rlwy.net:22297/railway')
+
+# Upstox API Configuration
+BASE_URL_V3 = "https://api.upstox.com/v3"
+MAX_KEYS_PER_CALL = 450
+
+def get_access_token():
+    """Fetch access token from database"""
+    try:
+        with get_db_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    SELECT access_token 
+                    FROM upstox_accounts 
+                    WHERE id = 5
+                    LIMIT 1
+                """)
+                result = cur.fetchone()
+                return result[0] if result else None
+    except Exception as e:
+        logging.error(f"Error fetching access token: {e}")
+        return None
+
+def chunked(lst, size):
+    """Split list into chunks of given size"""
+    for i in range(0, len(lst), size):
+        yield lst[i:i+size]
+
+def fetch_live_ltp_from_upstox(instrument_tokens):
+    """
+    Fetch live LTP from Upstox API for given instrument tokens.
+
+    Args:
+        instrument_tokens: list of instrument tokens like ['NSE_FO|139528', 'NSE_FO|98765']
+
+    Returns:
+        dict: {instrument_token: ltp_value, ...}
+    """
+    if not instrument_tokens:
+        return {}
+
+    access_token = get_access_token()
+    if not access_token:
+        logging.error("❌ Access token not found")
+        return {}
+
+    headers = {
+        "Accept": "application/json",
+        "Authorization": f"Bearer {access_token}",
+    }
+
+    ltp_map = {}
+    url = f"{BASE_URL_V3}/market-quote/ltp"
+
+    # Fetch in chunks to respect API limits
+    for chunk in chunked(instrument_tokens, MAX_KEYS_PER_CALL):
+        try:
+            params = {"instrument_key": ",".join(chunk)}
+            resp = requests.get(url, headers=headers, params=params, timeout=10)
+
+            if resp.status_code != 200:
+                logging.warning(f"⚠️ Upstox API error: status {resp.status_code}")
+                continue
+
+            data = resp.json()
+            if data.get("status") != "success":
+                logging.warning(f"⚠️ API response not successful: {data.get('message', 'Unknown error')}")
+                continue
+
+            # Extract LTP from response
+            for key, details in data.get("data", {}).items():
+                try:
+                    ltp = float(details.get("last_price", 0) or 0)
+                    # Store both by the returned key and the instrument_token
+                    ltp_map[key] = ltp
+                    instrument_token = details.get("instrument_token")
+                    if instrument_token:
+                        ltp_map[instrument_token] = ltp
+                except (ValueError, TypeError):
+                    continue
+
+            # Small delay between chunks to avoid rate limiting
+            time.sleep(0.1)
+
+        except requests.Timeout:
+            logging.warning(f"⚠️ Timeout fetching LTP for chunk")
+        except Exception as e:
+            logging.error(f"⚠️ Error fetching LTP: {e}")
+
+    logging.info(f"✅ Fetched live LTP for {len(ltp_map)} instruments")
+    return ltp_map
 
 @contextmanager
 def get_db_connection():
@@ -805,6 +897,165 @@ def get_bottom_performers():
 
 
 # ============================================================================
+# LIVE LTP UPDATE ENDPOINTS
+# ============================================================================
+
+@app.route('/update-live-ltp', methods=['GET'])
+def update_live_ltp():
+    """
+    Fetch live LTP from Upstox API for all whale_successes records and return updated data.
+
+    This endpoint:
+    1. Fetches all instrument tokens from whale_successes table
+    2. Calls Upstox API to get live LTP for those instruments
+    3. Calculates live PnL based on latest LTP
+    4. Returns dashboard data with live LTP and PnL
+
+    Query Parameters:
+        status: 'all', 'open', or 'done' (default: 'all')
+        limit: number of records to return (default: 1000)
+
+    Returns:
+        JSON with live LTP data and calculated PnL for dashboard display
+    """
+    try:
+        status = request.args.get('status', 'all')
+        limit = int(request.args.get('limit', 1000))
+
+        with get_db_connection() as conn:
+            with conn.cursor() as cur:
+                # Fetch all records with their instrument tokens and entry details
+                if status != 'all':
+                    cur.execute("""
+                        SELECT id, instrument_token, symbol, option_type, side, qty, price, status, 
+                               progress_label, max_return_high, max_return_low
+                        FROM whale_successes
+                        WHERE status = %s AND instrument_token IS NOT NULL
+                        ORDER BY timestamp DESC
+                        LIMIT %s
+                    """, (status, limit))
+                else:
+                    cur.execute("""
+                        SELECT id, instrument_token, symbol, option_type, side, qty, price, status, 
+                               progress_label, max_return_high, max_return_low
+                        FROM whale_successes
+                        WHERE instrument_token IS NOT NULL
+                        ORDER BY timestamp DESC
+                        LIMIT %s
+                    """, (limit,))
+
+                rows = cur.fetchall()
+
+        if not rows:
+            return jsonify({
+                'status': 'success',
+                'count': 0,
+                'data': [],
+                'message': 'No records with instrument tokens found'
+            })
+
+        # Extract instrument tokens and fetch live LTP
+        instrument_tokens = [str(row[1]) for row in rows if row[1]]
+        logging.info(f"📊 Fetching live LTP for {len(instrument_tokens)} instruments")
+
+        ltp_map = fetch_live_ltp_from_upstox(instrument_tokens)
+
+        if not ltp_map:
+            logging.warning("⚠️ No LTP data received from Upstox API")
+            return jsonify({
+                'status': 'error',
+                'message': 'Failed to fetch LTP from Upstox API',
+                'count': 0,
+                'data': []
+            }), 500
+
+        # Build response with live LTP and calculated PnL
+        data = []
+        updated_count = 0
+
+        for row in rows:
+            record_id, instrument_token, symbol, option_type, side, qty, entry_price, rec_status, progress_label, max_high, max_low = row
+
+            # Get live LTP
+            live_ltp = ltp_map.get(instrument_token)
+
+            if live_ltp is None:
+                logging.debug(f"⚠️ No LTP found for token: {instrument_token}")
+                continue
+
+            if entry_price is None or entry_price == 0:
+                logging.debug(f"⚠️ Invalid entry price for {instrument_token}")
+                continue
+
+            try:
+                entry_price = float(entry_price)
+                qty = float(qty) if qty else 1
+                live_ltp = float(live_ltp)
+            except (ValueError, TypeError):
+                continue
+
+            # Calculate live PnL
+            pnl_per_unit = live_ltp - entry_price
+            pnl_value = pnl_per_unit * qty
+            pnl_pct = (pnl_per_unit / entry_price) * 100 if entry_price != 0 else 0
+
+            # Determine progress label based on live PnL
+            if pnl_pct >= 94:
+                live_progress = "done"
+            elif pnl_pct >= 75:
+                live_progress = "+75%"
+            elif pnl_pct >= 50:
+                live_progress = "+50%"
+            elif pnl_pct >= 25:
+                live_progress = "+25%"
+            elif pnl_pct >= -25:
+                live_progress = "running"
+            elif pnl_pct >= -50:
+                live_progress = "-25%"
+            elif pnl_pct >= -75:
+                live_progress = "-50%"
+            else:
+                live_progress = "-75%"
+
+            data.append({
+                'id': record_id,
+                'instrument_token': instrument_token,
+                'symbol': symbol,
+                'option_type': option_type,
+                'side': side,
+                'qty': qty,
+                'entry_price': round(float(entry_price), 2),
+                'live_ltp': round(live_ltp, 2),
+                'live_pnl': round(pnl_value, 2),
+                'live_pnl_pct': round(pnl_pct, 2),
+                'status': rec_status,
+                'progress_label': progress_label,
+                'live_progress': live_progress,
+                'max_return_high': float(max_high) if max_high else None,
+                'max_return_low': float(max_low) if max_low else None,
+                'timestamp': datetime.now().isoformat()
+            })
+            updated_count += 1
+
+        logging.info(f"✅ Updated live LTP for {updated_count} positions")
+
+        return jsonify({
+            'status': 'success',
+            'count': len(data),
+            'updated_count': updated_count,
+            'message': f'Live LTP fetched for {updated_count} instruments',
+            'data': data,
+            'timestamp': datetime.now().isoformat()
+        })
+
+    except Exception as e:
+        logging.error(f"Error updating live LTP: {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
+
+# ============================================================================
 # UTILITY ENDPOINTS
 # ============================================================================
 
@@ -845,6 +1096,9 @@ def root():
                 'top_performers': 'GET /top-performers - Top performing trades',
                 'bottom_performers': 'GET /bottom-performers - Worst performing trades',
             },
+            'live_data': {
+                'update_live_ltp': 'GET /update-live-ltp - Fetch live LTP from Upstox and update dashboard with latest prices & PnL',
+            },
             'utility': {
                 'health': 'GET /health - Health check',
                 'root': 'GET / - This endpoint',
@@ -864,6 +1118,7 @@ if __name__ == '__main__':
     logger.info(f"📝 Features:")
     logger.info(f"   - Raw data endpoints: /successes, /entries, /stats")
     logger.info(f"   - Dashboard analytics: /overview, /success-table, /pnl-timeline, /symbol-performance, /progress-distribution, /top-performers, /bottom-performers")
+    logger.info(f"   - Live data: /update-live-ltp (fetch live LTP from Upstox API)")
 
     # Only run development server if not using Gunicorn
     app.run(host='0.0.0.0', port=port, debug=debug, use_reloader=False)
