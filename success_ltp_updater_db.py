@@ -467,7 +467,7 @@ def update_success_ltp_once():
             with conn.cursor() as cur:
                 # Get all open positions with instrument_token
                 cur.execute("""
-                    SELECT id, instrument_token, price, qty, progress_label, max_return_high, max_return_low, status
+                    SELECT id, instrument_token, price, qty, progress_label, max_return_high, max_return_low, status, progress_history
                     FROM whale_successes
                     WHERE status != 'done' AND instrument_token IS NOT NULL
                     ORDER BY timestamp DESC
@@ -501,8 +501,11 @@ def update_success_ltp_once():
                 updates_count = 0
                 updates_batch = []
 
+                # Define milestone thresholds for storing LTP in DB
+                MILESTONE_THRESHOLDS = [25, 50, 75, 90]
+
                 for row in rows:
-                    record_id, instrument_token, entry_price, qty, current_progress, max_high, max_low, current_status = row
+                    record_id, instrument_token, entry_price, qty, current_progress, max_high, max_low, current_status, progress_history = row
 
                     # Get LTP using instrument token directly from ltp_map
                     ltp = ltp_map.get(instrument_token)
@@ -565,9 +568,19 @@ def update_success_ltp_once():
                     else:
                         progress_label = current_progress or "running"
 
-                    # Track progress history
+                    # Track progress history - build history string with progress transitions
                     if progress_label:
                         new_status = "done" if pnl_pct >= 94 else (current_status or "open")
+
+                        # Build progress history: keep existing and append new if changed
+                        updated_progress_history = progress_history or ""
+                        if progress_label != current_progress:
+                            # Progress has changed, add to history
+                            timestamp_str = now
+                            if updated_progress_history:
+                                updated_progress_history += f"|{timestamp_str}:{progress_label}"
+                            else:
+                                updated_progress_history = f"{timestamp_str}:{progress_label}"
 
                         # Update max high and low
                         if max_high is None or pnl_pct > max_high:
@@ -591,11 +604,28 @@ def update_success_ltp_once():
                         max_high_val = round(max_high, 2) if max_high else None
                         max_low_val = round(max_low, 2) if max_low else None
 
+                        # Check if we've hit a milestone threshold to store LTP in DB
+                        should_store_ltp = False
+                        for threshold in MILESTONE_THRESHOLDS:
+                            if pnl_pct >= threshold:
+                                should_store_ltp = True
+                                break
+
+                        # Also store if profit >= 90% (done condition)
+                        if pnl_pct >= 90:
+                            should_store_ltp = True
+
                         # Add to batch instead of executing individually
+                        # NOW: Store live_ltp, live_pnl, live_pnl_pct in DB when hitting milestones
+                        # This ensures we capture prices at key profit levels
                         updates_batch.append((
-                            live_ltp_val, live_pnl_val, live_pnl_pct_val,
                             progress_label, max_high_val, max_low_val,
-                            new_status, stock_pct_change, record_id
+                            new_status, stock_pct_change,
+                            live_ltp_val if should_store_ltp else None,
+                            live_pnl_val if should_store_ltp else None,
+                            live_pnl_pct_val if should_store_ltp else None,
+                            updated_progress_history,
+                            record_id
                         ))
                         updates_count += 1
 
@@ -604,38 +634,42 @@ def update_success_ltp_once():
                     print(f"📝 Executing batch update with {len(updates_batch)} records...")
 
                     # Create temporary table with update data (columns must match insert order)
+                    # NOW: Include live_ltp, live_pnl, live_pnl_pct for milestone tracking
                     cur.execute("""
                         CREATE TEMP TABLE batch_updates (
-                            live_ltp DECIMAL(10, 4),
-                            live_pnl DECIMAL(12, 4),
-                            live_pnl_pct DECIMAL(10, 4),
                             progress_label VARCHAR(20),
                             max_return_high DECIMAL(10, 4),
                             max_return_low DECIMAL(10, 4),
                             status VARCHAR(20),
                             stock_pct_change_today DECIMAL(10, 4),
+                            live_ltp DECIMAL(10, 4),
+                            live_pnl DECIMAL(12, 4),
+                            live_pnl_pct DECIMAL(10, 4),
+                            progress_history TEXT,
                             id BIGINT
                         )
                     """)
 
                     # Insert all updates into temp table
                     cur.executemany("""
-                        INSERT INTO batch_updates VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        INSERT INTO batch_updates VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
                     """, updates_batch)
 
                     # Single UPDATE using JOIN (fastest method)
+                    # NOW: Update live_ltp, live_pnl, live_pnl_pct when they have values
                     cur.execute("""
                         UPDATE whale_successes ws
                         SET
-                            live_ltp = bu.live_ltp,
-                            live_pnl = bu.live_pnl,
-                            live_pnl_pct = bu.live_pnl_pct,
                             last_live_update = NOW(),
                             progress_label = bu.progress_label,
                             max_return_high = bu.max_return_high,
                             max_return_low = bu.max_return_low,
                             status = bu.status,
-                            stock_pct_change_today = bu.stock_pct_change_today
+                            stock_pct_change_today = bu.stock_pct_change_today,
+                            live_ltp = COALESCE(bu.live_ltp, ws.live_ltp),
+                            live_pnl = COALESCE(bu.live_pnl, ws.live_pnl),
+                            live_pnl_pct = COALESCE(bu.live_pnl_pct, ws.live_pnl_pct),
+                            progress_history = COALESCE(NULLIF(bu.progress_history, ''), ws.progress_history)
                         FROM batch_updates bu
                         WHERE ws.id = bu.id
                     """)
