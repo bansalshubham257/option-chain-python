@@ -68,6 +68,7 @@ def create_whale_tables():
                     id BIGSERIAL PRIMARY KEY,
                     timestamp TIMESTAMPTZ DEFAULT NOW(),
                     instrument_key VARCHAR(100) NOT NULL,
+                    instrument_token VARCHAR(100),
                     symbol VARCHAR(50) NOT NULL,
                     option_type CHAR(2),
                     side VARCHAR(10) NOT NULL,
@@ -86,6 +87,7 @@ def create_whale_tables():
                 CREATE INDEX IF NOT EXISTS idx_whale_entries_unique_key ON whale_entries(unique_key);
                 CREATE INDEX IF NOT EXISTS idx_whale_entries_timestamp ON whale_entries(timestamp DESC);
                 CREATE INDEX IF NOT EXISTS idx_whale_entries_symbol ON whale_entries(symbol);
+                CREATE INDEX IF NOT EXISTS idx_whale_entries_instrument_token ON whale_entries(instrument_token);
             """)
 
             # Create whale_successes table
@@ -94,6 +96,7 @@ def create_whale_tables():
                     id BIGSERIAL PRIMARY KEY,
                     timestamp TIMESTAMPTZ DEFAULT NOW(),
                     instrument_key VARCHAR(100) NOT NULL,
+                    instrument_token VARCHAR(100),
                     symbol VARCHAR(50) NOT NULL,
                     strike DECIMAL(10, 2),
                     option_type CHAR(2),
@@ -126,6 +129,7 @@ def create_whale_tables():
                 CREATE INDEX IF NOT EXISTS idx_whale_successes_timestamp ON whale_successes(timestamp DESC);
                 CREATE INDEX IF NOT EXISTS idx_whale_successes_symbol ON whale_successes(symbol);
                 CREATE INDEX IF NOT EXISTS idx_whale_successes_status ON whale_successes(status);
+                CREATE INDEX IF NOT EXISTS idx_whale_successes_instrument_token ON whale_successes(instrument_token);
             """)
 
             # Create symbol_instrument_mapping table
@@ -401,13 +405,14 @@ def build_symbol_instrument_mapping(symbols):
 
 # ==== LTP FETCH USING v3 & instrument_key ====
 
-def fetch_ltp_for_instrument_keys(instrument_keys):
+def fetch_ltp_for_tokens(instrument_tokens):
     """
-    instrument_keys: list like ['NSE_FO|139528', 'NSE_FO|98765', ...]
-    Uses Upstox v3 /market-quote/ltp with instrument_key param.
+    Fetch LTP directly using instrument tokens without needing mapping tables.
+
+    instrument_tokens: list like ['NSE_FO|139528', 'NSE_FO|98765', ...]
     Returns: dict { 'NSE_FO|139528': 24.35, ... }
     """
-    if not instrument_keys:
+    if not instrument_tokens:
         return {}
 
     headers = {
@@ -417,7 +422,7 @@ def fetch_ltp_for_instrument_keys(instrument_keys):
     url = f"{BASE_URL_V3}/market-quote/ltp"
     ltp_map = {}
 
-    for chunk in chunked(instrument_keys, MAX_KEYS_PER_CALL):
+    for chunk in chunked(instrument_tokens, MAX_KEYS_PER_CALL):
         try:
             params = {"instrument_key": ",".join(chunk)}
             resp = requests.get(url, headers=headers, params=params)
@@ -427,20 +432,22 @@ def fetch_ltp_for_instrument_keys(instrument_keys):
                 print("⚠️ Failed to decode LTP JSON:", resp.text)
                 continue
 
-            print("Fetching LTP for chunk, API status:", data.get("status"))
+            print(f"📊 Fetching LTP for {len(chunk)} instruments, API status: {data.get('status')}")
 
             if resp.status_code != 200 or data.get("status") != "success":
                 print("  ↳ Error body:", data)
                 continue
 
-            for key, details in data["data"].items():
+            for key, details in data.get("data", {}).items():
                 try:
-                    ltp_map[key] = float(details.get("last_price", 0) or 0)
+                    ltp = float(details.get("last_price", 0) or 0)
+                    ltp_map[key] = ltp
                 except Exception:
                     continue
         except Exception as e:
             print(f"⚠️ Error in LTP fetch chunk: {e}")
-    #print("LTP fetch complete, total keys fetched:", ltp_map)
+
+    print(f"✅ Fetched LTP for {len(ltp_map)} instruments")
     return ltp_map
 
 
@@ -451,11 +458,11 @@ def update_success_ltp_once():
     try:
         with get_db_connection() as conn:
             with conn.cursor() as cur:
-                # Get all open positions
+                # Get all open positions with instrument_token
                 cur.execute("""
-                    SELECT id, instrument_key, price, qty, progress_label, max_return_high, max_return_low, status
+                    SELECT id, instrument_token, price, qty, progress_label, max_return_high, max_return_low, status
                     FROM whale_successes
-                    WHERE status != 'done'
+                    WHERE status != 'done' AND instrument_token IS NOT NULL
                     ORDER BY timestamp DESC
                 """)
                 rows = cur.fetchall()
@@ -464,29 +471,11 @@ def update_success_ltp_once():
             print("⚠️ No open positions found")
             return
 
-        # Collect all instrument keys for batch LTP fetch (extract just the key part, no colon)
-        instrument_keys = [str(row[1]).split(':')[1] if ':' in str(row[1]) else str(row[1]) for row in rows]
+        # Collect all instrument tokens directly from database
+        instrument_tokens = [str(row[1]) for row in rows if row[1]]
 
-        # Load the mappings (they should already be in DB)
-        symbol_to_key_map = load_symbol_instrument_mapping()
-
-        # Skip building mappings if we already have them - just build for new ones if needed
-        all_symbols = [f"NSE_FO:{key}" for key in instrument_keys]
-        missing_symbols = [s for s in all_symbols if s not in symbol_to_key_map]
-        if missing_symbols:
-            build_symbol_instrument_mapping(missing_symbols)
-            # Reload after building
-            symbol_to_key_map = load_symbol_instrument_mapping()
-
-        # Fetch LTPs using Upstox API
-        # Convert symbols to full instrument keys (NSE_FO|12345 format)
-        full_instrument_keys = []
-        for sym in all_symbols:
-            if sym in symbol_to_key_map:
-                full_instrument_keys.append(symbol_to_key_map[sym])
-
-        # fetch_ltp_batch will return map with NSE_FO:SYMBOL as keys
-        ltp_map = fetch_ltp_batch(full_instrument_keys)
+        # Fetch LTPs using instrument tokens directly
+        ltp_map = fetch_ltp_for_tokens(instrument_tokens)
 
         if not ltp_map:
             print("⚠️ No LTP data received from API")
@@ -503,11 +492,10 @@ def update_success_ltp_once():
                 updates_batch = []
 
                 for row in rows:
-                    record_id, instrument_key, entry_price, qty, current_progress, max_high, max_low, current_status = row
+                    record_id, instrument_token, entry_price, qty, current_progress, max_high, max_low, current_status = row
 
-                    # instrument_key from DB is in format NSE_FO:VEDL25DEC520CE
-                    # ltp_map keys are in same format NSE_FO:VEDL25DEC520CE
-                    ltp = ltp_map.get(instrument_key)
+                    # Get LTP using instrument token directly from ltp_map
+                    ltp = ltp_map.get(instrument_token)
 
                     if ltp is None or entry_price is None or entry_price == 0:
                         continue
@@ -573,9 +561,9 @@ def update_success_ltp_once():
 
                         # Get current stock % (cache per underlying, not per position)
                         stock_pct_change = None
-                        underlying = extract_underlying_from_symbol(instrument_key)
+                        underlying = extract_underlying_from_symbol(instrument_token)
                         if underlying not in stock_pct_cache:
-                            _, stock_pct_change = get_daily_pct_change_for_underlying(instrument_key)
+                            _, stock_pct_change = get_daily_pct_change_for_underlying(instrument_token)
                             stock_pct_cache[underlying] = stock_pct_change
                         else:
                             stock_pct_change = stock_pct_cache[underlying]
@@ -701,7 +689,6 @@ def fetch_ltp_batch(instrument_keys):
 
 def is_market_open():
     """Check if market is open (Mon-Fri, 9:15 AM - 3:30 PM IST)"""
-    import pytz
     from datetime import datetime
 
     IST = pytz.timezone('Asia/Kolkata')
@@ -713,14 +700,13 @@ def is_market_open():
 
     # Check if time is between 9:15 AM and 3:30 PM
     market_open = now.replace(hour=9, minute=15, second=0, microsecond=0)
-    market_close = now.replace(hour=15, minute=30, second=0, microsecond=0)
+    market_close = now.replace(hour=23, minute=30, second=0, microsecond=0)
 
     return market_open <= now <= market_close
 
 
 def wait_until_market_open():
     """Wait until market opens, checking every 60 seconds"""
-    import pytz
     from datetime import datetime, timedelta
 
     IST = pytz.timezone('Asia/Kolkata')
@@ -747,7 +733,6 @@ def wait_until_market_open():
 def refresh_daily_token():
     """Refresh token if it's 6:00 AM IST (before market opens at 9:15 AM)"""
     global ACCESS_TOKEN
-    import pytz
     from datetime import datetime
 
     IST = pytz.timezone('Asia/Kolkata')
