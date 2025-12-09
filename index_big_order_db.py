@@ -90,6 +90,7 @@ def create_whale_tables():
                     id BIGSERIAL PRIMARY KEY,
                     timestamp TIMESTAMPTZ DEFAULT NOW(),
                     instrument_key VARCHAR(100) NOT NULL,
+                    instrument_token VARCHAR(100),
                     symbol VARCHAR(50) NOT NULL,
                     option_type CHAR(2),
                     side VARCHAR(10) NOT NULL,
@@ -108,6 +109,7 @@ def create_whale_tables():
                 CREATE INDEX IF NOT EXISTS idx_whale_entries_unique_key ON whale_entries(unique_key);
                 CREATE INDEX IF NOT EXISTS idx_whale_entries_timestamp ON whale_entries(timestamp DESC);
                 CREATE INDEX IF NOT EXISTS idx_whale_entries_symbol ON whale_entries(symbol);
+                CREATE INDEX IF NOT EXISTS idx_whale_entries_instrument_token ON whale_entries(instrument_token);
             """)
 
             # Create whale_successes table
@@ -116,6 +118,7 @@ def create_whale_tables():
                     id BIGSERIAL PRIMARY KEY,
                     timestamp TIMESTAMPTZ DEFAULT NOW(),
                     instrument_key VARCHAR(100) NOT NULL,
+                    instrument_token VARCHAR(100),
                     symbol VARCHAR(50) NOT NULL,
                     strike DECIMAL(10, 2),
                     option_type CHAR(2),
@@ -148,6 +151,7 @@ def create_whale_tables():
                 CREATE INDEX IF NOT EXISTS idx_whale_successes_timestamp ON whale_successes(timestamp DESC);
                 CREATE INDEX IF NOT EXISTS idx_whale_successes_symbol ON whale_successes(symbol);
                 CREATE INDEX IF NOT EXISTS idx_whale_successes_status ON whale_successes(status);
+                CREATE INDEX IF NOT EXISTS idx_whale_successes_instrument_token ON whale_successes(instrument_token);
             """)
     print("✅ Whale tables created/verified")
 
@@ -222,10 +226,14 @@ def load_existing_entries():
 
 
 
-def record_success(symbol, side, qty, price, vol_diff, oi_diff, ltp, moneyness, pcr, oi_same, oi_opposite):
+def record_success(symbol, side, qty, price, vol_diff, oi_diff, ltp, moneyness, pcr, oi_same, oi_opposite, instrument_token=None):
     """
     Store a successful whale fill into database.
     Uniqueness key: underlying + strike + option_type + price.
+
+    Args:
+        symbol: instrument_key in format 'NSE_FO:VEDL25DEC520CE'
+        instrument_token: actual Upstox instrument token like 'NSE_FO|67718' (optional)
     """
     global success_keys
 
@@ -253,16 +261,16 @@ def record_success(symbol, side, qty, price, vol_diff, oi_diff, ltp, moneyness, 
             with conn.cursor() as cur:
                 cur.execute("""
                     INSERT INTO whale_successes (
-                        timestamp, instrument_key, symbol, strike, option_type, side, qty, price, ltp,
+                        timestamp, instrument_key, instrument_token, symbol, strike, option_type, side, qty, price, ltp,
                         vol_diff, oi_diff, moneyness, pcr, oi_same, oi_opposite,
                         stock_current_price, stock_pct_change_today, unique_key
                     ) VALUES (
-                        %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                        %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
                         %s, %s, %s, %s, %s, %s,
                         %s, %s, %s
                     )
                 """, (
-                    ts, symbol, underlying, strike, option_type, str(side).upper(), qty, float(price), float(ltp),
+                    ts, symbol, instrument_token, underlying, strike, option_type, str(side).upper(), qty, float(price), float(ltp),
                     vol_diff, oi_diff, moneyness, pcr, oi_same, oi_opposite,
                     underlying_price, stock_pct_change, unique_key
                 ))
@@ -270,9 +278,13 @@ def record_success(symbol, side, qty, price, vol_diff, oi_diff, ltp, moneyness, 
         print(f"⚠️ Could not write success record: {e}")
 
 
-def record_entry(symbol, side, qty, price, ltp, moneyness, pcr, oi_same, oi_opposite):
+def record_entry(symbol, side, qty, price, ltp, moneyness, pcr, oi_same, oi_opposite, instrument_token=None):
     """
     Store whale ENTRY into database, deduped by underlying+strike+option_type+price.
+
+    Args:
+        symbol: instrument_key in format 'NSE_FO:VEDL25DEC520CE'
+        instrument_token: actual Upstox instrument token like 'NSE_FO|67718' (optional)
     """
     global entry_keys
 
@@ -300,14 +312,14 @@ def record_entry(symbol, side, qty, price, ltp, moneyness, pcr, oi_same, oi_oppo
             with conn.cursor() as cur:
                 cur.execute("""
                     INSERT INTO whale_entries (
-                        timestamp, instrument_key, symbol, option_type, side, qty, price, ltp,
+                        timestamp, instrument_key, instrument_token, symbol, option_type, side, qty, price, ltp,
                         moneyness, pcr, oi_same, oi_opposite, stock_current_price, stock_pct_change_today, unique_key
                     ) VALUES (
-                        %s, %s, %s, %s, %s, %s, %s, %s,
+                        %s, %s, %s, %s, %s, %s, %s, %s, %s,
                         %s, %s, %s, %s, %s, %s, %s
                     )
                 """, (
-                    ts, symbol, underlying, option_type, str(side).upper(), qty, float(price), float(ltp),
+                    ts, symbol, instrument_token, underlying, option_type, str(side).upper(), qty, float(price), float(ltp),
                     moneyness, pcr, oi_same, oi_opposite, underlying_price, stock_pct_change, unique_key
                 ))
     except Exception as e:
@@ -969,6 +981,8 @@ def analyze_instrument(symbol_key, data, batch_data):
     # NEW: get OI for this leg and opposite leg
     oi_same, oi_opposite = get_oi_pair_for_symbol(symbol_key, batch_data)
 
+    # Extract instrument_token from stream data (e.g., "NSE_FO|67718")
+    instrument_token = data.get('instrument_token')
     depth = data.get('depth', {})
     bids  = depth.get('buy', [])
     asks  = depth.get('sell', [])
@@ -1002,7 +1016,7 @@ def analyze_instrument(symbol_key, data, batch_data):
             else:
                 print(f"\n✅ BIG PLAYER BOUGHT SUCCESSFULLY: {symbol_key} @ {prev_price}")
                 moneyness = classify_strike(symbol_key, data)
-                record_success(symbol_key, "BUY", prev_qty, prev_price, vol_diff, oi_diff, ltp, moneyness, pcr, oi_same, oi_opposite)
+                record_success(symbol_key, "BUY", prev_qty, prev_price, vol_diff, oi_diff, ltp, moneyness, pcr, oi_same, oi_opposite, instrument_token)
 
         # SELLER FILLED
         if prev_ask and not curr_ask:
@@ -1014,20 +1028,20 @@ def analyze_instrument(symbol_key, data, batch_data):
             else:
                 print(f"\n🔴 BIG PLAYER SOLD SUCCESSFULLY: {symbol_key} @ {prev_price}")
                 moneyness = classify_strike(symbol_key, data)
-                record_success(symbol_key, "SELL", prev_qty, prev_price, vol_diff, oi_diff, ltp, moneyness, pcr, oi_same, oi_opposite)
+                record_success(symbol_key, "SELL", prev_qty, prev_price, vol_diff, oi_diff, ltp, moneyness, pcr, oi_same, oi_opposite, instrument_token)
 
     # LIVE STATUS (ENTRY)
     if curr_bid and curr_bid != prev_bid:
         qty, price, _, _ = curr_bid
         moneyness = classify_strike(symbol_key, data)
         print(f"\n🚀 BIG BUYER SITTING: {symbol_key} | Qty: {qty} | Price: {price} | LTP: {ltp} | {moneyness}")
-        record_entry(symbol_key, "BUY", qty, price, ltp, moneyness, pcr, oi_same, oi_opposite)
+        record_entry(symbol_key, "BUY", qty, price, ltp, moneyness, pcr, oi_same, oi_opposite, instrument_token)
 
     if curr_ask and curr_ask != prev_ask:
         qty, price, _, _ = curr_ask
         moneyness = classify_strike(symbol_key, data)
         print(f"\n🔻 BIG SELLER SITTING: {symbol_key} | Qty: {qty} | Price: {price} | LTP: {ltp} | {moneyness}")
-        record_entry(symbol_key, "SELL", qty, price, ltp, moneyness, pcr, oi_same, oi_opposite)
+        record_entry(symbol_key, "SELL", qty, price, ltp, moneyness, pcr, oi_same, oi_opposite, instrument_token)
 
     history[symbol_key] = {
         'vol': curr_vol,
