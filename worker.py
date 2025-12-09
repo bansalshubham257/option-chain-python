@@ -25,22 +25,10 @@ app = FastAPI()
 # CORS configuration
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "https://swingtradingwithme.blogspot.com",
-        "https://aitradinglab.blogspot.com",
-        "https://www.aitradinglab.in",
-        "https://bansalshubham257.github.io",
-        "https://live-feed-azqo.onrender.com",
-        "http://localhost:63342",
-        "http://127.0.0.1:63342",
-        "http://localhost:*",
-        "http://127.0.0.1:*",
-    ],
-    allow_credentials=True,
-    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "HEAD"],
+    allow_origins=["*"],
+    allow_credentials=False,
+    allow_methods=["*"],
     allow_headers=["*"],
-    expose_headers=["*"],
-    max_age=600,
 )
 # Shared data structure
 market_data: Dict[str, Dict[str, Any]] = {}
