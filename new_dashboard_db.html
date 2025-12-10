@@ -581,7 +581,6 @@
                 <th class="sortable" data-sort-key="maxReturnLow">Max Low %<span class="sort-indicator"></span></th>
                 <th class="sortable" data-sort-key="status">Status<span class="sort-indicator"></span></th>
                 <th class="sortable" data-sort-key="progressLabel">Progress<span class="sort-indicator"></span></th>
-                <th class="sortable" data-sort-key="progressHistory">Progress History<span class="sort-indicator"></span></th>
                 <th class="sortable" data-sort-key="pcr">PCR<span class="sort-indicator"></span></th>
                 <th>PCR Advice</th>
                 <th class="sortable" data-sort-key="oiSame">OI (This)<span class="sort-indicator"></span></th>
@@ -589,6 +588,7 @@
                 <th>Strike Type</th>
                 <th class="sortable" data-sort-key="daysPassed">Days Passed<span class="sort-indicator"></span></th>
                 <th>Filled Time</th>
+                <th class="sortable" data-sort-key="progressHistory">Progress History<span class="sort-indicator"></span></th>
             </tr>
             </thead>
             <tbody></tbody>
@@ -602,7 +602,7 @@
 </div>
 
 <script>
-    const API_BASE_URL = "http://localhost:5001"; // Database API endpoint
+    const API_BASE_URL = "https://new-dashboard-service.onrender.com"; // Database API endpoint
     const REFRESH_INTERVAL = 30000; // Auto-refresh every 30 seconds (30,000ms)
 
     let allGroups = [];      // groups by stock+strike+option
@@ -1620,37 +1620,6 @@
         }
         tr.appendChild(tdProgress);
 
-        // Progress History
-        const tdProgressHistory = document.createElement("td");
-        tdProgressHistory.classList.add("progress-history");
-        if (e.progressHistory) {
-          const steps = e.progressHistory.split("|");
-          const historyHtml = steps.map((step, idx) => {
-            let badgeClass = "badge-progress-running";
-            const cleanStep = step.trim();
-            if (cleanStep === "done") {
-              badgeClass = "badge-done";
-            } else if (cleanStep === "+75%") {
-              badgeClass = "badge-progress-75";
-            } else if (cleanStep === "+50%") {
-              badgeClass = "badge-progress-50";
-            } else if (cleanStep === "+25%") {
-              badgeClass = "badge-progress-25";
-            } else if (cleanStep === "-25%") {
-              badgeClass = "badge-progress-neg25";
-            } else if (cleanStep === "-50%") {
-              badgeClass = "badge-progress-neg50";
-            } else if (cleanStep === "-75%") {
-              badgeClass = "badge-progress-neg75";
-            }
-            return `<span class="badge ${badgeClass}" style="font-size: 0.65rem; padding: 1px 4px;">${cleanStep}</span>`;
-          }).join('<span class="progress-history-arrow">→</span>');
-          tdProgressHistory.innerHTML = historyHtml;
-        } else {
-          tdProgressHistory.textContent = "-";
-        }
-        tr.appendChild(tdProgressHistory);
-
         // PCR
         const tdPcr = document.createElement("td");
         tdPcr.textContent = e.pcr !== null ? e.pcr.toFixed(2) : "-";
@@ -1697,6 +1666,37 @@
         tdTime.textContent = e.timestamp || "-";
         tr.appendChild(tdTime);
 
+        // Progress History (moved to last)
+        const tdProgressHistory = document.createElement("td");
+        tdProgressHistory.classList.add("progress-history");
+        if (e.progressHistory) {
+          const steps = e.progressHistory.split("|");
+          const historyHtml = steps.map((step, idx) => {
+            let badgeClass = "badge-progress-running";
+            const cleanStep = step.trim();
+            if (cleanStep === "done") {
+              badgeClass = "badge-done";
+            } else if (cleanStep === "+75%") {
+              badgeClass = "badge-progress-75";
+            } else if (cleanStep === "+50%") {
+              badgeClass = "badge-progress-50";
+            } else if (cleanStep === "+25%") {
+              badgeClass = "badge-progress-25";
+            } else if (cleanStep === "-25%") {
+              badgeClass = "badge-progress-neg25";
+            } else if (cleanStep === "-50%") {
+              badgeClass = "badge-progress-neg50";
+            } else if (cleanStep === "-75%") {
+              badgeClass = "badge-progress-neg75";
+            }
+            return `<span class="badge ${badgeClass}" style="font-size: 0.65rem; padding: 1px 4px;">${cleanStep}</span>`;
+          }).join('<span class="progress-history-arrow">→</span>');
+          tdProgressHistory.innerHTML = historyHtml;
+        } else {
+          tdProgressHistory.textContent = "-";
+        }
+        tr.appendChild(tdProgressHistory);
+
         tbody.appendChild(tr);
 
         // Details row for multiple fills
@@ -1707,7 +1707,7 @@
           detailsTr.style.display = "none";
 
           const detailsTd = document.createElement("td");
-          detailsTd.colSpan = 17;
+          detailsTd.colSpan = 21;
 
           const box = document.createElement("div");
           box.classList.add("details-box");
