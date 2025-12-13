@@ -16,7 +16,7 @@ from services.database import DatabaseService
 
 # ==== CONFIG ====
 db = DatabaseService()
-ACCESS_TOKEN = db.get_access_token(account_id=5)
+ACCESS_TOKEN = db.get_access_token(account_id=2)
 
 BASE_URL_V3 = "https://api.upstox.com/v3"
 
