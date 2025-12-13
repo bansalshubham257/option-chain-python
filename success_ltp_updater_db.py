@@ -532,7 +532,7 @@ def update_success_ltp_once():
                     pnl_pct = (pnl_per_unit / entry_price) * 100 if entry_price != 0 else 0
 
                     # Determine progress label
-                    if pnl_pct >= 94:
+                    if pnl_pct >= 91:
                         new_progress = "done"
                     elif pnl_pct >= 75:
                         new_progress = "+75%"
