@@ -15,10 +15,13 @@ from contextlib import contextmanager
 from services.database import DatabaseService
 
 # ================= USER CONFIGURATION =================
-# 1. ENTER YOUR ACCESS TOKEN (Only 1 needed)
-#ACCESS_TOKEN = "eyJ0eXAiOiJKV1QiLCJrZXlfaWQiOiJza192MS4wIiwiYWxnIjoiSFMyNTYifQ.eyJzdWIiOiI2NEFLNjciLCJqdGkiOiI2OTJiY2Y2NGJhYzQ4MDMwYmFiODM0OTUiLCJpc011bHRpQ2xpZW50IjpmYWxzZSwiaXNQbHVzUGxhbiI6ZmFsc2UsImlhdCI6MTc2NDQ3ODgyMCwiaXNzIjoidWRhcGktZ2F0ZXdheS1zZXJ2aWNlIiwiZXhwIjoxNzY0NTQwMDAwfQ.ycEnEcYokcR5U04gEWgwK9nBDqywgSjsLMlfUv5vvlM"
+# 1. ENTER YOUR ACCESS TOKENS (2 tokens for parallel requests)
+#ACCESS_TOKEN_1 = "eyJ0eXAiOiJKV1QiLCJrZXlfaWQiOiJza192MS4wIiwiYWxnIjoiSFMyNTYifQ.eyJzdWIiOiI2NEFLNjciLCJqdGkiOiI2OTJiY2Y2NGJhYzQ4MDMwYmFiODM0OTUiLCJpc011bHRpQ2xpZW50IjpmYWxzZSwiaXNQbHVzUGxhbiI6ZmFsc2UsImlhdCI6MTc2NDQ3ODgyMCwiaXNzIjoidWRhcGktZ2F0ZXdheS1zZXJ2aWNlIiwiZXhwIjoxNzY0NTQwMDAwfQ.ycEnEcYokcR5U04gEWgwK9nBDqywgSjsLMlfUv5vvlM"
 db = DatabaseService()
-ACCESS_TOKEN = db.get_access_token(account_id=6)
+ACCESS_TOKEN_1 = db.get_access_token(account_id=6)
+ACCESS_TOKEN_2 = db.get_access_token(account_id=5)  # Can use different account if available
+ACCESS_TOKENS = [ACCESS_TOKEN_1, ACCESS_TOKEN_2]
+CURRENT_TOKEN_INDEX = 0  # Track which token to use
 
 # 2. ENTER EXPIRY DATES (Format: YYYY-MM-DD)
 NIFTY_EXPIRY      = "2029-12-02"   # NIFTY options expiry
@@ -330,7 +333,7 @@ def record_entry(symbol, side, qty, price, ltp, moneyness, pcr, oi_same, oi_oppo
 def get_spot_indices():
     """Fetch NIFTY and SENSEX spot once, store in index_spots."""
     global index_spots
-    headers = {'Accept': 'application/json', 'Authorization': f'Bearer {ACCESS_TOKEN}'}
+    headers = {'Accept': 'application/json', 'Authorization': f'Bearer {ACCESS_TOKEN_1}'}
     request_keys = "NSE_INDEX|Nifty 50,BSE_INDEX|SENSEX"
     url = f"{BASE_URL_V2}/market-quote/ltp"
     params = {'instrument_key': request_keys}
@@ -359,7 +362,7 @@ def get_spot_indices():
 def fetch_ltp_for_keys(instrument_keys):
     """Call /ltp for a list of instrument keys (<= MAX_KEYS_PER_CALL each chunk)."""
     print("Fetching LTP for underlying stocks via Upstox..." , instrument_keys)
-    headers = {'Accept': 'application/json', 'Authorization': f'Bearer {ACCESS_TOKEN}'}
+    headers = {'Accept': 'application/json', 'Authorization': f'Bearer {ACCESS_TOKEN_1}'}
     url = f"{BASE_URL_V2}/market-quote/ltp"
     all_data = {}
     for chunk in chunked(instrument_keys, MAX_KEYS_PER_CALL):
@@ -502,7 +505,7 @@ def get_daily_pct_change_for_underlying(symbol):
     if underlying == "NIFTY":
         try:
             ticker_key = "NSE_INDEX|Nifty 50"
-            headers = {'Accept': 'application/json', 'Authorization': f'Bearer {ACCESS_TOKEN}'}
+            headers = {'Accept': 'application/json', 'Authorization': f'Bearer {ACCESS_TOKEN_1}'}
             url = f"{BASE_URL_V2}/market-quote/quotes"
             params = {'instrument_key': ticker_key}
             resp = requests.get(url, headers=headers, params=params)
@@ -523,7 +526,7 @@ def get_daily_pct_change_for_underlying(symbol):
     elif underlying == "SENSEX":
         try:
             ticker_key = "BSE_INDEX|SENSEX"
-            headers = {'Accept': 'application/json', 'Authorization': f'Bearer {ACCESS_TOKEN}'}
+            headers = {'Accept': 'application/json', 'Authorization': f'Bearer {ACCESS_TOKEN_1}'}
             url = f"{BASE_URL_V2}/market-quote/quotes"
             params = {'instrument_key': ticker_key}
             resp = requests.get(url, headers=headers, params=params)
@@ -853,8 +856,10 @@ def limit_option_strikes(all_keys):
         - Sort strikes for that underlying+option_type
         - CMP from index_spots / underlying_spots
         - ATM index = argmin_i |strike[i] - CMP|
-        - Keep strikes in [ATM-3, ATM+3]
-    → max 7 strikes per option type.
+        - Keep strikes in [ATM-3, ATM+3]  (7 strikes: ATM-3 to ATM+3)
+        - PLUS: 1 ITM strike (1 strike below ATM for CE, 1 strike above ATM for PE)
+        - PLUS: 1 OTM strike (1 strike above ATM for CE, 1 strike below ATM for PE)
+    → max ~9 strikes per option type (more coverage, more volume)
     Futures (if any) are kept as-is.
     """
     selected_keys = set()
@@ -902,15 +907,44 @@ def limit_option_strikes(all_keys):
                 key=lambda i: abs(strikes_only[i] - cmp_price)
             )
 
-        start_idx = max(0, atm_idx - 3)
-        end_idx   = min(len(strikes_only) - 1, atm_idx + 3)
+        # ATM range: ATM-3 to ATM+3 (7 strikes)
+        atm_start = max(0, atm_idx - 4)
+        atm_end   = min(len(strikes_only) - 1, atm_idx + 4)
 
-        allowed_strikes = set(strikes_only[start_idx:end_idx + 1])
+        allowed_strike_indices = set(range(atm_start, atm_end + 1))
+
+        # Add 1 ITM strike
+        if opt_type == "CE":
+            # For CE: ITM is below ATM (lower strike), so take atm_idx-1 if available (already in range, but ensure it)
+            if atm_idx > 0:
+                itm_idx = atm_idx - 1
+                if itm_idx >= 0:
+                    allowed_strike_indices.add(itm_idx)
+        else:  # PE
+            # For PE: ITM is above ATM (higher strike), so take atm_idx+1 if available (already in range, but ensure it)
+            if atm_idx < len(strikes_only) - 1:
+                itm_idx = atm_idx + 1
+                if itm_idx < len(strikes_only):
+                    allowed_strike_indices.add(itm_idx)
+
+        # Add 1 OTM strike (further from ATM than current range)
+        if opt_type == "CE":
+            # For CE: OTM is above ATM (higher strike), so take atm_idx+4 if available
+            if atm_idx + 4 < len(strikes_only):
+                otm_idx = atm_idx + 4
+                allowed_strike_indices.add(otm_idx)
+        else:  # PE
+            # For PE: OTM is below ATM (lower strike), so take atm_idx-4 if available
+            if atm_idx - 4 >= 0:
+                otm_idx = atm_idx - 4
+                allowed_strike_indices.add(otm_idx)
+
+        allowed_strikes = set(strikes_only[i] for i in allowed_strike_indices)
         for key, strike in strikes_sorted:
             if strike in allowed_strikes:
                 selected_keys.add(key)
 
-    print(f"🎯 Total instruments after strict ATM±3-strike limiting: {len(selected_keys)}")
+    print(f"🎯 Total instruments after ATM±3 + 1 ITM + 1 OTM filtering: {len(selected_keys)}")
     return [k for k in all_keys if k in selected_keys]
 
 def get_oi_pair_for_symbol(symbol_key, batch_data):
@@ -1101,20 +1135,22 @@ def wait_until_market_open():
 
 
 def refresh_daily_token():
-    """Refresh token if it's 6:00 AM IST (before market opens at 9:15 AM)"""
-    global ACCESS_TOKEN
+    """Refresh both tokens daily if it's 6:00 AM IST (before market opens at 9:15 AM)"""
+    global ACCESS_TOKEN_1, ACCESS_TOKEN_2, ACCESS_TOKENS
     import pytz
     from datetime import datetime
 
     IST = pytz.timezone('Asia/Kolkata')
     now = datetime.now(IST)
 
-    # If between 6:00 AM and 6:01 AM, refresh token
+    # If between 6:00 AM and 6:01 AM, refresh tokens
     if now.hour == 6 and now.minute == 0:
         print(f"\n🔄 Daily token refresh at {now.strftime('%H:%M:%S %Z')}")
         try:
-            ACCESS_TOKEN = db.get_access_token(account_id=6)
-            print(f"✅ Token refreshed: {ACCESS_TOKEN[:30]}...")
+            ACCESS_TOKEN_1 = db.get_access_token(account_id=6)
+            ACCESS_TOKEN_2 = db.get_access_token(account_id=5)
+            ACCESS_TOKENS = [ACCESS_TOKEN_1, ACCESS_TOKEN_2]
+            print(f"✅ Both tokens refreshed: {ACCESS_TOKEN_1[:30]}... | {ACCESS_TOKEN_2[:30]}...")
             time.sleep(65)  # Wait 65 seconds to avoid re-refreshing
         except Exception as e:
             print(f"❌ Token refresh failed: {e}")
@@ -1124,7 +1160,8 @@ def main():
     print("\n🟢 SYSTEM STARTING (FULL TRADING ASSISTANT)...")
     print("📊 Timezone: Asia/Kolkata (IST)")
     print("📅 Operating hours: Monday-Friday, 9:15 AM - 3:30 PM")
-    print("🔄 Token refresh: Daily at 6:00 AM\n")
+    print("🔄 Token refresh: Daily at 6:00 AM")
+    print("🚀 Running with 2 parallel access tokens for faster data fetching\n")
 
     # Create tables if they don't exist
     create_whale_tables()
@@ -1136,7 +1173,7 @@ def main():
     # Fetch all instruments once
     all_keys = build_all_instruments()
 
-    # Strict filter: only 7 strikes per underlying+option_type
+    # Strict filter: ATM±3 + 1 ITM + 1 OTM per option type (more keys)
     all_keys = limit_option_strikes(all_keys)
 
     if not all_keys:
@@ -1145,18 +1182,23 @@ def main():
 
     key_chunks = list(chunked(all_keys, MAX_KEYS_PER_CALL))
     print(f"📚 Total chunks: {len(key_chunks)} (max {MAX_KEYS_PER_CALL} instruments per API call)")
+    print(f"⚡ Splitting chunks across 2 tokens for parallel requests\n")
 
-    # Refresh token before first run
-    print("🔄 Fetching fresh token...")
+    # Refresh tokens before first run
+    print("🔄 Fetching fresh tokens...")
     try:
-        global ACCESS_TOKEN
-        ACCESS_TOKEN = db.get_access_token(account_id=6)
-        print(f"✅ Token obtained: {ACCESS_TOKEN[:30]}...\n")
+        global ACCESS_TOKEN_1, ACCESS_TOKEN_2, ACCESS_TOKENS
+        ACCESS_TOKEN_1 = db.get_access_token(account_id=6)
+        ACCESS_TOKEN_2 = db.get_access_token(account_id=5)
+        ACCESS_TOKENS = [ACCESS_TOKEN_1, ACCESS_TOKEN_2]
+        print(f"✅ Token 1 obtained: {ACCESS_TOKEN_1[:30]}...")
+        print(f"✅ Token 2 obtained: {ACCESS_TOKEN_2[:30]}...\n")
     except Exception as e:
-        print(f"❌ Failed to get token: {e}\n")
+        print(f"❌ Failed to get tokens: {e}\n")
 
     spinner = ['|', '/', '-', '\\']
     idx = 0
+    current_token_idx = 0
 
     print("🔎 SCANNING FOR TRADES...\n")
 
@@ -1170,31 +1212,35 @@ def main():
                 print(f"⏸️  Market is closed ({datetime.now(IST).strftime('%H:%M %A')})")
                 wait_until_market_open()
 
-                # Market just opened - fetch fresh token from DB (it was updated while closed)
-                print(f"\n✨ Market reopening - fetching fresh token from database...")
+                # Market just opened - fetch fresh tokens from DB (they were updated while closed)
+                print(f"\n✨ Market reopening - fetching fresh tokens from database...")
                 try:
-                    ACCESS_TOKEN = db.get_access_token(account_id=6)
-                    print(f"✅ Fresh token obtained: {ACCESS_TOKEN[:30]}...\n")
+                    ACCESS_TOKEN_1 = db.get_access_token(account_id=6)
+                    ACCESS_TOKEN_2 = db.get_access_token(account_id=5)
+                    ACCESS_TOKENS = [ACCESS_TOKEN_1, ACCESS_TOKEN_2]
+                    print(f"✅ Fresh tokens obtained\n")
                 except Exception as e:
-                    print(f"❌ Failed to get fresh token: {e}\n")
+                    print(f"❌ Failed to get fresh tokens: {e}\n")
 
-                # Refresh token at 6 AM daily if needed
+                # Refresh tokens at 6 AM daily if needed
                 refresh_daily_token()
 
-            # Refresh token at 6 AM daily if needed
+            # Refresh tokens at 6 AM daily if needed
             refresh_daily_token()
 
-            # Update headers with latest token (in case it was refreshed)
-            headers = {'Accept': 'application/json', 'Authorization': f'Bearer {ACCESS_TOKEN}'}
-            url = f"{BASE_URL_V2}/market-quote/quotes"
-
-            # ...existing code...
-            for chunk in key_chunks:
-                sys.stdout.write(f"\r{spinner[idx]} Scanning {len(chunk)} symbols in this batch... ")
+            # Process chunks with alternating tokens for parallel-like behavior
+            for chunk_idx, chunk in enumerate(key_chunks):
+                sys.stdout.write(f"\r{spinner[idx]} Scanning {len(chunk)} symbols in batch {chunk_idx + 1}/{len(key_chunks)} (Token {(chunk_idx % 2) + 1})... ")
                 sys.stdout.flush()
                 idx = (idx + 1) % 4
 
                 try:
+                    # Alternate between tokens for each chunk
+                    token_idx = chunk_idx % 2
+                    token = ACCESS_TOKENS[token_idx]
+                    headers = {'Accept': 'application/json', 'Authorization': f'Bearer {token}'}
+                    url = f"{BASE_URL_V2}/market-quote/quotes"
+
                     payload = {'instrument_key': ",".join(chunk)}
                     resp = requests.get(url, headers=headers, params=payload)
                     if resp.status_code == 200:
@@ -1230,12 +1276,12 @@ def main():
                                 analyze_instrument(sym, details, chunk_data)
 
                 except Exception as e:
-                    print(f"\n⚠️ Error in batch: {e}")
+                    print(f"\n⚠️ Error in batch {chunk_idx + 1}: {e}")
                     time.sleep(1)
 
-                time.sleep(0.5)  # delay between chunks
+                time.sleep(0.3)  # Reduced delay between chunks (faster with 2 tokens)
 
-            time.sleep(1.5)      # delay after full cycle
+            time.sleep(1.0)      # Reduced delay after full cycle
 
     except KeyboardInterrupt:
         print("\n🛑 Stopped by user.")
