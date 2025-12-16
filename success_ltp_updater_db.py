@@ -816,7 +816,7 @@ def refresh_daily_token():
     if now.hour == 6 and now.minute == 0:
         print(f"\n🔄 Daily token refresh at {now.strftime('%H:%M:%S %Z')}")
         try:
-            ACCESS_TOKEN = db.get_access_token(account_id=5)
+            ACCESS_TOKEN = db.get_access_token(account_id=2)
             print(f"✅ Token refreshed: {ACCESS_TOKEN[:30]}...")
             time.sleep(65)  # Wait 65 seconds to avoid re-refreshing
         except Exception as e:
@@ -836,7 +836,7 @@ def main():
     print("🔄 Fetching fresh token...")
     try:
         global ACCESS_TOKEN
-        ACCESS_TOKEN = db.get_access_token(account_id=5)
+        ACCESS_TOKEN = db.get_access_token(account_id=2)
         print(f"✅ Token obtained: {ACCESS_TOKEN[:30]}...\n")
     except Exception as e:
         print(f"❌ Failed to get token: {e}\n")
@@ -851,7 +851,7 @@ def main():
                 # Market just opened - fetch fresh token from DB (it was updated while closed)
                 print(f"\n✨ Market reopening - fetching fresh token from database...")
                 try:
-                    ACCESS_TOKEN = db.get_access_token(account_id=5)
+                    ACCESS_TOKEN = db.get_access_token(account_id=2)
                     print(f"✅ Fresh token obtained: {ACCESS_TOKEN[:30]}...\n")
                 except Exception as e:
                     print(f"❌ Failed to get fresh token: {e}\n")
