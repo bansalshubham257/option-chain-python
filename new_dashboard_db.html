@@ -39,6 +39,33 @@
           gap: 4px;
           min-width: 150px;
         }
+        .percentage-tabs {
+          display: flex;
+          gap: 8px;
+          margin-bottom: 16px;
+          flex-wrap: wrap;
+        }
+        .percentage-tab {
+          padding: 8px 16px;
+          background: #020617;
+          color: #9ca3af;
+          border: 1px solid #374151;
+          border-radius: 6px;
+          cursor: pointer;
+          font-weight: 600;
+          font-size: 0.85rem;
+          transition: all 0.3s ease;
+        }
+        .percentage-tab:hover {
+          border-color: #60a5fa;
+          color: #e5e7eb;
+        }
+        .percentage-tab.active {
+          background: #3b82f6;
+          color: white;
+          border-color: #3b82f6;
+          box-shadow: 0 0 10px rgba(59, 130, 246, 0.3);
+        }
         label {
           font-size: 0.75rem;
           text-transform: uppercase;
@@ -336,6 +363,21 @@
           word-break: break-word;
           max-width: 200px;
         }
+        .progress-history-container {
+          user-select: none;
+          padding: 2px 0;
+        }
+        .progress-history-container:hover {
+          opacity: 0.8;
+        }
+        .progress-timestamps {
+          background: rgba(15, 23, 42, 0.8);
+          border: 1px solid #374151;
+          border-radius: 4px;
+          padding: 6px;
+          margin-top: 4px;
+          line-height: 1.4;
+        }
         .progress-history-item {
           display: inline-block;
           padding: 1px 4px;
@@ -428,6 +470,63 @@
         .stat-value.danger {
           color: #f87171;
         }
+        .return-tables-container {
+          display: grid;
+          grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+          gap: 12px;
+          margin-bottom: 20px;
+        }
+        .return-table-card {
+          background: #020617;
+          border-radius: 12px;
+          padding: 16px;
+          border: 1px solid #1f2937;
+          box-shadow: 0 10px 30px rgba(15,23,42,0.7);
+        }
+        .return-table-title {
+          font-size: 0.9rem;
+          font-weight: 600;
+          color: #e5e7eb;
+          margin-bottom: 12px;
+          display: flex;
+          align-items: center;
+          gap: 8px;
+        }
+        .return-table-title .badge {
+          font-size: 0.75rem;
+          padding: 2px 6px;
+        }
+        .return-summary-table {
+          width: 100%;
+          border-collapse: collapse;
+          font-size: 0.8rem;
+        }
+        .return-summary-table th, .return-summary-table td {
+          padding: 6px 8px;
+          text-align: left;
+          border-bottom: 1px solid #111827;
+        }
+        .return-summary-table th {
+          color: #9ca3af;
+          font-weight: 600;
+          background: #030712;
+        }
+        .return-summary-table td {
+          color: #e5e7eb;
+        }
+        .return-summary-table tr:last-child td {
+          border-bottom: none;
+        }
+        .return-stat {
+          font-weight: 600;
+          font-size: 1.1rem;
+        }
+        .return-stat.positive {
+          color: #4ade80;
+        }
+        .return-stat.negative {
+          color: #f87171;
+        }
         @media (max-width: 768px) {
           .filters {
             flex-direction: column;
@@ -436,6 +535,9 @@
             padding: 6px 8px;
           }
           .stats-container {
+            grid-template-columns: 1fr;
+          }
+          .return-tables-container {
             grid-template-columns: 1fr;
           }
         }
@@ -502,6 +604,14 @@
             </select>
         </div>
         <div class="filter-group">
+            <label for="roleFilter">Role</label>
+            <select id="roleFilter">
+                <option value="">Both</option>
+                <option value="Buyer">Buyer</option>
+                <option value="Seller">Seller</option>
+            </select>
+        </div>
+        <div class="filter-group">
             <label for="statusFilter">Trade Status</label>
             <select id="statusFilter">
                 <option value="open">Open Trades</option>
@@ -548,6 +658,14 @@
             <input type="number" id="returnToFilter" placeholder="e.g. -10" step="0.1" />
         </div>
         <div class="filter-group">
+            <label>Max High % (From)</label>
+            <input type="number" id="maxHighFromFilter" placeholder="e.g. 0" step="0.1" />
+        </div>
+        <div class="filter-group">
+            <label>Max High % (To)</label>
+            <input type="number" id="maxHighToFilter" placeholder="e.g. 100" step="0.1" />
+        </div>
+        <div class="filter-group">
             <label style="display: flex; align-items: center; gap: 8px; margin-top: 20px;">
                 <input type="checkbox" id="multipleEntriesFilter" style="cursor: pointer; width: 16px; height: 16px;" />
                 <span>Multiple Entries Only</span>
@@ -562,6 +680,14 @@
                 🔄 Clear All Filters
             </button>
         </div>
+    </div>
+
+    <div class="percentage-tabs">
+        <button class="percentage-tab" data-range="all">All Records</button>
+        <button class="percentage-tab" data-range="0-25">0-25%</button>
+        <button class="percentage-tab" data-range="25-50">25-50%</button>
+        <button class="percentage-tab" data-range="50-75">50-75%</button>
+        <button class="percentage-tab" data-range="75-100">75-100%</button>
     </div>
 
     <div class="table-wrapper">
@@ -601,6 +727,140 @@
     </div>
 </div>
 
+<div class="return-tables-container">
+    <div class="return-table-card">
+        <div class="return-table-title">
+            Return <25%
+            <span class="badge badge-progress-25">Low</span>
+        </div>
+        <table class="return-summary-table">
+            <thead>
+                <tr>
+                    <th>Metric</th>
+                    <th>Value</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td>Count</td>
+                    <td class="return-stat" id="return-lt25-count">0</td>
+                </tr>
+                <tr>
+                    <td>Avg Return</td>
+                    <td class="return-stat negative" id="return-lt25-avg">0%</td>
+                </tr>
+                <tr>
+                    <td>Profit Count</td>
+                    <td class="return-stat positive" id="return-lt25-profit">0</td>
+                </tr>
+                <tr>
+                    <td>Loss Count</td>
+                    <td class="return-stat negative" id="return-lt25-loss">0</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+
+    <div class="return-table-card">
+        <div class="return-table-title">
+            Return 25% - 50%
+            <span class="badge badge-progress-50">Medium</span>
+        </div>
+        <table class="return-summary-table">
+            <thead>
+                <tr>
+                    <th>Metric</th>
+                    <th>Value</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td>Count</td>
+                    <td class="return-stat" id="return-25-50-count">0</td>
+                </tr>
+                <tr>
+                    <td>Avg Return</td>
+                    <td class="return-stat positive" id="return-25-50-avg">0%</td>
+                </tr>
+                <tr>
+                    <td>Profit Count</td>
+                    <td class="return-stat positive" id="return-25-50-profit">0</td>
+                </tr>
+                <tr>
+                    <td>Loss Count</td>
+                    <td class="return-stat negative" id="return-25-50-loss">0</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+
+    <div class="return-table-card">
+        <div class="return-table-title">
+            Return 50% - 75%
+            <span class="badge badge-progress-75">High</span>
+        </div>
+        <table class="return-summary-table">
+            <thead>
+                <tr>
+                    <th>Metric</th>
+                    <th>Value</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td>Count</td>
+                    <td class="return-stat" id="return-50-75-count">0</td>
+                </tr>
+                <tr>
+                    <td>Avg Return</td>
+                    <td class="return-stat positive" id="return-50-75-avg">0%</td>
+                </tr>
+                <tr>
+                    <td>Profit Count</td>
+                    <td class="return-stat positive" id="return-50-75-profit">0</td>
+                </tr>
+                <tr>
+                    <td>Loss Count</td>
+                    <td class="return-stat negative" id="return-50-75-loss">0</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+
+    <div class="return-table-card">
+        <div class="return-table-title">
+            Return > 100%
+            <span class="badge badge-done">Success</span>
+        </div>
+        <table class="return-summary-table">
+            <thead>
+                <tr>
+                    <th>Metric</th>
+                    <th>Value</th>
+                </tr>
+            </thead>
+            <tbody>
+                <tr>
+                    <td>Count</td>
+                    <td class="return-stat positive" id="return-gt100-count">0</td>
+                </tr>
+                <tr>
+                    <td>Avg Return</td>
+                    <td class="return-stat positive" id="return-gt100-avg">0%</td>
+                </tr>
+                <tr>
+                    <td>Max Return</td>
+                    <td class="return-stat positive" id="return-gt100-max">0%</td>
+                </tr>
+                <tr>
+                    <td>Min Return</td>
+                    <td class="return-stat positive" id="return-gt100-min">0%</td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+
 <script>
     const API_BASE_URL = "https://new-dashboard-service.onrender.com"; // Database API endpoint
     const REFRESH_INTERVAL = 30000; // Auto-refresh every 30 seconds (30,000ms)
@@ -609,10 +869,18 @@
     let filteredGroups = [];
     let currentSortKey = "pnlPct";
     let currentSortDir = "desc"; // 'asc' or 'desc'
+    let percentageRangeFilter = "all"; // Track selected percentage range
+    let returnRanges = {
+      lt25: { count: 0, total: 0, profit: 0, loss: 0, values: [] },
+      range25_50: { count: 0, total: 0, profit: 0, loss: 0, values: [] },
+      range50_75: { count: 0, total: 0, profit: 0, loss: 0, values: [] },
+      gt100: { count: 0, total: 0, max: -Infinity, min: Infinity, values: [] }
+    };
 
     document.addEventListener("DOMContentLoaded", () => {
       attachFilterListeners();
       attachSortListeners();
+      attachPercentageTabListeners();
       attachLiveUpdateListeners();
       loadDataFromDB();
       // Load and restore filters AFTER data loads (so stock dropdown is populated)
@@ -647,6 +915,7 @@
         stock: document.getElementById("stockFilter").value,
         optionType: document.getElementById("optionTypeFilter").value,
         strikeType: document.getElementById("strikeTypeFilter").value,
+        role: document.getElementById("roleFilter").value,
         status: document.getElementById("statusFilter").value,
         pnlType: document.getElementById("pnlTypeFilter").value,
         progressLabel: document.getElementById("progressLabelFilter").value,
@@ -654,6 +923,8 @@
         dateTo: document.getElementById("dateToFilter").value,
         returnFrom: document.getElementById("returnFromFilter").value,
         returnTo: document.getElementById("returnToFilter").value,
+        maxHighFrom: document.getElementById("maxHighFromFilter").value,
+        maxHighTo: document.getElementById("maxHighToFilter").value,
         multipleEntriesOnly: document.getElementById("multipleEntriesFilter").checked,
         sortKey: currentSortKey,
         sortDir: currentSortDir
@@ -673,6 +944,7 @@
         if (filterState.stock) document.getElementById("stockFilter").value = filterState.stock;
         if (filterState.optionType) document.getElementById("optionTypeFilter").value = filterState.optionType;
         if (filterState.strikeType) document.getElementById("strikeTypeFilter").value = filterState.strikeType;
+        if (filterState.role) document.getElementById("roleFilter").value = filterState.role;
         if (filterState.status) document.getElementById("statusFilter").value = filterState.status;
         if (filterState.pnlType) document.getElementById("pnlTypeFilter").value = filterState.pnlType;
         if (filterState.progressLabel) document.getElementById("progressLabelFilter").value = filterState.progressLabel;
@@ -680,6 +952,8 @@
         if (filterState.dateTo) document.getElementById("dateToFilter").value = filterState.dateTo;
         if (filterState.returnFrom) document.getElementById("returnFromFilter").value = filterState.returnFrom;
         if (filterState.returnTo) document.getElementById("returnToFilter").value = filterState.returnTo;
+        if (filterState.maxHighFrom) document.getElementById("maxHighFromFilter").value = filterState.maxHighFrom;
+        if (filterState.maxHighTo) document.getElementById("maxHighToFilter").value = filterState.maxHighTo;
         if (filterState.multipleEntriesOnly) document.getElementById("multipleEntriesFilter").checked = filterState.multipleEntriesOnly;
         // Restore sort state
         if (filterState.sortKey) currentSortKey = filterState.sortKey;
@@ -872,15 +1146,53 @@
     }
 
     // Load data from database without visual feedback (silent refresh)
+    // Preserves live LTP prices if they have been fetched
     async function loadDataFromDBSilent() {
       try {
+        // Store current live prices before reloading
+        const livePricesSnapshot = new Map();
+        for (const group of allGroups) {
+          const primary = group.primary;
+          const key = `${primary.stock}|${primary.price}`;
+          // Only store if ltp is different from initial price (meaning it's live)
+          if (primary.ltp && primary.ltp !== primary.price) {
+            livePricesSnapshot.set(key, {
+              ltp: primary.ltp,
+              pnlAbs: primary.pnlAbs,
+              pnlPct: primary.pnlPct
+            });
+          }
+        }
+
+        // Fetch fresh data from DB
         const resp = await fetch(`${API_BASE_URL}/successes?limit=10000`);
         if (!resp.ok) return;
         const json = await resp.json();
         if (json.status !== 'success' || !json.data) return;
+
         const entries = transformAPIToEntries(json.data);
         allGroups = groupEntries(entries);
         populateStockDropdown(allGroups);
+
+        // Restore live prices from snapshot
+        for (const group of allGroups) {
+          const primary = group.primary;
+          const key = `${primary.stock}|${primary.price}`;
+          if (livePricesSnapshot.has(key)) {
+            const liveData = livePricesSnapshot.get(key);
+            primary.ltp = liveData.ltp;
+            primary.pnlAbs = liveData.pnlAbs;
+            primary.pnlPct = liveData.pnlPct;
+
+            // Update all items in the group too
+            for (const item of group.items) {
+              item.ltp = liveData.ltp;
+              item.pnlAbs = liveData.pnlAbs;
+              item.pnlPct = liveData.pnlPct;
+            }
+          }
+        }
+
         // Re-apply current filters without resetting them
         applyFiltersAndRender();
       } catch (e) {
@@ -1207,6 +1519,7 @@
       document.getElementById("stockFilter").addEventListener("change", saveAndRender);
       document.getElementById("optionTypeFilter").addEventListener("change", saveAndRender);
       document.getElementById("strikeTypeFilter").addEventListener("change", saveAndRender);
+      document.getElementById("roleFilter").addEventListener("change", saveAndRender);
       document.getElementById("statusFilter").addEventListener("change", saveAndRender);
       document.getElementById("pnlTypeFilter").addEventListener("change", saveAndRender);
       document.getElementById("progressLabelFilter").addEventListener("change", saveAndRender);
@@ -1214,6 +1527,8 @@
       document.getElementById("dateToFilter").addEventListener("change", saveAndRender);
       document.getElementById("returnFromFilter").addEventListener("change", saveAndRender);
       document.getElementById("returnToFilter").addEventListener("change", saveAndRender);
+      document.getElementById("maxHighFromFilter").addEventListener("change", saveAndRender);
+      document.getElementById("maxHighToFilter").addEventListener("change", saveAndRender);
       document.getElementById("multipleEntriesFilter").addEventListener("change", saveAndRender);
 
 
@@ -1224,11 +1539,29 @@
       document.getElementById("todayTradesBtn").addEventListener("click", showTodaysTrades);
     }
 
+    function attachPercentageTabListeners() {
+      const tabs = document.querySelectorAll(".percentage-tab");
+      tabs.forEach(tab => {
+        tab.addEventListener("click", () => {
+          // Remove active class from all tabs
+          tabs.forEach(t => t.classList.remove("active"));
+          // Add active class to clicked tab
+          tab.classList.add("active");
+          // Update filter
+          percentageRangeFilter = tab.getAttribute("data-range");
+          applyFiltersAndRender();
+        });
+      });
+      // Set "All Records" as active by default
+      tabs[0].classList.add("active");
+    }
+
     function clearAllFilters() {
       // Reset all filter inputs to their default values
       document.getElementById("stockFilter").value = "";
       document.getElementById("optionTypeFilter").value = "";
       document.getElementById("strikeTypeFilter").value = "";
+      document.getElementById("roleFilter").value = "";
       document.getElementById("statusFilter").value = "open";
       document.getElementById("pnlTypeFilter").value = "";
       document.getElementById("progressLabelFilter").value = "";
@@ -1236,6 +1569,8 @@
       document.getElementById("dateToFilter").value = "";
       document.getElementById("returnFromFilter").value = "";
       document.getElementById("returnToFilter").value = "";
+      document.getElementById("maxHighFromFilter").value = "";
+      document.getElementById("maxHighToFilter").value = "";
       document.getElementById("multipleEntriesFilter").checked = false;
 
       // Apply filters and save state
@@ -1297,6 +1632,7 @@
       const stockFilter = document.getElementById("stockFilter").value;
       const optFilter   = document.getElementById("optionTypeFilter").value;
       const strikeFilter= document.getElementById("strikeTypeFilter").value;
+      const roleFilter  = document.getElementById("roleFilter").value;
       const statusFilter= document.getElementById("statusFilter").value;
       const pnlTypeFilter = document.getElementById("pnlTypeFilter").value;
       const progressLabelFilter = document.getElementById("progressLabelFilter").value;
@@ -1304,6 +1640,8 @@
       const dateToVal   = document.getElementById("dateToFilter").value;
       const returnFromVal = document.getElementById("returnFromFilter").value;
       const returnToVal = document.getElementById("returnToFilter").value;
+      const maxHighFromVal = document.getElementById("maxHighFromFilter").value;
+      const maxHighToVal = document.getElementById("maxHighToFilter").value;
       const multipleEntriesOnly = document.getElementById("multipleEntriesFilter").checked;
 
       const fromDate = dateFromVal ? new Date(dateFromVal + "T00:00:00") : null;
@@ -1311,6 +1649,8 @@
 
       const returnFromNum = returnFromVal !== "" ? parseFloat(returnFromVal) : null;
       const returnToNum = returnToVal !== "" ? parseFloat(returnToVal) : null;
+      const maxHighFromNum = maxHighFromVal !== "" ? parseFloat(maxHighFromVal) : null;
+      const maxHighToNum = maxHighToVal !== "" ? parseFloat(maxHighToVal) : null;
 
       filteredGroups = allGroups.filter(g => {
         const e = g.primary;
@@ -1320,6 +1660,8 @@
         if (optFilter && e.optionType !== optFilter) return false;
 
         if (strikeFilter && mapMoneynessToStrikeType(e.mRaw) !== strikeFilter) return false;
+
+        if (roleFilter && e.role !== roleFilter) return false;
 
         if (statusFilter && e.displayStatus !== statusFilter) return false;
 
@@ -1345,19 +1687,47 @@
           if (returnToNum !== null && e.pnlPct > returnToNum) return false;
         }
 
+        // Filter by Max High % Range
+        if (maxHighFromNum !== null || maxHighToNum !== null) {
+          if (e.maxReturnHigh === null) return false;  // Skip if no max high data
+          if (maxHighFromNum !== null && e.maxReturnHigh < maxHighFromNum) return false;
+          if (maxHighToNum !== null && e.maxReturnHigh > maxHighToNum) return false;
+        }
+
         // Filter by Multiple Entries
         if (multipleEntriesOnly && g.items.length <= 1) return false;
+
+        // Filter by Percentage Range (from tabs)
+        if (percentageRangeFilter !== "all") {
+          if (e.pnlPct === null || !isFinite(e.pnlPct)) return false;
+
+          const pnl = e.pnlPct;
+          switch (percentageRangeFilter) {
+            case "0-25":
+              if (pnl < 0 || pnl > 25) return false;
+              break;
+            case "25-50":
+              if (pnl < 25 || pnl > 50) return false;
+              break;
+            case "50-75":
+              if (pnl < 50 || pnl > 75) return false;
+              break;
+            case "75-100":
+              if (pnl < 75 || pnl > 100) return false;
+              break;
+          }
+        }
 
         return true;
       });
 
       sortGroups();
+      updateStatistics();
       renderTable();
       const totalRows = allGroups.reduce((sum, g) => sum + g.items.length, 0);
       const filteredRows = filteredGroups.reduce((sum, g) => sum + g.items.length, 0);
       document.getElementById("filteredRows").textContent = filteredRows;
       document.getElementById("totalRows").textContent = totalRows;
-      updateStatistics();
     }
 
     function updateStatistics() {
@@ -1381,7 +1751,7 @@
       });
       const avgReturn = validReturns > 0 ? (totalReturn / validReturns).toFixed(1) : 0;
 
-      // Update UI
+      // Update main stats UI
       document.getElementById("totalSuccessTrades").textContent = successTrades;
       document.getElementById("totalOrdersTracked").textContent = totalOrders;
       document.getElementById("successRate").textContent = successRate + "%";
@@ -1395,6 +1765,76 @@
       } else if (avgReturn < 10) {
         avgReturnEl.classList.add("warning");
       }
+
+      // Calculate return range statistics
+      returnRanges = {
+        lt25: { count: 0, total: 0, profit: 0, loss: 0, values: [] },
+        range25_50: { count: 0, total: 0, profit: 0, loss: 0, values: [] },
+        range50_75: { count: 0, total: 0, profit: 0, loss: 0, values: [] },
+        gt100: { count: 0, total: 0, max: -Infinity, min: Infinity, values: [] }
+      };
+
+      filteredGroups.forEach(g => {
+        const pnl = g.primary.pnlPct;
+        if (pnl === null || !isFinite(pnl)) return;
+
+        if (pnl < 25) {
+          returnRanges.lt25.count++;
+          returnRanges.lt25.total += pnl;
+          returnRanges.lt25.values.push(pnl);
+          if (pnl >= 0) returnRanges.lt25.profit++;
+          else returnRanges.lt25.loss++;
+        } else if (pnl >= 25 && pnl < 50) {
+          returnRanges.range25_50.count++;
+          returnRanges.range25_50.total += pnl;
+          returnRanges.range25_50.values.push(pnl);
+          if (pnl >= 0) returnRanges.range25_50.profit++;
+          else returnRanges.range25_50.loss++;
+        } else if (pnl >= 50 && pnl < 100) {
+          returnRanges.range50_75.count++;
+          returnRanges.range50_75.total += pnl;
+          returnRanges.range50_75.values.push(pnl);
+          if (pnl >= 0) returnRanges.range50_75.profit++;
+          else returnRanges.range50_75.loss++;
+        } else if (pnl >= 100) {
+          returnRanges.gt100.count++;
+          returnRanges.gt100.total += pnl;
+          returnRanges.gt100.values.push(pnl);
+          returnRanges.gt100.max = Math.max(returnRanges.gt100.max, pnl);
+          returnRanges.gt100.min = Math.min(returnRanges.gt100.min, pnl);
+        }
+      });
+
+      // Update return range tables
+      // < 25%
+      document.getElementById("return-lt25-count").textContent = returnRanges.lt25.count;
+      const lt25Avg = returnRanges.lt25.count > 0 ? (returnRanges.lt25.total / returnRanges.lt25.count).toFixed(1) : "0";
+      document.getElementById("return-lt25-avg").textContent = lt25Avg + "%";
+      document.getElementById("return-lt25-profit").textContent = returnRanges.lt25.profit;
+      document.getElementById("return-lt25-loss").textContent = returnRanges.lt25.loss;
+
+      // 25% - 50%
+      document.getElementById("return-25-50-count").textContent = returnRanges.range25_50.count;
+      const range25_50Avg = returnRanges.range25_50.count > 0 ? (returnRanges.range25_50.total / returnRanges.range25_50.count).toFixed(1) : "0";
+      document.getElementById("return-25-50-avg").textContent = range25_50Avg + "%";
+      document.getElementById("return-25-50-profit").textContent = returnRanges.range25_50.profit;
+      document.getElementById("return-25-50-loss").textContent = returnRanges.range25_50.loss;
+
+      // 50% - 75%
+      document.getElementById("return-50-75-count").textContent = returnRanges.range50_75.count;
+      const range50_75Avg = returnRanges.range50_75.count > 0 ? (returnRanges.range50_75.total / returnRanges.range50_75.count).toFixed(1) : "0";
+      document.getElementById("return-50-75-avg").textContent = range50_75Avg + "%";
+      document.getElementById("return-50-75-profit").textContent = returnRanges.range50_75.profit;
+      document.getElementById("return-50-75-loss").textContent = returnRanges.range50_75.loss;
+
+      // > 100%
+      document.getElementById("return-gt100-count").textContent = returnRanges.gt100.count;
+      const gt100Avg = returnRanges.gt100.count > 0 ? (returnRanges.gt100.total / returnRanges.gt100.count).toFixed(1) : "0";
+      const gt100Max = returnRanges.gt100.max !== -Infinity ? returnRanges.gt100.max.toFixed(1) : "0";
+      const gt100Min = returnRanges.gt100.min !== Infinity ? returnRanges.gt100.min.toFixed(1) : "0";
+      document.getElementById("return-gt100-avg").textContent = gt100Avg + "%";
+      document.getElementById("return-gt100-max").textContent = gt100Max + "%";
+      document.getElementById("return-gt100-min").textContent = gt100Min + "%";
     }
 
     function sortGroups() {
@@ -1601,23 +2041,47 @@
         // Progress Label
         const tdProgress = document.createElement("td");
         const progressLabel = e.progressLabel || "running";
+        let badgeHtml = '';
+
         if (progressLabel === "done") {
-          tdProgress.innerHTML = '<span class="badge badge-done">✓ Done</span>';
+          badgeHtml = '<span class="badge badge-done">✓ Done</span>';
         } else if (progressLabel === "+75%") {
-          tdProgress.innerHTML = '<span class="badge badge-progress-75">+75% ◐</span>';
+          badgeHtml = '<span class="badge badge-progress-75">+75% ◐</span>';
         } else if (progressLabel === "+50%") {
-          tdProgress.innerHTML = '<span class="badge badge-progress-50">+50% ◑</span>';
+          badgeHtml = '<span class="badge badge-progress-50">+50% ◑</span>';
         } else if (progressLabel === "+25%") {
-          tdProgress.innerHTML = '<span class="badge badge-progress-25">+25% ◓</span>';
+          badgeHtml = '<span class="badge badge-progress-25">+25% ◓</span>';
         } else if (progressLabel === "-25%") {
-          tdProgress.innerHTML = '<span class="badge badge-progress-neg25">-25% ◓</span>';
+          badgeHtml = '<span class="badge badge-progress-neg25">-25% ◓</span>';
         } else if (progressLabel === "-50%") {
-          tdProgress.innerHTML = '<span class="badge badge-progress-neg50">-50% ◑</span>';
+          badgeHtml = '<span class="badge badge-progress-neg50">-50% ◑</span>';
         } else if (progressLabel === "-75%") {
-          tdProgress.innerHTML = '<span class="badge badge-progress-neg75">-75% ◐</span>';
+          badgeHtml = '<span class="badge badge-progress-neg75">-75% ◐</span>';
         } else {
-          tdProgress.innerHTML = '<span class="badge badge-progress-running">Running ◌</span>';
+          badgeHtml = '<span class="badge badge-progress-running">Running ◌</span>';
         }
+
+        // Add summary table based on maxReturnHigh
+        let summaryTable = '';
+        const maxReturn = e.maxReturnHigh !== null ? e.maxReturnHigh : null;
+
+        if (maxReturn !== null) {
+          if (maxReturn < 25) {
+            // Show Table 1
+            summaryTable = '<div style="margin-top: 4px; font-size: 0.7rem; color: #9ca3af;">(1st table)</div>';
+          } else if (maxReturn < 50) {
+            // Show Table 2
+            summaryTable = '<div style="margin-top: 4px; font-size: 0.7rem; color: #9ca3af;">(2nd table)</div>';
+          } else if (maxReturn < 75) {
+            // Show Table 3
+            summaryTable = '<div style="margin-top: 4px; font-size: 0.7rem; color: #9ca3af;">(3rd table)</div>';
+          } else {
+            // Show Table 4
+            summaryTable = '<div style="margin-top: 4px; font-size: 0.7rem; color: #9ca3af;">(4th table)</div>';
+          }
+        }
+
+        tdProgress.innerHTML = badgeHtml + summaryTable;
         tr.appendChild(tdProgress);
 
         // PCR
@@ -1666,32 +2130,106 @@
         tdTime.textContent = e.timestamp || "-";
         tr.appendChild(tdTime);
 
-        // Progress History (moved to last)
+        // Progress History with timestamps (clickable)
         const tdProgressHistory = document.createElement("td");
         tdProgressHistory.classList.add("progress-history");
+
         if (e.progressHistory) {
+          // Split by "|" to get individual steps
           const steps = e.progressHistory.split("|");
-          const historyHtml = steps.map((step, idx) => {
-            let badgeClass = "badge-progress-running";
-            const cleanStep = step.trim();
-            if (cleanStep === "done") {
-              badgeClass = "badge-done";
-            } else if (cleanStep === "+75%") {
-              badgeClass = "badge-progress-75";
-            } else if (cleanStep === "+50%") {
-              badgeClass = "badge-progress-50";
-            } else if (cleanStep === "+25%") {
-              badgeClass = "badge-progress-25";
-            } else if (cleanStep === "-25%") {
-              badgeClass = "badge-progress-neg25";
-            } else if (cleanStep === "-50%") {
-              badgeClass = "badge-progress-neg50";
-            } else if (cleanStep === "-75%") {
-              badgeClass = "badge-progress-neg75";
+
+          // Parse steps to separate timestamp from label
+          const parsedSteps = steps.map(step => {
+            const trimmed = step.trim();
+            if (!trimmed) return null;
+
+            // Format: timestamp:label
+            // Match pattern: anything before last colon is timestamp, after last colon is label
+            const lastColonIndex = trimmed.lastIndexOf(":");
+
+            if (lastColonIndex > 0) {
+              const timestamp = trimmed.substring(0, lastColonIndex).trim();
+              const label = trimmed.substring(lastColonIndex + 1).trim();
+
+              return {
+                timestamp: timestamp,
+                label: label
+              };
+            } else {
+              // Fallback if pattern doesn't match
+              return {
+                timestamp: trimmed,
+                label: trimmed
+              };
             }
-            return `<span class="badge ${badgeClass}" style="font-size: 0.65rem; padding: 1px 4px;">${cleanStep}</span>`;
+          }).filter(step => step !== null);
+
+          // Create badges with only labels (no timestamps)
+          const historyHtml = parsedSteps.map((step, idx) => {
+            let badgeClass = "badge-progress-running";
+            const label = step.label;
+
+            // Determine badge class based on label content
+            if (label.includes("done")) {
+              badgeClass = "badge-done";
+            } else if (label.includes("+75")) {
+              badgeClass = "badge-progress-75";
+            } else if (label.includes("+50")) {
+              badgeClass = "badge-progress-50";
+            } else if (label.includes("+25")) {
+              badgeClass = "badge-progress-25";
+            } else if (label.includes("-75")) {
+              badgeClass = "badge-progress-neg75";
+            } else if (label.includes("-50")) {
+              badgeClass = "badge-progress-neg50";
+            } else if (label.includes("-25")) {
+              badgeClass = "badge-progress-neg25";
+            }
+            return `<span class="badge ${badgeClass}" style="font-size: 0.65rem; padding: 1px 4px; cursor: pointer;" title="Click to see timestamp">${label}</span>`;
           }).join('<span class="progress-history-arrow">→</span>');
-          tdProgressHistory.innerHTML = historyHtml;
+
+          const progressContainer = document.createElement("div");
+          progressContainer.style.cursor = "pointer";
+          progressContainer.innerHTML = historyHtml;
+          progressContainer.setAttribute("data-group-key", g.key);
+          progressContainer.classList.add("progress-history-container");
+
+          tdProgressHistory.appendChild(progressContainer);
+
+          // Add click handler to show/hide timestamps
+          progressContainer.addEventListener("click", (event) => {
+            event.stopPropagation();
+            const isExpanded = progressContainer.classList.toggle("expanded");
+            const timesDiv = progressContainer.nextElementSibling;
+
+            if (isExpanded) {
+              // Show timestamps
+              if (timesDiv && timesDiv.classList.contains("progress-timestamps")) {
+                timesDiv.style.display = "block";
+              }
+            } else {
+              // Hide timestamps
+              if (timesDiv && timesDiv.classList.contains("progress-timestamps")) {
+                timesDiv.style.display = "none";
+              }
+            }
+          });
+
+          // Create timestamps div (hidden by default)
+          const timestampsDiv = document.createElement("div");
+          timestampsDiv.classList.add("progress-timestamps");
+          timestampsDiv.style.display = "none";
+          timestampsDiv.style.marginTop = "4px";
+          timestampsDiv.style.fontSize = "0.65rem";
+          timestampsDiv.style.color = "#6b7280";
+          timestampsDiv.style.fontStyle = "italic";
+
+          const stepTimestamps = parsedSteps.map((step, i) => {
+            return `${step.label}: ${step.timestamp}`;
+          });
+          timestampsDiv.innerHTML = stepTimestamps.join("<br/>");
+
+          tdProgressHistory.appendChild(timestampsDiv);
         } else {
           tdProgressHistory.textContent = "-";
         }
@@ -1807,3 +2345,4 @@
 </script>
 </body>
 </html>
+
