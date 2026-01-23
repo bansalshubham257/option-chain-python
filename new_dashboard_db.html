@@ -628,6 +628,15 @@
             </select>
         </div>
         <div class="filter-group">
+            <label for="hideIndexFilter">Hide Index</label>
+            <select id="hideIndexFilter" multiple style="min-height: 80px;">
+                <option value="NIFTY">NIFTY</option>
+                <option value="SENSEX">SENSEX</option>
+                <option value="CRUDEOIL">CRUDEOIL</option>
+                <option value="NATURALGAS">NATURALGAS</option>
+            </select>
+        </div>
+        <div class="filter-group">
             <label for="progressLabelFilter">Progress Label</label>
             <select id="progressLabelFilter">
                 <option value="">All</option>
@@ -735,28 +744,28 @@
         </div>
         <table class="return-summary-table">
             <thead>
-                <tr>
-                    <th>Metric</th>
-                    <th>Value</th>
-                </tr>
+            <tr>
+                <th>Metric</th>
+                <th>Value</th>
+            </tr>
             </thead>
             <tbody>
-                <tr>
-                    <td>Count</td>
-                    <td class="return-stat" id="return-lt25-count">0</td>
-                </tr>
-                <tr>
-                    <td>Avg Return</td>
-                    <td class="return-stat negative" id="return-lt25-avg">0%</td>
-                </tr>
-                <tr>
-                    <td>Profit Count</td>
-                    <td class="return-stat positive" id="return-lt25-profit">0</td>
-                </tr>
-                <tr>
-                    <td>Loss Count</td>
-                    <td class="return-stat negative" id="return-lt25-loss">0</td>
-                </tr>
+            <tr>
+                <td>Count</td>
+                <td class="return-stat" id="return-lt25-count">0</td>
+            </tr>
+            <tr>
+                <td>Avg Return</td>
+                <td class="return-stat negative" id="return-lt25-avg">0%</td>
+            </tr>
+            <tr>
+                <td>Profit Count</td>
+                <td class="return-stat positive" id="return-lt25-profit">0</td>
+            </tr>
+            <tr>
+                <td>Loss Count</td>
+                <td class="return-stat negative" id="return-lt25-loss">0</td>
+            </tr>
             </tbody>
         </table>
     </div>
@@ -768,28 +777,28 @@
         </div>
         <table class="return-summary-table">
             <thead>
-                <tr>
-                    <th>Metric</th>
-                    <th>Value</th>
-                </tr>
+            <tr>
+                <th>Metric</th>
+                <th>Value</th>
+            </tr>
             </thead>
             <tbody>
-                <tr>
-                    <td>Count</td>
-                    <td class="return-stat" id="return-25-50-count">0</td>
-                </tr>
-                <tr>
-                    <td>Avg Return</td>
-                    <td class="return-stat positive" id="return-25-50-avg">0%</td>
-                </tr>
-                <tr>
-                    <td>Profit Count</td>
-                    <td class="return-stat positive" id="return-25-50-profit">0</td>
-                </tr>
-                <tr>
-                    <td>Loss Count</td>
-                    <td class="return-stat negative" id="return-25-50-loss">0</td>
-                </tr>
+            <tr>
+                <td>Count</td>
+                <td class="return-stat" id="return-25-50-count">0</td>
+            </tr>
+            <tr>
+                <td>Avg Return</td>
+                <td class="return-stat positive" id="return-25-50-avg">0%</td>
+            </tr>
+            <tr>
+                <td>Profit Count</td>
+                <td class="return-stat positive" id="return-25-50-profit">0</td>
+            </tr>
+            <tr>
+                <td>Loss Count</td>
+                <td class="return-stat negative" id="return-25-50-loss">0</td>
+            </tr>
             </tbody>
         </table>
     </div>
@@ -801,28 +810,28 @@
         </div>
         <table class="return-summary-table">
             <thead>
-                <tr>
-                    <th>Metric</th>
-                    <th>Value</th>
-                </tr>
+            <tr>
+                <th>Metric</th>
+                <th>Value</th>
+            </tr>
             </thead>
             <tbody>
-                <tr>
-                    <td>Count</td>
-                    <td class="return-stat" id="return-50-75-count">0</td>
-                </tr>
-                <tr>
-                    <td>Avg Return</td>
-                    <td class="return-stat positive" id="return-50-75-avg">0%</td>
-                </tr>
-                <tr>
-                    <td>Profit Count</td>
-                    <td class="return-stat positive" id="return-50-75-profit">0</td>
-                </tr>
-                <tr>
-                    <td>Loss Count</td>
-                    <td class="return-stat negative" id="return-50-75-loss">0</td>
-                </tr>
+            <tr>
+                <td>Count</td>
+                <td class="return-stat" id="return-50-75-count">0</td>
+            </tr>
+            <tr>
+                <td>Avg Return</td>
+                <td class="return-stat positive" id="return-50-75-avg">0%</td>
+            </tr>
+            <tr>
+                <td>Profit Count</td>
+                <td class="return-stat positive" id="return-50-75-profit">0</td>
+            </tr>
+            <tr>
+                <td>Loss Count</td>
+                <td class="return-stat negative" id="return-50-75-loss">0</td>
+            </tr>
             </tbody>
         </table>
     </div>
@@ -834,31 +843,65 @@
         </div>
         <table class="return-summary-table">
             <thead>
-                <tr>
-                    <th>Metric</th>
-                    <th>Value</th>
-                </tr>
+            <tr>
+                <th>Metric</th>
+                <th>Value</th>
+            </tr>
             </thead>
             <tbody>
-                <tr>
-                    <td>Count</td>
-                    <td class="return-stat positive" id="return-gt100-count">0</td>
-                </tr>
-                <tr>
-                    <td>Avg Return</td>
-                    <td class="return-stat positive" id="return-gt100-avg">0%</td>
-                </tr>
-                <tr>
-                    <td>Max Return</td>
-                    <td class="return-stat positive" id="return-gt100-max">0%</td>
-                </tr>
-                <tr>
-                    <td>Min Return</td>
-                    <td class="return-stat positive" id="return-gt100-min">0%</td>
-                </tr>
+            <tr>
+                <td>Count</td>
+                <td class="return-stat positive" id="return-gt100-count">0</td>
+            </tr>
+            <tr>
+                <td>Avg Return</td>
+                <td class="return-stat positive" id="return-gt100-avg">0%</td>
+            </tr>
+            <tr>
+                <td>Max Return</td>
+                <td class="return-stat positive" id="return-gt100-max">0%</td>
+            </tr>
+            <tr>
+                <td>Min Return</td>
+                <td class="return-stat positive" id="return-gt100-min">0%</td>
+            </tr>
             </tbody>
         </table>
     </div>
+</div>
+
+<h2 style="color: #e5e7eb; margin-top: 40px; margin-bottom: 20px; font-size: 1.3rem;">🔄 Recovery Trades</h2>
+<p style="color: #9ca3af; margin-bottom: 20px; font-size: 0.9rem;">Trades that were down 30% or more and are now recovering (cost-to-cost or in profit)</p>
+
+<div class="table-wrapper" id="recoveryTableWrapper">
+    <table id="recoveryTable">
+        <thead>
+        <tr>
+            <th></th>
+            <th class="sortable" data-sort-key="stock">Stock<span class="sort-indicator"></span></th>
+            <th>Expiry</th>
+            <th class="sortable" data-sort-key="strike">Strike<span class="sort-indicator"></span></th>
+            <th>Option</th>
+            <th>Role</th>
+            <th class="sortable" data-sort-key="price">Entry Price<span class="sort-indicator"></span></th>
+            <th class="sortable" data-sort-key="ltp">Live LTP 🔴<span class="sort-indicator"></span></th>
+            <th class="sortable" data-sort-key="pnlPct">Current Return<span class="sort-indicator"></span></th>
+            <th class="sortable" data-sort-key="maxReturnLow">Lowest Loss %<span class="sort-indicator"></span></th>
+            <th class="sortable" data-sort-key="maxReturnHigh">Max High %<span class="sort-indicator"></span></th>
+            <th class="sortable" data-sort-key="daysPassed">Days Passed<span class="sort-indicator"></span></th>
+            <th>Filled Time</th>
+            <th>Recovery Status</th>
+        </tr>
+        </thead>
+        <tbody></tbody>
+    </table>
+</div>
+
+<div class="status-bar" id="recoveryStatusBar">
+    <div>Recovery Trades: <span class="status-highlight" id="recoveryTradesCount">0</span></div>
+    <div>Avg Recovery: <span class="status-highlight" id="recoveryAverage">0%</span></div>
+    <div>Still Recovering: <span class="status-highlight" id="recoveryStillRecovering">0</span></div>
+    <div>Recovered to Profit: <span class="status-highlight" id="recoveryProfit">0</span></div>
 </div>
 
 <script>
@@ -911,6 +954,8 @@
 
     // Save current filter state to localStorage
     function saveFilterStateToStorage() {
+      const hideIndexFilterEl = document.getElementById("hideIndexFilter");
+      const hideIndexArray = Array.from(hideIndexFilterEl.selectedOptions).map(opt => opt.value);
       const filterState = {
         stock: document.getElementById("stockFilter").value,
         optionType: document.getElementById("optionTypeFilter").value,
@@ -918,6 +963,7 @@
         role: document.getElementById("roleFilter").value,
         status: document.getElementById("statusFilter").value,
         pnlType: document.getElementById("pnlTypeFilter").value,
+        hideIndex: hideIndexArray,
         progressLabel: document.getElementById("progressLabelFilter").value,
         dateFrom: document.getElementById("dateFromFilter").value,
         dateTo: document.getElementById("dateToFilter").value,
@@ -947,6 +993,12 @@
         if (filterState.role) document.getElementById("roleFilter").value = filterState.role;
         if (filterState.status) document.getElementById("statusFilter").value = filterState.status;
         if (filterState.pnlType) document.getElementById("pnlTypeFilter").value = filterState.pnlType;
+        if (filterState.hideIndex && Array.isArray(filterState.hideIndex)) {
+          const hideIndexFilterEl = document.getElementById("hideIndexFilter");
+          for (const opt of hideIndexFilterEl.options) {
+            opt.selected = filterState.hideIndex.includes(opt.value);
+          }
+        }
         if (filterState.progressLabel) document.getElementById("progressLabelFilter").value = filterState.progressLabel;
         if (filterState.dateFrom) document.getElementById("dateFromFilter").value = filterState.dateFrom;
         if (filterState.dateTo) document.getElementById("dateToFilter").value = filterState.dateTo;
@@ -1522,6 +1574,7 @@
       document.getElementById("roleFilter").addEventListener("change", saveAndRender);
       document.getElementById("statusFilter").addEventListener("change", saveAndRender);
       document.getElementById("pnlTypeFilter").addEventListener("change", saveAndRender);
+      document.getElementById("hideIndexFilter").addEventListener("change", saveAndRender);
       document.getElementById("progressLabelFilter").addEventListener("change", saveAndRender);
       document.getElementById("dateFromFilter").addEventListener("change", saveAndRender);
       document.getElementById("dateToFilter").addEventListener("change", saveAndRender);
@@ -1564,6 +1617,7 @@
       document.getElementById("roleFilter").value = "";
       document.getElementById("statusFilter").value = "open";
       document.getElementById("pnlTypeFilter").value = "";
+      document.getElementById("hideIndexFilter").value = "";
       document.getElementById("progressLabelFilter").value = "";
       document.getElementById("dateFromFilter").value = "";
       document.getElementById("dateToFilter").value = "";
@@ -1635,6 +1689,8 @@
       const roleFilter  = document.getElementById("roleFilter").value;
       const statusFilter= document.getElementById("statusFilter").value;
       const pnlTypeFilter = document.getElementById("pnlTypeFilter").value;
+      const hideIndexFilterEl = document.getElementById("hideIndexFilter");
+      const hideIndexArray = Array.from(hideIndexFilterEl.selectedOptions).map(opt => opt.value);
       const progressLabelFilter = document.getElementById("progressLabelFilter").value;
       const dateFromVal = document.getElementById("dateFromFilter").value;
       const dateToVal   = document.getElementById("dateToFilter").value;
@@ -1669,6 +1725,11 @@
         if (pnlTypeFilter) {
           if (pnlTypeFilter === "profit" && e.pnlPct <= 0) return false;  // Show only profit trades
           if (pnlTypeFilter === "loss" && e.pnlPct >= 0) return false;    // Show only loss trades
+        }
+
+        // Filter by Hidden Indices (hide selected indices)
+        if (hideIndexArray.length > 0) {
+          if (hideIndexArray.includes(g.stock)) return false;  // Hide if stock is in the hide list
         }
 
         if (progressLabelFilter && e.progressLabel !== progressLabelFilter) return false;
@@ -2341,8 +2402,305 @@
       });
       // Restore expanded rows after rendering
       restoreExpandedRowsState();
+
+      // Render recovery table
+      renderRecoveryTable();
+    }
+
+    function renderRecoveryTable() {
+      // Find trades that:
+      // 1. Had a max loss of -30% or worse (maxReturnLow <= -30)
+      // 2. Current PnL is >= -0.1% (running at cost or in profit)
+      // 3. EXCLUDE trades that already hit 75%+ in progress history
+
+      const recoveryTrades = allGroups.filter(g => {
+        const e = g.primary;
+
+        // Check if it had significant loss
+        const hadSignificantLoss = e.maxReturnLow !== null && e.maxReturnLow <= -30;
+
+        // Check if currently recovering (at cost or profit)
+        const isRecovering = e.pnlPct !== null && e.pnlPct >= -0.1;
+
+        // Check if it already hit 75%+ in progress history
+        let alreadyHit75Plus = false;
+        if (e.progressHistory) {
+          const steps = e.progressHistory.split("|");
+          for (const step of steps) {
+            const parts = step.split("@");
+            const label = parts[0].trim().toLowerCase();
+            if (label.includes("+75") || label === "done") {
+              alreadyHit75Plus = true;
+              break;
+            }
+          }
+        }
+
+        return hadSignificantLoss && isRecovering && !alreadyHit75Plus;
+      });
+
+      // Sort by recovery potential (by current PnL - higher is better)
+      recoveryTrades.sort((a, b) => {
+        const aPnl = a.primary.pnlPct || 0;
+        const bPnl = b.primary.pnlPct || 0;
+        return bPnl - aPnl;
+      });
+
+      const tbody = document.querySelector("#recoveryTable tbody");
+      tbody.innerHTML = "";
+
+      recoveryTrades.forEach((g, groupIndex) => {
+        const e = g.primary;
+
+        const tr = document.createElement("tr");
+        tr.classList.add("group-row");
+
+        // Expand cell
+        const tdExpand = document.createElement("td");
+        if (g.items.length > 1) {
+          tdExpand.classList.add("expand-cell");
+          tdExpand.textContent = "+";
+          tdExpand.title = "Click to show all fills";
+        }
+        tr.appendChild(tdExpand);
+
+        // Stock
+        const tdStock = document.createElement("td");
+        tdStock.textContent = g.stock || "-";
+        tr.appendChild(tdStock);
+
+        // Expiry
+        const tdExpiry = document.createElement("td");
+        tdExpiry.textContent = g.expiry || "-";
+        tr.appendChild(tdExpiry);
+
+        // Strike
+        const tdStrike = document.createElement("td");
+        tdStrike.textContent = e.strike !== "" && e.strike !== null ? e.strike : "-";
+        tr.appendChild(tdStrike);
+
+        // Option
+        const tdOpt = document.createElement("td");
+        if (e.optionType === "CE") {
+          tdOpt.innerHTML = '<span class="pill pill-ce">CE</span>';
+        } else if (e.optionType === "PE") {
+          tdOpt.innerHTML = '<span class="pill pill-pe">PE</span>';
+        } else if (e.optionType === "FUTURE") {
+          tdOpt.innerHTML = '<span class="pill pill-fut">FUT</span>';
+        } else {
+          tdOpt.textContent = e.optionType || "-";
+        }
+        tr.appendChild(tdOpt);
+
+        // Role
+        const tdRole = document.createElement("td");
+        if (e.role === "Buyer") {
+          tdRole.innerHTML = '<span class="badge badge-buyer">Buyer</span>';
+        } else if (e.role === "Seller") {
+          tdRole.innerHTML = '<span class="badge badge-seller">Seller</span>';
+        } else {
+          tdRole.textContent = e.role || "-";
+        }
+        tr.appendChild(tdRole);
+
+        // Entry Price
+        const tdPrice = document.createElement("td");
+        tdPrice.textContent = e.price !== undefined ? Number(e.price).toFixed(2) : "-";
+        tr.appendChild(tdPrice);
+
+        // Live LTP
+        const tdLtp = document.createElement("td");
+        tdLtp.textContent = e.ltp !== undefined ? Number(e.ltp).toFixed(2) : "-";
+        tr.appendChild(tdLtp);
+
+        // Current Return
+        const tdPnl = document.createElement("td");
+        if (e.pnlAbs !== null && e.pnlPct !== null) {
+          const cls = e.pnlAbs >= 0 ? "pnl-positive" : "pnl-negative";
+          tdPnl.classList.add(cls);
+          tdPnl.textContent = formatPnlText(e.pnlAbs, e.pnlPct);
+        } else {
+          tdPnl.textContent = "-";
+        }
+        tr.appendChild(tdPnl);
+
+        // Max Low Return
+        const tdMaxLow = document.createElement("td");
+        if (e.maxReturnLow !== null && isFinite(e.maxReturnLow)) {
+          const cls = e.maxReturnLow >= 0 ? "pnl-positive" : "pnl-negative";
+          tdMaxLow.classList.add(cls);
+          tdMaxLow.textContent = e.maxReturnLow.toFixed(1) + "%";
+        } else {
+          tdMaxLow.textContent = "-";
+        }
+        tr.appendChild(tdMaxLow);
+
+        // Max High Return
+        const tdMaxHigh = document.createElement("td");
+        if (e.maxReturnHigh !== null && isFinite(e.maxReturnHigh)) {
+          const cls = e.maxReturnHigh >= 0 ? "pnl-positive" : "pnl-negative";
+          tdMaxHigh.classList.add(cls);
+          tdMaxHigh.textContent = e.maxReturnHigh.toFixed(1) + "%";
+        } else {
+          tdMaxHigh.textContent = "-";
+        }
+        tr.appendChild(tdMaxHigh);
+
+        // Days Passed
+        const tdDays = document.createElement("td");
+        tdDays.textContent = e.daysPassed !== "" ? e.daysPassed : "-";
+        tr.appendChild(tdDays);
+
+        // Filled Time
+        const tdTime = document.createElement("td");
+        tdTime.textContent = e.timestamp ? new Date(e.timestamp).toLocaleString() : "-";
+        tr.appendChild(tdTime);
+
+        // Recovery Status
+        const tdStatus = document.createElement("td");
+        let statusText = "";
+        let statusClass = "";
+
+        if (e.pnlPct > 0) {
+          statusText = "✓ Recovered to Profit";
+          statusClass = "pnl-positive";
+        } else if (e.pnlPct >= -0.1 && e.pnlPct <= 0) {
+          statusText = "⚖ Cost-to-Cost";
+        } else {
+          statusText = "↗ Recovering";
+        }
+
+        tdStatus.textContent = statusText;
+        if (statusClass) tdStatus.classList.add(statusClass);
+        tr.appendChild(tdStatus);
+
+        tbody.appendChild(tr);
+
+        // ...existing code...
+        if (g.items.length > 1) {
+          const detailsTr = document.createElement("tr");
+          detailsTr.classList.add("details-row");
+          detailsTr.style.display = "none";
+
+          const detailsTd = document.createElement("td");
+          detailsTd.colSpan = 14;
+
+          const box = document.createElement("div");
+          box.classList.add("details-box");
+
+          const title = document.createElement("div");
+          title.classList.add("details-title");
+          title.textContent = `All fills for ${g.stock} ${g.strike} ${g.optionType}`;
+          box.appendChild(title);
+
+          const innerTable = document.createElement("table");
+          innerTable.classList.add("details-table");
+          innerTable.innerHTML = `
+            <thead>
+              <tr>
+                <th>Time</th>
+                <th>Side</th>
+                <th>Qty</th>
+                <th>Entry Price</th>
+                <th>LTP</th>
+                <th>Return</th>
+                <th>PCR</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          `;
+
+          const innerTbody = innerTable.querySelector("tbody");
+          g.items.forEach(item => {
+            const r = document.createElement("tr");
+
+            const tTime = document.createElement("td");
+            tTime.textContent = item.timestamp || "-";
+            r.appendChild(tTime);
+
+            const tSide = document.createElement("td");
+            tSide.textContent = item.side || "-";
+            r.appendChild(tSide);
+
+            const tQty = document.createElement("td");
+            tQty.textContent = item.qty || "-";
+            r.appendChild(tQty);
+
+            const tPrice = document.createElement("td");
+            tPrice.textContent = item.price !== undefined ? Number(item.price).toFixed(2) : "-";
+            r.appendChild(tPrice);
+
+            const tLtp = document.createElement("td");
+            tLtp.textContent = item.ltp !== undefined ? Number(item.ltp).toFixed(2) : "-";
+            r.appendChild(tLtp);
+
+            const tPnl = document.createElement("td");
+            if (item.pnlAbs !== null && item.pnlPct !== null) {
+              const cls = item.pnlAbs >= 0 ? "pnl-positive" : "pnl-negative";
+              tPnl.classList.add(cls);
+              tPnl.textContent = formatPnlText(item.pnlAbs, item.pnlPct);
+            } else {
+              tPnl.textContent = "-";
+            }
+            r.appendChild(tPnl);
+
+            const tPcr = document.createElement("td");
+            tPcr.textContent = item.pcr !== null ? item.pcr.toFixed(2) : "-";
+            r.appendChild(tPcr);
+
+            innerTbody.appendChild(r);
+          });
+
+          box.appendChild(innerTable);
+          detailsTd.appendChild(box);
+          detailsTr.appendChild(detailsTd);
+          tbody.appendChild(detailsTr);
+
+          tdExpand.addEventListener("click", () => {
+            const isOpen = detailsTr.style.display !== "none";
+            detailsTr.style.display = isOpen ? "none" : "table-row";
+            tdExpand.textContent = isOpen ? "+" : "−";
+          });
+
+          tr.addEventListener("click", (ev) => {
+            if (ev.target === tdExpand) return;
+            const isOpen = detailsTr.style.display !== "none";
+            detailsTr.style.display = isOpen ? "none" : "table-row";
+            tdExpand.textContent = isOpen ? "+" : "−";
+          });
+        }
+      });
+
+      // Update recovery statistics
+      updateRecoveryStatistics(recoveryTrades);
+    }
+
+    function updateRecoveryStatistics(recoveryTrades) {
+      const count = recoveryTrades.length;
+      const stillRecovering = recoveryTrades.filter(g => g.primary.pnlPct < 0 || (g.primary.pnlPct >= 0 && g.primary.pnlPct <= 0.1)).length;
+      const profitCount = recoveryTrades.filter(g => g.primary.pnlPct > 0).length;
+
+      let totalReturn = 0;
+      recoveryTrades.forEach(g => {
+        if (g.primary.pnlPct !== null && isFinite(g.primary.pnlPct)) {
+          totalReturn += g.primary.pnlPct;
+        }
+      });
+      const avgRecovery = count > 0 ? (totalReturn / count).toFixed(1) : 0;
+
+      document.getElementById("recoveryTradesCount").textContent = count;
+      document.getElementById("recoveryAverage").textContent = avgRecovery + "%";
+      document.getElementById("recoveryStillRecovering").textContent = stillRecovering;
+      document.getElementById("recoveryProfit").textContent = profitCount;
+
+      const avgEl = document.getElementById("recoveryAverage");
+      avgEl.classList.remove("pnl-positive", "pnl-negative");
+      if (parseFloat(avgRecovery) > 0) {
+        avgEl.classList.add("pnl-positive");
+      } else if (parseFloat(avgRecovery) < 0) {
+        avgEl.classList.add("pnl-negative");
+      }
     }
 </script>
 </body>
 </html>
-
