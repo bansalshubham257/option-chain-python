@@ -26,7 +26,7 @@ CURRENT_TOKEN_INDEX = 0  # Track which token to use
 # 2. ENTER EXPIRY DATES (Format: YYYY-MM-DD)
 NIFTY_EXPIRY      = "2029-12-02"   # NIFTY options expiry
 SENSEX_EXPIRY     = "2029-12-04"   # SENSEX options expiry (BSE_FO)
-STOCK_FNO_EXPIRY  = "2026-01-27"   # NSE stock options expiry (OPTSTK)
+STOCK_FNO_EXPIRY  = "2026-02-24"   # NSE stock options expiry (OPTSTK)
 CRUDE_EXPIRY      = "2029-12-16"   # MCX Crudeoil expiry
 NG_EXPIRY         = "2029-12-23"   # MCX Natural Gas expiry
 
