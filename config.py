@@ -26,7 +26,7 @@ class Config:
     DB_CLEARING_START = time(9, 0)  # 09:00 AM
     DB_CLEARING_END = time(9, 9)  # 09:15 AM
 
-    TRADING_DAYS = {0, 1, 2, 3, 4}  # Monday to Friday
+    TRADING_DAYS = {0, 1, 2, 3, 4, 5, 6}  # Monday to Friday
 
     SENSEX_EXPIRIES = [
         "2025-07-01"
