@@ -27,8 +27,8 @@ CURRENT_TOKEN_INDEX = 0  # Track which token to use
 NIFTY_EXPIRY      = "2026-02-24"   # NIFTY options expiry
 SENSEX_EXPIRY     = "2026-02-26"   # SENSEX options expiry (BSE_FO)
 STOCK_FNO_EXPIRY  = "2026-02-24"   # NSE stock options expiry (OPTSTK)
-CRUDE_EXPIRY      = "2029-02-26"   # MCX Crudeoil expiry
-NG_EXPIRY         = "2029-02-26"   # MCX Natural Gas expiry
+CRUDE_EXPIRY      = "2029-12-16"   # MCX Crudeoil expiry
+NG_EXPIRY         = "2029-12-23"   # MCX Natural Gas expiry
 
 # MINIMUM NOTIONAL VALUE FOR "BIG ORDER"
 MIN_ORDER_VALUE = 950000  # ₹9L
@@ -41,6 +41,17 @@ URL_MCX_FO  = "https://assets.upstox.com/market-quote/instruments/exchange/MCX.c
 
 MAX_KEYS_PER_CALL = 450
 DEFAULT_LOT_SIZE  = 50  # fallback if CSV lot_size missing
+
+# Detection tuning
+MIN_WHALE_PERSISTENCE_S = 3     # require depth to sit before we treat it as real
+MIN_FILL_VOL_RATIO       = 0.3   # min volume jump vs whale qty to treat as filled
+FUT_MIN_TOTAL_LOTS       = 75    # futures: require at least this many lots resting
+
+
+def is_future_symbol(symbol_key: str) -> bool:
+    meta = instrument_meta.get(symbol_key, {})
+    inst_type = str(meta.get('instrument_type', '')).upper()
+    return 'FUT' in inst_type
 
 # ================= GLOBAL STATE =================
 
@@ -244,12 +255,21 @@ def record_success(symbol, side, qty, price, vol_diff, oi_diff, ltp, moneyness, 
     underlying  = parsed["underlying"]
     strike      = parsed["strike"]
     option_type = parsed["option_type"]
+    meta        = instrument_meta.get(symbol, {})
+    is_fut      = is_future_symbol(symbol)
+    expiry      = meta.get('expiry')
+    option_type_value = "FU" if is_fut else option_type
+    strike_value      = None if is_fut else strike
 
-    if underlying is None or strike is None or option_type is None or price is None:
-        return
+    if is_fut:
+        if underlying is None or price is None:
+            return
+        unique_key = f"{underlying}|FUT|{expiry or 'NA'}|{price}"
+    else:
+        if underlying is None or strike is None or option_type_value is None or price is None:
+            return
+        unique_key = f"{underlying}|{strike}|{option_type_value}|{price}"
 
-    # 🔑 single canonical unique key (matches loader)
-    unique_key = f"{underlying}|{strike}|{option_type}|{price}"
     if unique_key in success_keys:
         return
     success_keys.add(unique_key)
@@ -273,7 +293,7 @@ def record_success(symbol, side, qty, price, vol_diff, oi_diff, ltp, moneyness, 
                         %s, %s, %s
                     )
                 """, (
-                    ts, symbol, instrument_token, underlying, strike, option_type, str(side).upper(), qty, float(price), float(ltp),
+                    ts, symbol, instrument_token, underlying, strike_value, option_type_value, str(side).upper(), qty, float(price), float(ltp),
                     vol_diff, oi_diff, moneyness, pcr, oi_same, oi_opposite,
                     underlying_price, stock_pct_change, unique_key
                 ))
@@ -295,12 +315,20 @@ def record_entry(symbol, side, qty, price, ltp, moneyness, pcr, oi_same, oi_oppo
     underlying  = parsed["underlying"]
     strike      = parsed["strike"]
     option_type = parsed["option_type"]
+    meta        = instrument_meta.get(symbol, {})
+    is_fut      = is_future_symbol(symbol)
+    expiry      = meta.get('expiry')
+    option_type_value = "FU" if is_fut else option_type
 
-    if underlying is None or strike is None or option_type is None or price is None:
-        return
+    if is_fut:
+        if underlying is None or price is None:
+            return
+        unique_key = f"{underlying}|FUT|{expiry or 'NA'}|{price}"
+    else:
+        if underlying is None or strike is None or option_type_value is None or price is None:
+            return
+        unique_key = f"{underlying}|{strike}|{option_type_value}|{price}"
 
-    # 🔑 same unique key rule as success
-    unique_key = f"{underlying}|{strike}|{option_type}|{price}"
     if unique_key in entry_keys:
         return
     entry_keys.add(unique_key)
@@ -322,7 +350,7 @@ def record_entry(symbol, side, qty, price, ltp, moneyness, pcr, oi_same, oi_oppo
                         %s, %s, %s, %s, %s, %s, %s
                     )
                 """, (
-                    ts, symbol, instrument_token, underlying, option_type, str(side).upper(), qty, float(price), float(ltp),
+                    ts, symbol, instrument_token, underlying, option_type_value, str(side).upper(), qty, float(price), float(ltp),
                     moneyness, pcr, oi_same, oi_opposite, underlying_price, stock_pct_change, unique_key
                 ))
     except Exception as e:
@@ -418,7 +446,7 @@ def get_lot_size_for_symbol(symbol_key):
     return DEFAULT_LOT_SIZE
 
 
-def get_whale_order(depth_list, lot_size):
+def get_whale_order(depth_list, lot_size, symbol_key=None):
     """
     Pick the 'whale' from order depth if:
       - total notional value (qty * price) >= MIN_ORDER_VALUE
@@ -444,7 +472,15 @@ def get_whale_order(depth_list, lot_size):
     avg_qty  = qty / orders
     avg_lots = avg_qty / float(lot_size) if lot_size else 0.0
 
-    if total_order_value >= MIN_ORDER_VALUE and avg_lots >= 1.5 and total_lots > 50:
+    # Futures: bump the resting size requirement to reduce noise hedges
+    if symbol_key and is_future_symbol(symbol_key):
+        if total_lots <= FUT_MIN_TOTAL_LOTS:
+            return None
+    else:
+        if total_lots <= 50:
+            return None
+
+    if total_order_value >= MIN_ORDER_VALUE and avg_lots >= 1.5:
         avg_qty  = qty / orders
         avg_lots = avg_qty / lot_size
         if avg_lots >= 1.5:
@@ -667,6 +703,35 @@ def classify_strike(symbol_key, data):
 
 # ================= INSTRUMENT BUILDING =================
 
+def select_near_expiry_futures(df, instrument_types):
+    """Pick nearest-expiry futures per symbol for the given instrument types."""
+    if df is None or df.empty:
+        return pd.DataFrame()
+    df_fut = df[df['instrument_type'].isin(instrument_types)].copy()
+    if df_fut.empty or 'expiry' not in df_fut.columns:
+        return pd.DataFrame()
+    # Ensure we have a symbol-like column to group by
+    if 'symbol' not in df_fut.columns:
+        if 'name' in df_fut.columns:
+            df_fut['symbol'] = df_fut['name']
+        else:
+            return pd.DataFrame()
+    df_fut['symbol'] = df_fut['symbol'].astype(str).str.upper()
+    df_fut = df_fut[df_fut['symbol'].notna() & (df_fut['symbol'] != '')]
+    if df_fut.empty:
+        return pd.DataFrame()
+    try:
+        df_fut['expiry_dt'] = pd.to_datetime(df_fut['expiry']).dt.date
+    except Exception:
+        return pd.DataFrame()
+    today = datetime.now().date()
+    df_fut = df_fut[df_fut['expiry_dt'] >= today]
+    if df_fut.empty:
+        return pd.DataFrame()
+    df_fut['min_expiry'] = df_fut.groupby('symbol')['expiry_dt'].transform('min')
+    return df_fut[df_fut['expiry_dt'] == df_fut['min_expiry']]
+
+
 def build_all_instruments():
     """
     Build full list of instrument_keys for:
@@ -674,6 +739,7 @@ def build_all_instruments():
       - SENSEX options (BSE_FO)
       - NSE stock options (OPTSTK)
       - MCX CRUDEOIL & NATURALGAS
+      - Near-month futures (FUTIDX/FUTSTK) for hedge context
     Fills instrument_meta and returns list of all keys (before filtering).
     """
     global instrument_meta
@@ -726,6 +792,22 @@ def build_all_instruments():
             }
 
         print(f"✅ Loaded {len(df_fno_stk)} stock option contracts (OPTSTK).")
+
+        # Index/stock futures (nearest expiry per symbol)
+        df_fut = select_near_expiry_futures(df_nse_fo, ['FUTIDX', 'FUTSTK'])
+        for _, row in df_fut.iterrows():
+            key = row['instrument_key']
+            all_keys.append(key)
+            instrument_meta[key] = {
+                "name": row.get('name'),
+                "symbol": str(row.get('symbol') or row.get('name') or '').upper(),
+                "strike": row.get('strike'),
+                "expiry": row.get('expiry'),
+                "instrument_type": row.get('instrument_type'),
+                "option_type": None,
+                "lot_size": row.get('lot_size', DEFAULT_LOT_SIZE),
+            }
+        print(f"✅ Loaded {len(df_fut)} near-month futures (FUTIDX/FUTSTK).")
 
     # ----- BSE_FO (SENSEX) -----
     df_bse_fo = download_instruments(URL_BSE_FO, "BSE_FO")
@@ -1011,6 +1093,7 @@ def analyze_instrument(symbol_key, data, batch_data):
     parsed = parse_underlying_from_symbol(symbol_key)
     underlying = parsed["underlying"]
     pcr        = underlying_pcr.get(underlying)
+    is_fut     = is_future_symbol(symbol_key)
 
     # NEW: get OI for this leg and opposite leg
     oi_same, oi_opposite = get_oi_pair_for_symbol(symbol_key, batch_data)
@@ -1027,11 +1110,16 @@ def analyze_instrument(symbol_key, data, batch_data):
     curr_total_sell = data.get('total_sell_quantity', 0)
     ltp             = data.get('last_price', 0)
 
-    curr_bid = get_whale_order(bids, lot_size)
-    curr_ask = get_whale_order(asks, lot_size)
+    curr_bid = get_whale_order(bids, lot_size, symbol_key)
+    curr_ask = get_whale_order(asks, lot_size, symbol_key)
 
+    now_ts = time.time()
     prev_bid = None
     prev_ask = None
+    prev_seen_bid = None
+    prev_seen_ask = None
+    vol_diff = 0
+    oi_diff = 0
 
     if symbol_key in history:
         prev        = history[symbol_key]
@@ -1039,43 +1127,58 @@ def analyze_instrument(symbol_key, data, batch_data):
         oi_diff     = curr_oi  - prev['oi']
         prev_bid    = prev['bid']
         prev_ask    = prev['ask']
+        prev_seen_bid = prev.get('seen_bid_ts')
+        prev_seen_ask = prev.get('seen_ask_ts')
 
         # BUYER FILLED
         if prev_bid and not curr_bid:
             prev_qty, prev_price, _, _ = prev_bid
+            persisted = prev_seen_bid and (now_ts - prev_seen_bid) >= MIN_WHALE_PERSISTENCE_S
 
-            if vol_diff < (prev_qty * 0.2):
+            if not persisted:
+                print(f"\n⚠️  BUYER LEFT QUICKLY (likely spoof): {symbol_key} @ {prev_price}")
+            elif vol_diff < (prev_qty * MIN_FILL_VOL_RATIO):
                 print(f"\n⚠️  FAKE BUYER REMOVED: {symbol_key}")
                 print(f"   ❌ Support at {prev_price} was FAKE.")
             else:
                 print(f"\n✅ BIG PLAYER BOUGHT SUCCESSFULLY: {symbol_key} @ {prev_price}")
-                moneyness = classify_strike(symbol_key, data)
+                moneyness = "FUT" if is_fut else classify_strike(symbol_key, data)
                 record_success(symbol_key, "BUY", prev_qty, prev_price, vol_diff, oi_diff, ltp, moneyness, pcr, oi_same, oi_opposite, instrument_token)
 
         # SELLER FILLED
         if prev_ask and not curr_ask:
             prev_qty, prev_price, _, _ = prev_ask
+            persisted = prev_seen_ask and (now_ts - prev_seen_ask) >= MIN_WHALE_PERSISTENCE_S
 
-            if vol_diff < (prev_qty * 0.2):
+            if not persisted:
+                print(f"\n⚠️  SELLER LEFT QUICKLY (likely spoof): {symbol_key} @ {prev_price}")
+            elif vol_diff < (prev_qty * MIN_FILL_VOL_RATIO):
                 print(f"\n⚠️  FAKE SELLER REMOVED: {symbol_key}")
                 print(f"   ❌ Resistance at {prev_price} was FAKE.")
             else:
                 print(f"\n🔴 BIG PLAYER SOLD SUCCESSFULLY: {symbol_key} @ {prev_price}")
-                moneyness = classify_strike(symbol_key, data)
+                moneyness = "FUT" if is_fut else classify_strike(symbol_key, data)
                 record_success(symbol_key, "SELL", prev_qty, prev_price, vol_diff, oi_diff, ltp, moneyness, pcr, oi_same, oi_opposite, instrument_token)
 
     # LIVE STATUS (ENTRY)
     if curr_bid and curr_bid != prev_bid:
         qty, price, _, _ = curr_bid
-        moneyness = classify_strike(symbol_key, data)
+        moneyness = "FUT" if is_fut else classify_strike(symbol_key, data)
         print(f"\n🚀 BIG BUYER SITTING: {symbol_key} | Qty: {qty} | Price: {price} | LTP: {ltp} | {moneyness}")
         record_entry(symbol_key, "BUY", qty, price, ltp, moneyness, pcr, oi_same, oi_opposite, instrument_token)
 
     if curr_ask and curr_ask != prev_ask:
         qty, price, _, _ = curr_ask
-        moneyness = classify_strike(symbol_key, data)
+        moneyness = "FUT" if is_fut else classify_strike(symbol_key, data)
         print(f"\n🔻 BIG SELLER SITTING: {symbol_key} | Qty: {qty} | Price: {price} | LTP: {ltp} | {moneyness}")
         record_entry(symbol_key, "SELL", qty, price, ltp, moneyness, pcr, oi_same, oi_opposite, instrument_token)
+
+    seen_bid_ts = None
+    seen_ask_ts = None
+    if curr_bid:
+        seen_bid_ts = prev_seen_bid if curr_bid == prev_bid and prev_seen_bid else now_ts
+    if curr_ask:
+        seen_ask_ts = prev_seen_ask if curr_ask == prev_ask and prev_seen_ask else now_ts
 
     history[symbol_key] = {
         'vol': curr_vol,
@@ -1083,7 +1186,9 @@ def analyze_instrument(symbol_key, data, batch_data):
         'total_buy': curr_total_buy,
         'total_sell': curr_total_sell,
         'bid': curr_bid,
-        'ask': curr_ask
+        'ask': curr_ask,
+        'seen_bid_ts': seen_bid_ts,
+        'seen_ask_ts': seen_ask_ts,
     }
 
 
@@ -1103,7 +1208,7 @@ def is_market_open():
 
     # Check if time is between 9:15 AM and 3:30 PM
     market_open = now.replace(hour=9, minute=15, second=0, microsecond=0)
-    market_close = now.replace(hour=15, minute=30, second=0, microsecond=0)
+    market_close = now.replace(hour=23, minute=30, second=0, microsecond=0)
 
     return market_open <= now <= market_close
 
