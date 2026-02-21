@@ -7,24 +7,28 @@ import io
 import gzip
 import os
 import yfinance as yf
-from datetime import datetime
+from datetime import datetime, timedelta
+import pytz
 import psycopg2
 from contextlib import contextmanager
 
 from services.database import DatabaseService
 
 # ================= USER CONFIGURATION =================
-# 1. ENTER YOUR ACCESS TOKEN (Only 1 needed)
-#ACCESS_TOKEN = "eyJ0eXAiOiJKV1QiLCJrZXlfaWQiOiJza192MS4wIiwiYWxnIjoiSFMyNTYifQ.eyJzdWIiOiI2NEFLNjciLCJqdGkiOiI2OTJiY2Y2NGJhYzQ4MDMwYmFiODM0OTUiLCJpc011bHRpQ2xpZW50IjpmYWxzZSwiaXNQbHVzUGxhbiI6ZmFsc2UsImlhdCI6MTc2NDQ3ODgyMCwiaXNzIjoidWRhcGktZ2F0ZXdheS1zZXJ2aWNlIiwiZXhwIjoxNzY0NTQwMDAwfQ.ycEnEcYokcR5U04gEWgwK9nBDqywgSjsLMlfUv5vvlM"
+# 1. ENTER YOUR ACCESS TOKENS (2 tokens for parallel requests)
+#ACCESS_TOKEN_1 = "eyJ0eXAiOiJKV1QiLCJrZXlfaWQiOiJza192MS4wIiwiYWxnIjoiSFMyNTYifQ.eyJzdWIiOiI2NEFLNjciLCJqdGkiOiI2OTJiY2Y2NGJhYzQ4MDMwYmFiODM0OTUiLCJpc011bHRpQ2xpZW50IjpmYWxzZSwiaXNQbHVzUGxhbiI6ZmFsc2UsImlhdCI6MTc2NDQ3ODgyMCwiaXNzIjoidWRhcGktZ2F0ZXdheS1zZXJ2aWNlIiwiZXhwIjoxNzY0NTQwMDAwfQ.ycEnEcYokcR5U04gEWgwK9nBDqywgSjsLMlfUv5vvlM"
 db = DatabaseService()
-ACCESS_TOKEN = db.get_access_token(account_id=6)
+ACCESS_TOKEN_1 = db.get_access_token(account_id=6)
+ACCESS_TOKEN_2 = db.get_access_token(account_id=5)  # Can use different account if available
+ACCESS_TOKENS = [ACCESS_TOKEN_1, ACCESS_TOKEN_2]
+CURRENT_TOKEN_INDEX = 0  # Track which token to use
 
 # 2. ENTER EXPIRY DATES (Format: YYYY-MM-DD)
-NIFTY_EXPIRY      = "2029-12-02"   # NIFTY options expiry
-SENSEX_EXPIRY     = "2029-12-04"   # SENSEX options expiry (BSE_FO)
-STOCK_FNO_EXPIRY  = "2025-12-30"   # NSE stock options expiry (OPTSTK)
-CRUDE_EXPIRY      = "2029-12-16"   # MCX Crudeoil expiry
-NG_EXPIRY         = "2029-12-23"   # MCX Natural Gas expiry
+NIFTY_EXPIRY      = "2026-02-24"   # NIFTY options expiry
+SENSEX_EXPIRY     = "2026-02-26"   # SENSEX options expiry (BSE_FO)
+STOCK_FNO_EXPIRY  = "2026-02-24"   # NSE stock options expiry (OPTSTK)
+CRUDE_EXPIRY      = "2029-02-26"   # MCX Crudeoil expiry
+NG_EXPIRY         = "2029-02-26"   # MCX Natural Gas expiry
 
 # MINIMUM NOTIONAL VALUE FOR "BIG ORDER"
 MIN_ORDER_VALUE = 950000  # ₹9L
@@ -52,13 +56,13 @@ success_positions = {}     # in-memory map of open positions (optional)
 
 # Database connection parameters
 DB_CONN_PARAMS = {
-    'dbname': os.getenv('DB_NAME', ''),
-    'user': os.getenv('DB_USER', ''),
-    'password': os.getenv('DB_PASSWORD', ''),
-    'host': os.getenv('DB_HOST', ''),
-    'port': os.getenv('DB_PORT', '')
+    'dbname': os.getenv('DB_NAME', 'railway'),
+    'user': os.getenv('DB_USER', 'postgres'),
+    'password': os.getenv('DB_PASSWORD', 'LZjgyzthYpacmWhOSAnDMnMWxkntEEqe'),
+    'host': os.getenv('DB_HOST', 'switchback.proxy.rlwy.net'),
+    'port': os.getenv('DB_PORT', '22297')
 }
-DATABASE_URL = os.getenv('DATABASE_URL', '')
+DATABASE_URL = os.getenv('DATABASE_URL', 'postgresql://postgres:LZjgyzthYpacmWhOSAnDMnMWxkntEEqe@switchback.proxy.rlwy.net:22297/railway')
 
 # ================= DATABASE HELPERS =================
 
@@ -89,6 +93,7 @@ def create_whale_tables():
                     id BIGSERIAL PRIMARY KEY,
                     timestamp TIMESTAMPTZ DEFAULT NOW(),
                     instrument_key VARCHAR(100) NOT NULL,
+                    instrument_token VARCHAR(100),
                     symbol VARCHAR(50) NOT NULL,
                     option_type CHAR(2),
                     side VARCHAR(10) NOT NULL,
@@ -107,6 +112,7 @@ def create_whale_tables():
                 CREATE INDEX IF NOT EXISTS idx_whale_entries_unique_key ON whale_entries(unique_key);
                 CREATE INDEX IF NOT EXISTS idx_whale_entries_timestamp ON whale_entries(timestamp DESC);
                 CREATE INDEX IF NOT EXISTS idx_whale_entries_symbol ON whale_entries(symbol);
+                CREATE INDEX IF NOT EXISTS idx_whale_entries_instrument_token ON whale_entries(instrument_token);
             """)
 
             # Create whale_successes table
@@ -115,6 +121,7 @@ def create_whale_tables():
                     id BIGSERIAL PRIMARY KEY,
                     timestamp TIMESTAMPTZ DEFAULT NOW(),
                     instrument_key VARCHAR(100) NOT NULL,
+                    instrument_token VARCHAR(100),
                     symbol VARCHAR(50) NOT NULL,
                     strike DECIMAL(10, 2),
                     option_type CHAR(2),
@@ -147,6 +154,7 @@ def create_whale_tables():
                 CREATE INDEX IF NOT EXISTS idx_whale_successes_timestamp ON whale_successes(timestamp DESC);
                 CREATE INDEX IF NOT EXISTS idx_whale_successes_symbol ON whale_successes(symbol);
                 CREATE INDEX IF NOT EXISTS idx_whale_successes_status ON whale_successes(status);
+                CREATE INDEX IF NOT EXISTS idx_whale_successes_instrument_token ON whale_successes(instrument_token);
             """)
     print("✅ Whale tables created/verified")
 
@@ -221,10 +229,14 @@ def load_existing_entries():
 
 
 
-def record_success(symbol, side, qty, price, vol_diff, oi_diff, ltp, moneyness, pcr, oi_same, oi_opposite):
+def record_success(symbol, side, qty, price, vol_diff, oi_diff, ltp, moneyness, pcr, oi_same, oi_opposite, instrument_token=None):
     """
     Store a successful whale fill into database.
     Uniqueness key: underlying + strike + option_type + price.
+
+    Args:
+        symbol: instrument_key in format 'NSE_FO:VEDL25DEC520CE'
+        instrument_token: actual Upstox instrument token like 'NSE_FO|67718' (optional)
     """
     global success_keys
 
@@ -252,16 +264,16 @@ def record_success(symbol, side, qty, price, vol_diff, oi_diff, ltp, moneyness, 
             with conn.cursor() as cur:
                 cur.execute("""
                     INSERT INTO whale_successes (
-                        timestamp, instrument_key, symbol, strike, option_type, side, qty, price, ltp,
+                        timestamp, instrument_key, instrument_token, symbol, strike, option_type, side, qty, price, ltp,
                         vol_diff, oi_diff, moneyness, pcr, oi_same, oi_opposite,
                         stock_current_price, stock_pct_change_today, unique_key
                     ) VALUES (
-                        %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                        %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
                         %s, %s, %s, %s, %s, %s,
                         %s, %s, %s
                     )
                 """, (
-                    ts, symbol, underlying, strike, option_type, str(side).upper(), qty, float(price), float(ltp),
+                    ts, symbol, instrument_token, underlying, strike, option_type, str(side).upper(), qty, float(price), float(ltp),
                     vol_diff, oi_diff, moneyness, pcr, oi_same, oi_opposite,
                     underlying_price, stock_pct_change, unique_key
                 ))
@@ -269,9 +281,13 @@ def record_success(symbol, side, qty, price, vol_diff, oi_diff, ltp, moneyness, 
         print(f"⚠️ Could not write success record: {e}")
 
 
-def record_entry(symbol, side, qty, price, ltp, moneyness, pcr, oi_same, oi_opposite):
+def record_entry(symbol, side, qty, price, ltp, moneyness, pcr, oi_same, oi_opposite, instrument_token=None):
     """
     Store whale ENTRY into database, deduped by underlying+strike+option_type+price.
+
+    Args:
+        symbol: instrument_key in format 'NSE_FO:VEDL25DEC520CE'
+        instrument_token: actual Upstox instrument token like 'NSE_FO|67718' (optional)
     """
     global entry_keys
 
@@ -299,14 +315,14 @@ def record_entry(symbol, side, qty, price, ltp, moneyness, pcr, oi_same, oi_oppo
             with conn.cursor() as cur:
                 cur.execute("""
                     INSERT INTO whale_entries (
-                        timestamp, instrument_key, symbol, option_type, side, qty, price, ltp,
+                        timestamp, instrument_key, instrument_token, symbol, option_type, side, qty, price, ltp,
                         moneyness, pcr, oi_same, oi_opposite, stock_current_price, stock_pct_change_today, unique_key
                     ) VALUES (
-                        %s, %s, %s, %s, %s, %s, %s, %s,
+                        %s, %s, %s, %s, %s, %s, %s, %s, %s,
                         %s, %s, %s, %s, %s, %s, %s
                     )
                 """, (
-                    ts, symbol, underlying, option_type, str(side).upper(), qty, float(price), float(ltp),
+                    ts, symbol, instrument_token, underlying, option_type, str(side).upper(), qty, float(price), float(ltp),
                     moneyness, pcr, oi_same, oi_opposite, underlying_price, stock_pct_change, unique_key
                 ))
     except Exception as e:
@@ -317,7 +333,7 @@ def record_entry(symbol, side, qty, price, ltp, moneyness, pcr, oi_same, oi_oppo
 def get_spot_indices():
     """Fetch NIFTY and SENSEX spot once, store in index_spots."""
     global index_spots
-    headers = {'Accept': 'application/json', 'Authorization': f'Bearer {ACCESS_TOKEN}'}
+    headers = {'Accept': 'application/json', 'Authorization': f'Bearer {ACCESS_TOKEN_1}'}
     request_keys = "NSE_INDEX|Nifty 50,BSE_INDEX|SENSEX"
     url = f"{BASE_URL_V2}/market-quote/ltp"
     params = {'instrument_key': request_keys}
@@ -346,7 +362,7 @@ def get_spot_indices():
 def fetch_ltp_for_keys(instrument_keys):
     """Call /ltp for a list of instrument keys (<= MAX_KEYS_PER_CALL each chunk)."""
     print("Fetching LTP for underlying stocks via Upstox..." , instrument_keys)
-    headers = {'Accept': 'application/json', 'Authorization': f'Bearer {ACCESS_TOKEN}'}
+    headers = {'Accept': 'application/json', 'Authorization': f'Bearer {ACCESS_TOKEN_1}'}
     url = f"{BASE_URL_V2}/market-quote/ltp"
     all_data = {}
     for chunk in chunked(instrument_keys, MAX_KEYS_PER_CALL):
@@ -489,7 +505,7 @@ def get_daily_pct_change_for_underlying(symbol):
     if underlying == "NIFTY":
         try:
             ticker_key = "NSE_INDEX|Nifty 50"
-            headers = {'Accept': 'application/json', 'Authorization': f'Bearer {ACCESS_TOKEN}'}
+            headers = {'Accept': 'application/json', 'Authorization': f'Bearer {ACCESS_TOKEN_1}'}
             url = f"{BASE_URL_V2}/market-quote/quotes"
             params = {'instrument_key': ticker_key}
             resp = requests.get(url, headers=headers, params=params)
@@ -510,7 +526,7 @@ def get_daily_pct_change_for_underlying(symbol):
     elif underlying == "SENSEX":
         try:
             ticker_key = "BSE_INDEX|SENSEX"
-            headers = {'Accept': 'application/json', 'Authorization': f'Bearer {ACCESS_TOKEN}'}
+            headers = {'Accept': 'application/json', 'Authorization': f'Bearer {ACCESS_TOKEN_1}'}
             url = f"{BASE_URL_V2}/market-quote/quotes"
             params = {'instrument_key': ticker_key}
             resp = requests.get(url, headers=headers, params=params)
@@ -840,8 +856,10 @@ def limit_option_strikes(all_keys):
         - Sort strikes for that underlying+option_type
         - CMP from index_spots / underlying_spots
         - ATM index = argmin_i |strike[i] - CMP|
-        - Keep strikes in [ATM-3, ATM+3]
-    → max 7 strikes per option type.
+        - Keep strikes in [ATM-3, ATM+3]  (7 strikes: ATM-3 to ATM+3)
+        - PLUS: 1 ITM strike (1 strike below ATM for CE, 1 strike above ATM for PE)
+        - PLUS: 1 OTM strike (1 strike above ATM for CE, 1 strike below ATM for PE)
+    → max ~9 strikes per option type (more coverage, more volume)
     Futures (if any) are kept as-is.
     """
     selected_keys = set()
@@ -889,15 +907,44 @@ def limit_option_strikes(all_keys):
                 key=lambda i: abs(strikes_only[i] - cmp_price)
             )
 
-        start_idx = max(0, atm_idx - 3)
-        end_idx   = min(len(strikes_only) - 1, atm_idx + 3)
+        # ATM range: ATM-3 to ATM+3 (7 strikes)
+        atm_start = max(0, atm_idx - 4)
+        atm_end   = min(len(strikes_only) - 1, atm_idx + 4)
 
-        allowed_strikes = set(strikes_only[start_idx:end_idx + 1])
+        allowed_strike_indices = set(range(atm_start, atm_end + 1))
+
+        # Add 1 ITM strike
+        if opt_type == "CE":
+            # For CE: ITM is below ATM (lower strike), so take atm_idx-1 if available (already in range, but ensure it)
+            if atm_idx > 0:
+                itm_idx = atm_idx - 1
+                if itm_idx >= 0:
+                    allowed_strike_indices.add(itm_idx)
+        else:  # PE
+            # For PE: ITM is above ATM (higher strike), so take atm_idx+1 if available (already in range, but ensure it)
+            if atm_idx < len(strikes_only) - 1:
+                itm_idx = atm_idx + 1
+                if itm_idx < len(strikes_only):
+                    allowed_strike_indices.add(itm_idx)
+
+        # Add 1 OTM strike (further from ATM than current range)
+        if opt_type == "CE":
+            # For CE: OTM is above ATM (higher strike), so take atm_idx+4 if available
+            if atm_idx + 4 < len(strikes_only):
+                otm_idx = atm_idx + 4
+                allowed_strike_indices.add(otm_idx)
+        else:  # PE
+            # For PE: OTM is below ATM (lower strike), so take atm_idx-4 if available
+            if atm_idx - 4 >= 0:
+                otm_idx = atm_idx - 4
+                allowed_strike_indices.add(otm_idx)
+
+        allowed_strikes = set(strikes_only[i] for i in allowed_strike_indices)
         for key, strike in strikes_sorted:
             if strike in allowed_strikes:
                 selected_keys.add(key)
 
-    print(f"🎯 Total instruments after strict ATM±3-strike limiting: {len(selected_keys)}")
+    print(f"🎯 Total instruments after ATM±3 + 1 ITM + 1 OTM filtering: {len(selected_keys)}")
     return [k for k in all_keys if k in selected_keys]
 
 def get_oi_pair_for_symbol(symbol_key, batch_data):
@@ -968,6 +1015,8 @@ def analyze_instrument(symbol_key, data, batch_data):
     # NEW: get OI for this leg and opposite leg
     oi_same, oi_opposite = get_oi_pair_for_symbol(symbol_key, batch_data)
 
+    # Extract instrument_token from stream data (e.g., "NSE_FO|67718")
+    instrument_token = data.get('instrument_token')
     depth = data.get('depth', {})
     bids  = depth.get('buy', [])
     asks  = depth.get('sell', [])
@@ -1001,7 +1050,7 @@ def analyze_instrument(symbol_key, data, batch_data):
             else:
                 print(f"\n✅ BIG PLAYER BOUGHT SUCCESSFULLY: {symbol_key} @ {prev_price}")
                 moneyness = classify_strike(symbol_key, data)
-                record_success(symbol_key, "BUY", prev_qty, prev_price, vol_diff, oi_diff, ltp, moneyness, pcr, oi_same, oi_opposite)
+                record_success(symbol_key, "BUY", prev_qty, prev_price, vol_diff, oi_diff, ltp, moneyness, pcr, oi_same, oi_opposite, instrument_token)
 
         # SELLER FILLED
         if prev_ask and not curr_ask:
@@ -1013,20 +1062,20 @@ def analyze_instrument(symbol_key, data, batch_data):
             else:
                 print(f"\n🔴 BIG PLAYER SOLD SUCCESSFULLY: {symbol_key} @ {prev_price}")
                 moneyness = classify_strike(symbol_key, data)
-                record_success(symbol_key, "SELL", prev_qty, prev_price, vol_diff, oi_diff, ltp, moneyness, pcr, oi_same, oi_opposite)
+                record_success(symbol_key, "SELL", prev_qty, prev_price, vol_diff, oi_diff, ltp, moneyness, pcr, oi_same, oi_opposite, instrument_token)
 
     # LIVE STATUS (ENTRY)
     if curr_bid and curr_bid != prev_bid:
         qty, price, _, _ = curr_bid
         moneyness = classify_strike(symbol_key, data)
         print(f"\n🚀 BIG BUYER SITTING: {symbol_key} | Qty: {qty} | Price: {price} | LTP: {ltp} | {moneyness}")
-        record_entry(symbol_key, "BUY", qty, price, ltp, moneyness, pcr, oi_same, oi_opposite)
+        record_entry(symbol_key, "BUY", qty, price, ltp, moneyness, pcr, oi_same, oi_opposite, instrument_token)
 
     if curr_ask and curr_ask != prev_ask:
         qty, price, _, _ = curr_ask
         moneyness = classify_strike(symbol_key, data)
         print(f"\n🔻 BIG SELLER SITTING: {symbol_key} | Qty: {qty} | Price: {price} | LTP: {ltp} | {moneyness}")
-        record_entry(symbol_key, "SELL", qty, price, ltp, moneyness, pcr, oi_same, oi_opposite)
+        record_entry(symbol_key, "SELL", qty, price, ltp, moneyness, pcr, oi_same, oi_opposite, instrument_token)
 
     history[symbol_key] = {
         'vol': curr_vol,
@@ -1040,8 +1089,79 @@ def analyze_instrument(symbol_key, data, batch_data):
 
 # ================= MAIN LOOP =================
 
+def is_market_open():
+    """Check if market is open (Mon-Fri, 9:15 AM - 3:30 PM IST)"""
+    import pytz
+    from datetime import datetime
+
+    IST = pytz.timezone('Asia/Kolkata')
+    now = datetime.now(IST)
+
+    # Check if weekday (Monday=0, Sunday=6)
+    if now.weekday() >= 5:  # Saturday or Sunday
+        return False
+
+    # Check if time is between 9:15 AM and 3:30 PM
+    market_open = now.replace(hour=9, minute=15, second=0, microsecond=0)
+    market_close = now.replace(hour=15, minute=30, second=0, microsecond=0)
+
+    return market_open <= now <= market_close
+
+
+def wait_until_market_open():
+    """Wait until market opens, checking every 60 seconds"""
+    import pytz
+    from datetime import datetime, timedelta
+
+    IST = pytz.timezone('Asia/Kolkata')
+
+    while not is_market_open():
+        now = datetime.now(IST)
+
+        # If after market close (3:30 PM), wait until next day 9:15 AM
+        if now.hour >= 15 and now.minute >= 30:
+            next_open = (now + timedelta(days=1)).replace(hour=9, minute=15, second=0, microsecond=0)
+            wait_seconds = (next_open - now).total_seconds()
+            print(f"⏸️  Market closed. Next open: {next_open.strftime('%Y-%m-%d %H:%M:%S %Z')}")
+            print(f"   Waiting {int(wait_seconds / 3600)}h {int((wait_seconds % 3600) / 60)}m...")
+        else:
+            # Before market open
+            market_open_time = now.replace(hour=9, minute=15, second=0, microsecond=0)
+            wait_seconds = (market_open_time - now).total_seconds()
+            print(f"⏸️  Waiting for market to open at {market_open_time.strftime('%H:%M:%S %Z')}")
+            print(f"   Time remaining: {int(wait_seconds / 60)}m...")
+
+        time.sleep(60)  # Check every minute
+
+
+def refresh_daily_token():
+    """Refresh both tokens daily if it's 6:00 AM IST (before market opens at 9:15 AM)"""
+    global ACCESS_TOKEN_1, ACCESS_TOKEN_2, ACCESS_TOKENS
+    import pytz
+    from datetime import datetime
+
+    IST = pytz.timezone('Asia/Kolkata')
+    now = datetime.now(IST)
+
+    # If between 6:00 AM and 6:01 AM, refresh tokens
+    if now.hour == 6 and now.minute == 0:
+        print(f"\n🔄 Daily token refresh at {now.strftime('%H:%M:%S %Z')}")
+        try:
+            ACCESS_TOKEN_1 = db.get_access_token(account_id=6)
+            ACCESS_TOKEN_2 = db.get_access_token(account_id=5)
+            ACCESS_TOKENS = [ACCESS_TOKEN_1, ACCESS_TOKEN_2]
+            print(f"✅ Both tokens refreshed: {ACCESS_TOKEN_1[:30]}... | {ACCESS_TOKEN_2[:30]}...")
+            time.sleep(65)  # Wait 65 seconds to avoid re-refreshing
+        except Exception as e:
+            print(f"❌ Token refresh failed: {e}")
+
+
 def main():
     print("\n🟢 SYSTEM STARTING (FULL TRADING ASSISTANT)...")
+    print("📊 Timezone: Asia/Kolkata (IST)")
+    print("📅 Operating hours: Monday-Friday, 9:15 AM - 3:30 PM")
+    print("🔄 Token refresh: Daily at 6:00 AM")
+    print("🚀 Running with 2 parallel access tokens for faster data fetching\n")
 
     # Create tables if they don't exist
     create_whale_tables()
@@ -1053,7 +1173,7 @@ def main():
     # Fetch all instruments once
     all_keys = build_all_instruments()
 
-    # Strict filter: only 7 strikes per underlying+option_type
+    # Strict filter: ATM±3 + 1 ITM + 1 OTM per option type (more keys)
     all_keys = limit_option_strikes(all_keys)
 
     if not all_keys:
@@ -1062,23 +1182,65 @@ def main():
 
     key_chunks = list(chunked(all_keys, MAX_KEYS_PER_CALL))
     print(f"📚 Total chunks: {len(key_chunks)} (max {MAX_KEYS_PER_CALL} instruments per API call)")
+    print(f"⚡ Splitting chunks across 2 tokens for parallel requests\n")
 
-    headers = {'Accept': 'application/json', 'Authorization': f'Bearer {ACCESS_TOKEN}'}
-    url = f"{BASE_URL_V2}/market-quote/quotes"
+    # Refresh tokens before first run
+    print("🔄 Fetching fresh tokens...")
+    try:
+        global ACCESS_TOKEN_1, ACCESS_TOKEN_2, ACCESS_TOKENS
+        ACCESS_TOKEN_1 = db.get_access_token(account_id=6)
+        ACCESS_TOKEN_2 = db.get_access_token(account_id=5)
+        ACCESS_TOKENS = [ACCESS_TOKEN_1, ACCESS_TOKEN_2]
+        print(f"✅ Token 1 obtained: {ACCESS_TOKEN_1[:30]}...")
+        print(f"✅ Token 2 obtained: {ACCESS_TOKEN_2[:30]}...\n")
+    except Exception as e:
+        print(f"❌ Failed to get tokens: {e}\n")
 
     spinner = ['|', '/', '-', '\\']
     idx = 0
+    current_token_idx = 0
 
-    print("\n🔎 SCANNING FOR TRADES...\n")
+    print("🔎 SCANNING FOR TRADES...\n")
 
     try:
         while True:
-            for chunk in key_chunks:
-                sys.stdout.write(f"\r{spinner[idx]} Scanning {len(chunk)} symbols in this batch... ")
+            # Check if market is open
+            if not is_market_open():
+                import pytz
+                from datetime import datetime
+                IST = pytz.timezone('Asia/Kolkata')
+                print(f"⏸️  Market is closed ({datetime.now(IST).strftime('%H:%M %A')})")
+                wait_until_market_open()
+
+                # Market just opened - fetch fresh tokens from DB (they were updated while closed)
+                print(f"\n✨ Market reopening - fetching fresh tokens from database...")
+                try:
+                    ACCESS_TOKEN_1 = db.get_access_token(account_id=6)
+                    ACCESS_TOKEN_2 = db.get_access_token(account_id=5)
+                    ACCESS_TOKENS = [ACCESS_TOKEN_1, ACCESS_TOKEN_2]
+                    print(f"✅ Fresh tokens obtained\n")
+                except Exception as e:
+                    print(f"❌ Failed to get fresh tokens: {e}\n")
+
+                # Refresh tokens at 6 AM daily if needed
+                refresh_daily_token()
+
+            # Refresh tokens at 6 AM daily if needed
+            refresh_daily_token()
+
+            # Process chunks with alternating tokens for parallel-like behavior
+            for chunk_idx, chunk in enumerate(key_chunks):
+                sys.stdout.write(f"\r{spinner[idx]} Scanning {len(chunk)} symbols in batch {chunk_idx + 1}/{len(key_chunks)} (Token {(chunk_idx % 2) + 1})... ")
                 sys.stdout.flush()
                 idx = (idx + 1) % 4
 
                 try:
+                    # Alternate between tokens for each chunk
+                    token_idx = chunk_idx % 2
+                    token = ACCESS_TOKENS[token_idx]
+                    headers = {'Accept': 'application/json', 'Authorization': f'Bearer {token}'}
+                    url = f"{BASE_URL_V2}/market-quote/quotes"
+
                     payload = {'instrument_key': ",".join(chunk)}
                     resp = requests.get(url, headers=headers, params=payload)
                     if resp.status_code == 200:
@@ -1114,12 +1276,12 @@ def main():
                                 analyze_instrument(sym, details, chunk_data)
 
                 except Exception as e:
-                    print(f"\n⚠️ Error in batch: {e}")
+                    print(f"\n⚠️ Error in batch {chunk_idx + 1}: {e}")
                     time.sleep(1)
 
-                time.sleep(0.5)  # delay between chunks
+                time.sleep(0.3)  # Reduced delay between chunks (faster with 2 tokens)
 
-            time.sleep(1.5)      # delay after full cycle
+            time.sleep(1.0)      # Reduced delay after full cycle
 
     except KeyboardInterrupt:
         print("\n🛑 Stopped by user.")
