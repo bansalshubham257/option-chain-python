@@ -46,6 +46,8 @@ DEFAULT_LOT_SIZE  = 50  # fallback if CSV lot_size missing
 MIN_WHALE_PERSISTENCE_S = 3     # require depth to sit before we treat it as real
 MIN_FILL_VOL_RATIO       = 0.3   # min volume jump vs whale qty to treat as filled
 FUT_MIN_TOTAL_LOTS       = 75    # futures: require at least this many lots resting
+MIN_OI_FOR_ENTRY         = 500   # skip entries on illiquid strikes/futures (set 0 to disable)
+MIN_OI_DELTA_FOR_SUCCESS = 300   # require OI change on fill to confirm (set 0 to disable)
 
 
 def is_future_symbol(symbol_key: str) -> bool:
@@ -1142,8 +1144,11 @@ def analyze_instrument(symbol_key, data, batch_data):
                 print(f"   ❌ Support at {prev_price} was FAKE.")
             else:
                 print(f"\n✅ BIG PLAYER BOUGHT SUCCESSFULLY: {symbol_key} @ {prev_price}")
-                moneyness = "FUT" if is_fut else classify_strike(symbol_key, data)
-                record_success(symbol_key, "BUY", prev_qty, prev_price, vol_diff, oi_diff, ltp, moneyness, pcr, oi_same, oi_opposite, instrument_token)
+                if MIN_OI_DELTA_FOR_SUCCESS > 0 and abs(oi_diff) < MIN_OI_DELTA_FOR_SUCCESS:
+                    print(f"   ⏭️ Skipping success — OI change {oi_diff} below {MIN_OI_DELTA_FOR_SUCCESS}")
+                else:
+                    moneyness = "FUT" if is_fut else classify_strike(symbol_key, data)
+                    record_success(symbol_key, "BUY", prev_qty, prev_price, vol_diff, oi_diff, ltp, moneyness, pcr, oi_same, oi_opposite, instrument_token)
 
         # SELLER FILLED
         if prev_ask and not curr_ask:
@@ -1157,21 +1162,30 @@ def analyze_instrument(symbol_key, data, batch_data):
                 print(f"   ❌ Resistance at {prev_price} was FAKE.")
             else:
                 print(f"\n🔴 BIG PLAYER SOLD SUCCESSFULLY: {symbol_key} @ {prev_price}")
-                moneyness = "FUT" if is_fut else classify_strike(symbol_key, data)
-                record_success(symbol_key, "SELL", prev_qty, prev_price, vol_diff, oi_diff, ltp, moneyness, pcr, oi_same, oi_opposite, instrument_token)
+                if MIN_OI_DELTA_FOR_SUCCESS > 0 and abs(oi_diff) < MIN_OI_DELTA_FOR_SUCCESS:
+                    print(f"   ⏭️ Skipping success — OI change {oi_diff} below {MIN_OI_DELTA_FOR_SUCCESS}")
+                else:
+                    moneyness = "FUT" if is_fut else classify_strike(symbol_key, data)
+                    record_success(symbol_key, "SELL", prev_qty, prev_price, vol_diff, oi_diff, ltp, moneyness, pcr, oi_same, oi_opposite, instrument_token)
 
     # LIVE STATUS (ENTRY)
     if curr_bid and curr_bid != prev_bid:
         qty, price, _, _ = curr_bid
-        moneyness = "FUT" if is_fut else classify_strike(symbol_key, data)
-        print(f"\n🚀 BIG BUYER SITTING: {symbol_key} | Qty: {qty} | Price: {price} | LTP: {ltp} | {moneyness}")
-        record_entry(symbol_key, "BUY", qty, price, ltp, moneyness, pcr, oi_same, oi_opposite, instrument_token)
+        if MIN_OI_FOR_ENTRY > 0 and oi_same < MIN_OI_FOR_ENTRY:
+            print(f"\n⏭️ Skipping entry (low OI {oi_same} < {MIN_OI_FOR_ENTRY}): {symbol_key}")
+        else:
+            moneyness = "FUT" if is_fut else classify_strike(symbol_key, data)
+            print(f"\n🚀 BIG BUYER SITTING: {symbol_key} | Qty: {qty} | Price: {price} | LTP: {ltp} | {moneyness}")
+            record_entry(symbol_key, "BUY", qty, price, ltp, moneyness, pcr, oi_same, oi_opposite, instrument_token)
 
     if curr_ask and curr_ask != prev_ask:
         qty, price, _, _ = curr_ask
-        moneyness = "FUT" if is_fut else classify_strike(symbol_key, data)
-        print(f"\n🔻 BIG SELLER SITTING: {symbol_key} | Qty: {qty} | Price: {price} | LTP: {ltp} | {moneyness}")
-        record_entry(symbol_key, "SELL", qty, price, ltp, moneyness, pcr, oi_same, oi_opposite, instrument_token)
+        if MIN_OI_FOR_ENTRY > 0 and oi_same < MIN_OI_FOR_ENTRY:
+            print(f"\n⏭️ Skipping entry (low OI {oi_same} < {MIN_OI_FOR_ENTRY}): {symbol_key}")
+        else:
+            moneyness = "FUT" if is_fut else classify_strike(symbol_key, data)
+            print(f"\n🔻 BIG SELLER SITTING: {symbol_key} | Qty: {qty} | Price: {price} | LTP: {ltp} | {moneyness}")
+            record_entry(symbol_key, "SELL", qty, price, ltp, moneyness, pcr, oi_same, oi_opposite, instrument_token)
 
     seen_bid_ts = None
     seen_ask_ts = None
@@ -1208,7 +1222,7 @@ def is_market_open():
 
     # Check if time is between 9:15 AM and 3:30 PM
     market_open = now.replace(hour=9, minute=15, second=0, microsecond=0)
-    market_close = now.replace(hour=23, minute=30, second=0, microsecond=0)
+    market_close = now.replace(hour=15, minute=30, second=0, microsecond=0)
 
     return market_open <= now <= market_close
 
