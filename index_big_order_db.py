@@ -1144,7 +1144,8 @@ def analyze_instrument(symbol_key, data, batch_data):
                 print(f"   ❌ Support at {prev_price} was FAKE.")
             else:
                 print(f"\n✅ BIG PLAYER BOUGHT SUCCESSFULLY: {symbol_key} @ {prev_price}")
-                if MIN_OI_DELTA_FOR_SUCCESS > 0 and abs(oi_diff) < MIN_OI_DELTA_FOR_SUCCESS:
+                # For options, check OI delta; futures don't have OI so skip this check
+                if not is_fut and MIN_OI_DELTA_FOR_SUCCESS > 0 and abs(oi_diff) < MIN_OI_DELTA_FOR_SUCCESS:
                     print(f"   ⏭️ Skipping success — OI change {oi_diff} below {MIN_OI_DELTA_FOR_SUCCESS}")
                 else:
                     moneyness = "FUT" if is_fut else classify_strike(symbol_key, data)
@@ -1162,7 +1163,8 @@ def analyze_instrument(symbol_key, data, batch_data):
                 print(f"   ❌ Resistance at {prev_price} was FAKE.")
             else:
                 print(f"\n🔴 BIG PLAYER SOLD SUCCESSFULLY: {symbol_key} @ {prev_price}")
-                if MIN_OI_DELTA_FOR_SUCCESS > 0 and abs(oi_diff) < MIN_OI_DELTA_FOR_SUCCESS:
+                # For options, check OI delta; futures don't have OI so skip this check
+                if not is_fut and MIN_OI_DELTA_FOR_SUCCESS > 0 and abs(oi_diff) < MIN_OI_DELTA_FOR_SUCCESS:
                     print(f"   ⏭️ Skipping success — OI change {oi_diff} below {MIN_OI_DELTA_FOR_SUCCESS}")
                 else:
                     moneyness = "FUT" if is_fut else classify_strike(symbol_key, data)
@@ -1171,7 +1173,8 @@ def analyze_instrument(symbol_key, data, batch_data):
     # LIVE STATUS (ENTRY)
     if curr_bid and curr_bid != prev_bid:
         qty, price, _, _ = curr_bid
-        if MIN_OI_FOR_ENTRY > 0 and oi_same < MIN_OI_FOR_ENTRY:
+        # For options, check minimum OI for liquidity; futures don't have OI so skip this check
+        if not is_fut and MIN_OI_FOR_ENTRY > 0 and oi_same < MIN_OI_FOR_ENTRY:
             print(f"\n⏭️ Skipping entry (low OI {oi_same} < {MIN_OI_FOR_ENTRY}): {symbol_key}")
         else:
             moneyness = "FUT" if is_fut else classify_strike(symbol_key, data)
@@ -1180,7 +1183,8 @@ def analyze_instrument(symbol_key, data, batch_data):
 
     if curr_ask and curr_ask != prev_ask:
         qty, price, _, _ = curr_ask
-        if MIN_OI_FOR_ENTRY > 0 and oi_same < MIN_OI_FOR_ENTRY:
+        # For options, check minimum OI for liquidity; futures don't have OI so skip this check
+        if not is_fut and MIN_OI_FOR_ENTRY > 0 and oi_same < MIN_OI_FOR_ENTRY:
             print(f"\n⏭️ Skipping entry (low OI {oi_same} < {MIN_OI_FOR_ENTRY}): {symbol_key}")
         else:
             moneyness = "FUT" if is_fut else classify_strike(symbol_key, data)
@@ -1222,7 +1226,7 @@ def is_market_open():
 
     # Check if time is between 9:15 AM and 3:30 PM
     market_open = now.replace(hour=9, minute=15, second=0, microsecond=0)
-    market_close = now.replace(hour=15, minute=30, second=0, microsecond=0)
+    market_close = now.replace(hour=23, minute=30, second=0, microsecond=0)
 
     return market_open <= now <= market_close
 
