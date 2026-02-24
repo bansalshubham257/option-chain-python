@@ -46,6 +46,13 @@ class UpstoxFeedWorker:
         self.ssl_context.verify_mode = ssl.CERT_NONE
         self.running = False
 
+        # Add token refresh settings
+        self.token_refresh_interval = 3600  # Check for new tokens every 10 minutes
+        self.token_refresh_thread = None
+        self.last_token_refresh = time.time()
+        self.market_open_time = "08:00"  # IST market open time
+        self.market_close_time = "15:30"  # IST market close time
+
         # Connection settings - Updated for multiple connections
         self.MAX_CONNECTIONS = 4  # Fixed number of connections (4)
         self.MAX_KEYS_PER_CONNECTION = 1500  # Each connection handles max 1500 keys as per API limit
@@ -59,7 +66,7 @@ class UpstoxFeedWorker:
         self.connection_tasks = []
 
         # Processing thresholds
-        self.OPTIONS_THRESHOLD = 87
+        self.OPTIONS_THRESHOLD = 127
         self.FUTURES_THRESHOLD = 36
 
         # Parallel processing settings
@@ -107,6 +114,9 @@ class UpstoxFeedWorker:
         """Start the feed worker and processing pipeline."""
         self.running = True
         self.db_workers_running = True
+
+        # Start token refresh task first to ensure we have fresh tokens
+        token_refresh_task = asyncio.create_task(self.refresh_tokens_periodically())
 
         # Check if market is open before starting
         if not self.is_market_open():
@@ -1018,24 +1028,36 @@ class UpstoxFeedWorker:
                     if ltp and ltp >= 5 and (bid_qty > 0 or ask_qty > 0):
                         threshold = self.OPTIONS_THRESHOLD * lot_size
                         if bid_qty >= threshold or ask_qty >= threshold:
-                            option_order = {
-                                'stock': instrument['symbol'],
-                                'strike_price': instrument['strike_price'],
-                                'type': instrument['option_type'],
-                                'ltp': ltp,
-                                'bid_qty': bid_qty,
-                                'ask_qty': ask_qty,
-                                'lot_size': lot_size,
-                                'timestamp': current_time,
-                                'oi': oi,
-                                'volume': volume,
-                                'vega': greeks.get('vega'),
-                                'theta': greeks.get('theta'),
-                                'gamma': greeks.get('gamma'),
-                                'delta': greeks.get('delta'),
-                                'iv': iv,
-                                'pop': greeks.get('pop', 0)
-                            }
+                            # Check bid-ask spread to avoid trades with volume issues
+                            spread_result = self._is_bid_ask_spread_acceptable(
+                                bid_ask_quotes,
+                                ltp,
+                                first_depth,
+                                symbol=instrument['symbol'],
+                                strike_price=instrument['strike_price'],
+                                option_type=instrument['option_type'],
+                                max_spread_pct=4.0  # Max 2% spread allowed
+                            )
+
+                            if spread_result['valid']:
+                                option_order = {
+                                    'stock': instrument['symbol'],
+                                    'strike_price': instrument['strike_price'],
+                                    'type': instrument['option_type'],
+                                    'ltp': ltp,
+                                    'bid_qty': bid_qty,
+                                    'ask_qty': ask_qty,
+                                    'lot_size': lot_size,
+                                    'timestamp': current_time,
+                                    'oi': oi,
+                                    'volume': volume,
+                                    'vega': greeks.get('vega'),
+                                    'theta': greeks.get('theta'),
+                                    'gamma': greeks.get('gamma'),
+                                    'delta': greeks.get('delta'),
+                                    'iv': iv,
+                                    'pop': greeks.get('pop', 0)
+                                }
 
                         # Always record OI data for options
                         if oi is not None and volume is not None:
@@ -1099,6 +1121,475 @@ class UpstoxFeedWorker:
             await websocket.send(json.dumps(subscribe_msg).encode('utf-8'))
             print(f"Connection {connection_id}: Subscribed to batch {i+1}/{len(sub_batches)} ({len(sub_batch)} instruments)")
             await asyncio.sleep(0.05)  # Small delay between batches
+
+    async def refresh_tokens_periodically(self):
+        """Refresh access tokens once before market open."""
+        while self.running:
+            try:
+                # Get current time in IST
+                now = datetime.now(pytz.timezone('Asia/Kolkata'))
+                current_time = now.time()
+
+                # Only refresh tokens in the early morning before market open (5:00-8:30 AM IST)
+                is_refresh_window = Config.TOKEN_MARKET_OPEN <= now.time() <= Config.TOKEN_MARKET_CLOSE
+
+                if is_refresh_window:
+                    # Check if we haven't refreshed tokens today
+                    # Convert timestamp to datetime object first
+                    last_refresh_datetime = datetime.fromtimestamp(self.last_token_refresh)
+                    # Then convert to IST timezone for comparison
+                    last_refresh_time = pytz.timezone('Asia/Kolkata').localize(last_refresh_datetime)
+
+                    if last_refresh_time.date() < now.date():
+                        print("Refreshing access tokens before market open")
+
+                        # Fetch new tokens from the database
+                        new_access_token_1 = self.db.get_access_token(account_id=1)
+                        new_access_token_3 = self.db.get_access_token(account_id=3)
+
+                        updated_tokens = False
+
+                        if new_access_token_1 and new_access_token_1 != self.access_token_1:
+                            print(f"Updated access token (ID=1): ...{new_access_token_1[-4:]}")
+                            self.access_token_1 = new_access_token_1
+                            updated_tokens = True
+
+                        if new_access_token_3 and new_access_token_3 != self.access_token_3:
+                            print(f"Updated access token (ID=3): ...{new_access_token_3[-4:]}")
+                            self.access_token_3 = new_access_token_3
+                            updated_tokens = True
+
+                        if updated_tokens:
+                            # Update the access tokens list
+                            self.access_tokens = []
+                            if self.access_token_1:
+                                self.access_tokens.append(self.access_token_1)
+                            if self.access_token_3:
+                                self.access_tokens.append(self.access_token_3)
+                            print("Access tokens updated before market open")
+                        else:
+                            print("No token updates found in database")
+
+                        # Update last refresh time even if tokens didn't change
+                        self.last_token_refresh = time.time()
+
+                # Sleep for longer during the day when token refresh isn't needed
+                # Check more frequently during the refresh window
+                if is_refresh_window:
+                    await asyncio.sleep(60)  # Check every minute during refresh window
+                else:
+                    await asyncio.sleep(1800)  # Check every 30 minutes outside refresh window
+
+            except Exception as e:
+                print(f"Error in token refresh task: {e}")
+                await asyncio.sleep(300)  # On error, retry after 5 minutes
+
+    async def find_options_near_fibonacci_levels(self, tolerance_percent=2.0):
+        """
+        Identify options from options_orders table that are near key Fibonacci retracement levels
+        (0.5 and 0.618) for potential reversal trades.
+        
+        Args:
+            tolerance_percent: How close the price needs to be to the level (default 2%)
+            
+        Returns:
+            List of options near key Fibonacci levels with their data
+        """
+        print("Scanning options for Fibonacci reversal opportunities...")
+        
+        try:
+            # Step 1: Fetch all unique symbols and their instrument keys from options_orders
+            instrument_data = await self._get_options_instrument_keys()
+            
+            if not instrument_data:
+                print("No instrument data found in options_orders table")
+                return []
+            
+            print(f"Found {len(instrument_data)} instruments to analyze")
+            
+            # Step 2: Analyze each instrument for Fibonacci levels
+            reversal_candidates = []
+            
+            # Use the first available access token
+            access_token = self.access_tokens[0] if self.access_tokens else Config.ACCESS_TOKEN
+            
+            # Process instruments in batches to avoid overwhelming the API
+            batch_size = 10
+            for i in range(0, len(instrument_data), batch_size):
+                batch = instrument_data[i:i + batch_size]
+                
+                # Process batch concurrently
+                tasks = [
+                    self._analyze_fibonacci_reversal(
+                        instrument['instrument_key'],
+                        instrument['symbol'],
+                        instrument['strike_price'],
+                        instrument['option_type'],
+                        instrument['current_ltp'],
+                        access_token,
+                        tolerance_percent
+                    )
+                    for instrument in batch
+                ]
+                
+                batch_results = await asyncio.gather(*tasks, return_exceptions=True)
+                
+                # Filter out exceptions and None results
+                for result in batch_results:
+                    if result and not isinstance(result, Exception) and result.get('near_key_level'):
+                        reversal_candidates.append(result)
+                
+                # Small delay between batches to respect rate limits
+                if i + batch_size < len(instrument_data):
+                    await asyncio.sleep(0.5)
+            
+            # Sort by distance to nearest key level (closest first)
+            reversal_candidates.sort(key=lambda x: x['distance_to_level_percent'])
+            
+            print(f"Found {len(reversal_candidates)} options near key Fibonacci levels")
+            
+            # Print summary
+            if reversal_candidates:
+                print("\n=== REVERSAL CANDIDATES ===")
+                for candidate in reversal_candidates[:10]:  # Show top 10
+                    print(f"{candidate['symbol']} {candidate['strike_price']}{candidate['option_type']}: "
+                          f"LTP={candidate['current_price']:.2f}, "
+                          f"Level={candidate['nearest_level_name']} ({candidate['nearest_level_price']:.2f}), "
+                          f"Distance={candidate['distance_to_level_percent']:.2f}%, "
+                          f"Trend={candidate['trend']}")
+            
+            return reversal_candidates
+            
+        except Exception as e:
+            print(f"Error in find_options_near_fibonacci_levels: {e}")
+            import traceback
+            traceback.print_exc()
+            return []
+
+    async def _get_options_instrument_keys(self):
+        """
+        Fetch all instrument keys from options_orders table.
+        
+        Returns:
+            List of dictionaries with symbol, instrument_key, strike_price, option_type, current_ltp
+        """
+        try:
+            with self.db._get_cursor() as cur:
+                cur.execute("""
+                    SELECT DISTINCT 
+                        o.symbol,
+                        i.instrument_key,
+                        o.strike_price,
+                        o.option_type,
+                        i.exchange,
+                        o.ltp
+                    FROM options_orders o
+                    INNER JOIN instrument_keys i ON 
+                        o.symbol = i.symbol AND 
+                        o.strike_price = i.strike_price AND 
+                        o.option_type = i.option_type
+                    WHERE i.instrument_key IS NOT NULL
+                        AND o.ltp IS NOT NULL
+                        AND o.ltp > 0
+                    ORDER BY o.symbol, o.strike_price
+                """)
+                
+                results = cur.fetchall()
+                
+                return [
+                    {
+                        'symbol': row[0],
+                        'instrument_key': row[1],
+                        'strike_price': float(row[2]) if row[2] else None,
+                        'option_type': row[3],
+                        'exchange': row[4],
+                        'current_ltp': float(row[5]) if row[5] else None
+                    }
+                    for row in results
+                ]
+        except Exception as e:
+            print(f"Error fetching options instrument keys: {e}")
+            import traceback
+            traceback.print_exc()
+            return []
+
+    async def _analyze_fibonacci_reversal(self, instrument_key, symbol, strike_price, 
+                                          option_type, current_ltp, access_token, tolerance_percent):
+        """
+        Analyze if an option is near key Fibonacci retracement levels (0.5 or 0.618).
+        
+        Args:
+            instrument_key: Upstox instrument key
+            symbol: Stock symbol
+            strike_price: Option strike price
+            option_type: CE or PE
+            current_ltp: Current Last Traded Price
+            access_token: Upstox access token
+            tolerance_percent: How close to the level (in %)
+            
+        Returns:
+            Dictionary with analysis if near key level, None otherwise
+        """
+        try:
+            # Calculate date range - last 1 month for swing analysis
+            from datetime import datetime, timedelta
+            
+            today = datetime.now()
+            one_month_ago = today - timedelta(days=30)
+            
+            # Format dates as YYYY-MM-DD
+            to_date = today.strftime('%Y-%m-%d')
+            from_date = one_month_ago.strftime('%Y-%m-%d')
+            
+            # Use 3-minute candles for more precise swing points
+            url = f"https://api.upstox.com/v3/historical-candle/{instrument_key}/3minute/{to_date}/{from_date}"
+            
+            headers = {
+                'Content-Type': 'application/json',
+                'Accept': 'application/json',
+                'Authorization': f'Bearer {access_token}'
+            }
+            
+            # Make async request
+            loop = asyncio.get_event_loop()
+            response = await loop.run_in_executor(
+                None,
+                lambda: requests.get(url, headers=headers, timeout=10)
+            )
+            
+            if response.status_code != 200:
+                # Try with daily candles if 3-minute fails
+                url = f"https://api.upstox.com/v3/historical-candle/{instrument_key}/day/{to_date}/{from_date}"
+                response = await loop.run_in_executor(
+                    None,
+                    lambda: requests.get(url, headers=headers, timeout=10)
+                )
+                
+                if response.status_code != 200:
+                    return None
+            
+            data = response.json()
+            
+            # Check if we have candle data
+            if 'data' not in data or 'candles' not in data['data']:
+                return None
+            
+            candles = data['data']['candles']
+            
+            if not candles or len(candles) < 10:
+                return None
+            
+            # Convert to DataFrame
+            # Candle format: [timestamp, open, high, low, close, volume, oi]
+            df = pd.DataFrame(candles, columns=['timestamp', 'open', 'high', 'low', 'close', 'volume', 'oi'])
+            
+            # Find swing high and low
+            swing_high = df['high'].max()
+            swing_low = df['low'].min()
+            
+            # Calculate Fibonacci levels
+            diff = swing_high - swing_low
+            
+            # Key levels for reversal trading
+            fib_0_5 = swing_high - (diff * 0.5)      # 50% retracement
+            fib_0_618 = swing_high - (diff * 0.618)  # 61.8% retracement (Golden ratio)
+            
+            # Check if current price is near these key levels
+            tolerance = tolerance_percent / 100.0
+            
+            near_0_5 = abs(current_ltp - fib_0_5) / fib_0_5 <= tolerance
+            near_0_618 = abs(current_ltp - fib_0_618) / fib_0_618 <= tolerance
+            
+            if not (near_0_5 or near_0_618):
+                return None  # Not near key levels
+            
+            # Determine which level is nearest
+            dist_0_5 = abs(current_ltp - fib_0_5) / fib_0_5 * 100
+            dist_0_618 = abs(current_ltp - fib_0_618) / fib_0_618 * 100
+            
+            if dist_0_5 < dist_0_618:
+                nearest_level = '0.5'
+                nearest_level_price = fib_0_5
+                distance_percent = dist_0_5
+            else:
+                nearest_level = '0.618'
+                nearest_level_price = fib_0_618
+                distance_percent = dist_0_618
+            
+            # Determine trend (are we coming from above or below?)
+            recent_candles = df.head(20)  # Last 20 candles
+            recent_avg = recent_candles['close'].mean()
+            
+            if current_ltp < nearest_level_price:
+                trend = 'Approaching from below'
+                reversal_direction = 'Bullish reversal expected'
+            else:
+                trend = 'Approaching from above'
+                reversal_direction = 'Bearish reversal expected'
+            
+            # Calculate additional metrics
+            price_range_percent = (diff / swing_low) * 100
+            current_from_high_percent = ((swing_high - current_ltp) / swing_high) * 100
+            current_from_low_percent = ((current_ltp - swing_low) / swing_low) * 100
+            
+            result = {
+                'symbol': symbol,
+                'strike_price': strike_price,
+                'option_type': option_type,
+                'instrument_key': instrument_key,
+                'current_price': current_ltp,
+                'near_key_level': True,
+                'nearest_level_name': nearest_level,
+                'nearest_level_price': round(nearest_level_price, 2),
+                'distance_to_level_percent': round(distance_percent, 2),
+                'trend': trend,
+                'reversal_direction': reversal_direction,
+                'swing_high': round(swing_high, 2),
+                'swing_low': round(swing_low, 2),
+                'fib_0_5_level': round(fib_0_5, 2),
+                'fib_0_618_level': round(fib_0_618, 2),
+                'price_range_percent': round(price_range_percent, 2),
+                'from_high_percent': round(current_from_high_percent, 2),
+                'from_low_percent': round(current_from_low_percent, 2),
+                'candles_analyzed': len(candles),
+                'date_range': {
+                    'from': from_date,
+                    'to': to_date
+                }
+            }
+            
+            return result
+            
+        except Exception as e:
+            # Silently skip errors for individual instruments
+            return None
+
+    def _is_bid_ask_spread_acceptable(self, bid_ask_quotes, ltp, first_depth, symbol="", strike_price="", option_type="", max_spread_pct=4.0):
+        """
+        Check if bid-ask spread is within acceptable range to avoid volume issues.
+
+        Args:
+            bid_ask_quotes: List of bid-ask quotes from market depth
+            ltp: Last traded price
+            first_depth: First level depth data for fallback
+            symbol: Stock symbol (for logging)
+            strike_price: Strike price (for logging)
+            option_type: Option type CE/PE (for logging)
+            max_spread_pct: Maximum allowed spread percentage (default 2%)
+
+        Returns:
+            dict: {
+                'valid': bool,
+                'spread_pct': float,
+                'bid_price': float,
+                'ask_price': float,
+                'spread': float
+            }
+        """
+        try:
+            if not ltp or ltp <= 0:
+                return {
+                    'valid': False,
+                    'spread_pct': 0,
+                    'bid_price': 0,
+                    'ask_price': 0,
+                    'spread': 0,
+                    'reason': 'Invalid LTP'
+                }
+
+            # Try to get bid and ask prices from quotes
+            best_bid_price = None
+            best_ask_price = None
+
+            # Get the best bid and ask prices from all available quotes
+            if bid_ask_quotes and len(bid_ask_quotes) > 0:
+                for quote in bid_ask_quotes:
+                    try:
+                        bid_p = float(quote.get('bidP')) if quote.get('bidP') else None
+                        ask_p = float(quote.get('askP')) if quote.get('askP') else None
+
+                        if bid_p and bid_p > 0:
+                            if best_bid_price is None or bid_p > best_bid_price:
+                                best_bid_price = bid_p
+
+                        if ask_p and ask_p > 0:
+                            if best_ask_price is None or ask_p < best_ask_price:
+                                best_ask_price = ask_p
+                    except (ValueError, TypeError):
+                        continue
+
+            # Fallback to first_depth if quotes are not available
+            if (best_bid_price is None or best_ask_price is None) and first_depth:
+                try:
+                    bid_p = float(first_depth.get('bidP')) if first_depth.get('bidP') else None
+                    ask_p = float(first_depth.get('askP')) if first_depth.get('askP') else None
+
+                    if bid_p and bid_p > 0:
+                        best_bid_price = bid_p
+                    if ask_p and ask_p > 0:
+                        best_ask_price = ask_p
+                except (ValueError, TypeError):
+                    pass
+
+            # If we couldn't get bid or ask price, accept it (allow the order)
+            if best_bid_price is None or best_ask_price is None:
+                return {
+                    'valid': True,
+                    'spread_pct': 0,
+                    'bid_price': best_bid_price or 0,
+                    'ask_price': best_ask_price or 0,
+                    'spread': 0,
+                    'reason': 'No bid/ask price data available'
+                }
+
+            # Check if bid price is less than ask price (valid market)
+            if best_bid_price >= best_ask_price:
+                rejected_msg = f"❌ REJECTED | {symbol} {strike_price}{option_type} | Invalid Market (Bid ≥ Ask) | Bid={best_bid_price}, Ask={best_ask_price}, LTP={ltp}"
+                print(rejected_msg)
+                return {
+                    'valid': False,
+                    'spread_pct': 0,
+                    'bid_price': best_bid_price,
+                    'ask_price': best_ask_price,
+                    'spread': 0,
+                    'reason': 'Invalid bid/ask prices (bid >= ask)'
+                }
+
+            # Calculate spread percentage
+            spread = best_ask_price - best_bid_price
+            spread_pct = (spread / ltp) * 100
+
+            # Log spread information
+            is_acceptable = spread_pct <= max_spread_pct
+
+            if is_acceptable:
+                status = "✅ ACCEPTED"
+            else:
+                status = "❌ REJECTED"
+
+            log_msg = f"{status} | {symbol} {strike_price}{option_type} | Bid={best_bid_price:.2f}, Ask={best_ask_price:.2f}, Spread={spread:.4f} ({spread_pct:.2f}%), LTP={ltp:.2f}, Max={max_spread_pct}%"
+            print(log_msg)
+
+            return {
+                'valid': is_acceptable,
+                'spread_pct': spread_pct,
+                'bid_price': best_bid_price,
+                'ask_price': best_ask_price,
+                'spread': spread
+            }
+
+        except Exception as e:
+            print(f"Error checking bid-ask spread: {e}")
+            # On error, accept the order to not block legitimate trades
+            return {
+                'valid': True,
+                'spread_pct': 0,
+                'bid_price': 0,
+                'ask_price': 0,
+                'spread': 0,
+                'reason': f'Error: {str(e)}'
+            }
+
 
 async def main():
     db_service = DatabaseService()
