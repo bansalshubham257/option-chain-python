@@ -1029,6 +1029,9 @@ class UpstoxFeedWorker:
                         threshold = self.OPTIONS_THRESHOLD * lot_size
                         if bid_qty >= threshold or ask_qty >= threshold:
                             # Check bid-ask spread to avoid trades with volume issues
+                            # Only log rejection if at least one of bid_qty or ask_qty is non-zero
+                            should_log_rejection = bid_qty > 0 or ask_qty > 0
+
                             spread_result = self._is_bid_ask_spread_acceptable(
                                 bid_ask_quotes,
                                 ltp,
@@ -1036,7 +1039,8 @@ class UpstoxFeedWorker:
                                 symbol=instrument['symbol'],
                                 strike_price=instrument['strike_price'],
                                 option_type=instrument['option_type'],
-                                max_spread_pct=4.0  # Max 2% spread allowed
+                                max_spread_pct=4.0,  # Max 2% spread allowed
+                                should_log=should_log_rejection
                             )
 
                             if spread_result['valid']:
@@ -1464,7 +1468,7 @@ class UpstoxFeedWorker:
             # Silently skip errors for individual instruments
             return None
 
-    def _is_bid_ask_spread_acceptable(self, bid_ask_quotes, ltp, first_depth, symbol="", strike_price="", option_type="", max_spread_pct=4.0):
+    def _is_bid_ask_spread_acceptable(self, bid_ask_quotes, ltp, first_depth, symbol="", strike_price="", option_type="", max_spread_pct=4.0, should_log=True):
         """
         Check if bid-ask spread is within acceptable range to avoid volume issues.
 
@@ -1476,6 +1480,7 @@ class UpstoxFeedWorker:
             strike_price: Strike price (for logging)
             option_type: Option type CE/PE (for logging)
             max_spread_pct: Maximum allowed spread percentage (default 2%)
+            should_log: Whether to print rejection/acceptance messages (default True)
 
         Returns:
             dict: {
@@ -1544,8 +1549,9 @@ class UpstoxFeedWorker:
 
             # Check if bid price is less than ask price (valid market)
             if best_bid_price >= best_ask_price:
-                rejected_msg = f"❌ REJECTED | {symbol} {strike_price}{option_type} | Invalid Market (Bid ≥ Ask) | Bid={best_bid_price}, Ask={best_ask_price}, LTP={ltp}"
-                print(rejected_msg)
+                if should_log:
+                    rejected_msg = f"❌ REJECTED | {symbol} {strike_price}{option_type} | Invalid Market (Bid ≥ Ask) | Bid={best_bid_price}, Ask={best_ask_price}, LTP={ltp}"
+                    print(rejected_msg)
                 return {
                     'valid': False,
                     'spread_pct': 0,
@@ -1562,13 +1568,14 @@ class UpstoxFeedWorker:
             # Log spread information
             is_acceptable = spread_pct <= max_spread_pct
 
-            if is_acceptable:
-                status = "✅ ACCEPTED"
-            else:
-                status = "❌ REJECTED"
+            if should_log:
+                if is_acceptable:
+                    status = "✅ ACCEPTED"
+                else:
+                    status = "❌ REJECTED"
 
-            log_msg = f"{status} | {symbol} {strike_price}{option_type} | Bid={best_bid_price:.2f}, Ask={best_ask_price:.2f}, Spread={spread:.4f} ({spread_pct:.2f}%), LTP={ltp:.2f}, Max={max_spread_pct}%"
-            print(log_msg)
+                log_msg = f"{status} | {symbol} {strike_price}{option_type} | Bid={best_bid_price:.2f}, Ask={best_ask_price:.2f}, Spread={spread:.4f} ({spread_pct:.2f}%), LTP={ltp:.2f}, Max={max_spread_pct}%"
+                print(log_msg)
 
             return {
                 'valid': is_acceptable,
@@ -1579,7 +1586,8 @@ class UpstoxFeedWorker:
             }
 
         except Exception as e:
-            print(f"Error checking bid-ask spread: {e}")
+            if should_log:
+                print(f"Error checking bid-ask spread: {e}")
             # On error, accept the order to not block legitimate trades
             return {
                 'valid': True,
