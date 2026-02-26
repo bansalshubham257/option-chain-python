@@ -1225,8 +1225,8 @@ def is_market_open():
         return False
 
     # Check if time is between 9:15 AM and 3:30 PM
-    market_open = now.replace(hour=9, minute=15, second=0, microsecond=0)
-    market_close = now.replace(hour=23, minute=30, second=0, microsecond=0)
+    market_open = now.replace(hour=9, minute=14, second=0, microsecond=0)
+    market_close = now.replace(hour=15, minute=31, second=0, microsecond=0)
 
     return market_open <= now <= market_close
 
