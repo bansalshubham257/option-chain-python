@@ -45,7 +45,7 @@ DEFAULT_LOT_SIZE  = 50  # fallback if CSV lot_size missing
 # Detection tuning
 MIN_WHALE_PERSISTENCE_S = 3     # require depth to sit before we treat it as real
 MIN_FILL_VOL_RATIO       = 0.3   # min volume jump vs whale qty to treat as filled
-FUT_MIN_TOTAL_LOTS       = 45    # futures: require at least this many lots resting
+FUT_MIN_TOTAL_LOTS       = 35    # futures: require at least this many lots resting
 MIN_OI_FOR_ENTRY         = 500   # skip entries on illiquid strikes/futures (set 0 to disable)
 MIN_OI_DELTA_FOR_SUCCESS = 300   # require OI change on fill to confirm (set 0 to disable)
 
