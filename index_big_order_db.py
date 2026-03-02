@@ -478,6 +478,7 @@ def get_whale_order(depth_list, lot_size, symbol_key=None):
     if symbol_key and is_future_symbol(symbol_key):
         if total_lots <= FUT_MIN_TOTAL_LOTS:
             return None
+        return (qty, price, orders, avg_lots)
     else:
         if total_lots <= 50:
             return None
