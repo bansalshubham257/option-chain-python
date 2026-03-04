@@ -896,8 +896,16 @@ def parse_underlying_from_symbol(symbol_key):
       - underlying symbol (SBICARD, ICICIPRU, NIFTY, SENSEX, etc.)
       - expiry
       - strike
-      - option_type (CE/PE)
+      - option_type (CE/PE/FUT)
     If meta missing, fallback to basic parsing.
+
+    Handles different formats:
+      - Stock options: UNDERLYING + DDMMM + STRIKE + (CE|PE)
+        e.g., SBIN25DEC620CE
+      - Index options (NIFTY/SENSEX): UNDERLYING + YYMDD + STRIKE + (CE|PE)
+        e.g., NIFTY2631024300PE (YY=26, M=3, DD=10, strike=24300, meaning 2026-03-10)
+      - Futures: UNDERLYING + DDMMM + FUT
+        e.g., ICICIBANK26MARFUT
     """
     meta = instrument_meta.get(symbol_key)
     if meta:
@@ -916,6 +924,8 @@ def parse_underlying_from_symbol(symbol_key):
     parts = symbol_key.split(":", 1)
     raw = parts[1] if len(parts) > 1 else parts[0]
 
+    # Try stock options format: UNDERLYING + DDMMM + STRIKE + (CE|PE)
+    # e.g., SBIN25DEC620CE
     m = re.match(r"^([A-Z0-9]+)(\d{2}[A-Z]{3})(\d+)(CE|PE)$", raw)
     if m:
         return {
@@ -923,6 +933,31 @@ def parse_underlying_from_symbol(symbol_key):
             "expiry": m[2].upper(),
             "strike": float(m[3]),
             "option_type": m[4].upper()
+        }
+
+    # Try index options format: UNDERLYING + YYMDD + STRIKE + (CE|PE)
+    # e.g., NIFTY2631024300PE (YY=26, M=3, DD=10, strike=24300)
+    m = re.match(r"^([A-Z]+)(\d{2})(\d{1})(\d{2})(\d+)(CE|PE)$", raw)
+    if m:
+        underlying = m[1].upper()
+        yy = int(m[2])
+        mm = int(m[3])
+        dd = int(m[4])
+        strike = float(m[5])
+        option_type = m[6].upper()
+
+        # Convert YY to full year (26 -> 2026)
+        year = 2000 + yy if yy < 100 else yy
+        try:
+            expiry_date = datetime(year, mm, dd).strftime("%Y-%m-%d")
+        except ValueError:
+            expiry_date = None
+
+        return {
+            "underlying": underlying,
+            "expiry": expiry_date,
+            "strike": strike,
+            "option_type": option_type
         }
 
     return {
@@ -1188,6 +1223,7 @@ def analyze_instrument(symbol_key, data, batch_data):
         else:
             moneyness = "FUT" if is_fut else classify_strike(symbol_key, data)
             print(f"\n🔻 BIG SELLER SITTING: {symbol_key} | Qty: {qty} | Price: {price} | LTP: {ltp} | {moneyness}")
+            print(f"\n Symbol: {symbol_key} | Qty: {qty} | Price: {price} | LTP: {ltp} | Moneyness: {moneyness} | PCR: {pcr} | OI (same): {oi_same} | OI (opp): {oi_opposite}")
             record_entry(symbol_key, "SELL", qty, price, ltp, moneyness, pcr, oi_same, oi_opposite, instrument_token)
 
     seen_bid_ts = None
@@ -1225,7 +1261,7 @@ def is_market_open():
 
     # Check if time is between 9:15 AM and 3:30 PM
     market_open = now.replace(hour=9, minute=14, second=0, microsecond=0)
-    market_close = now.replace(hour=15, minute=31, second=0, microsecond=0)
+    market_close = now.replace(hour=23, minute=31, second=0, microsecond=0)
 
     return market_open <= now <= market_close
 
