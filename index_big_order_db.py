@@ -45,15 +45,13 @@ DEFAULT_LOT_SIZE  = 50  # fallback if CSV lot_size missing
 # Detection tuning
 MIN_WHALE_PERSISTENCE_S = 3     # require depth to sit before we treat it as real
 MIN_FILL_VOL_RATIO       = 0.3   # min volume jump vs whale qty to treat as filled
-FUT_MIN_TOTAL_LOTS       = 35    # futures: require at least this many lots resting
+FUT_MIN_TOTAL_LOTS       = 55    # futures: require at least this many lots resting
 MIN_OI_FOR_ENTRY         = 500   # skip entries on illiquid strikes/futures (set 0 to disable)
 MIN_OI_DELTA_FOR_SUCCESS = 300   # require OI change on fill to confirm (set 0 to disable)
 
 
 def is_future_symbol(symbol_key: str) -> bool:
-    meta = instrument_meta.get(symbol_key, {})
-    inst_type = str(meta.get('instrument_type', '')).upper()
-    return 'FUT' in inst_type
+    return 'FUT' in symbol_key
 
 # ================= GLOBAL STATE =================
 
@@ -1227,7 +1225,7 @@ def is_market_open():
 
     # Check if time is between 9:15 AM and 3:30 PM
     market_open = now.replace(hour=9, minute=14, second=0, microsecond=0)
-    market_close = now.replace(hour=15, minute=31, second=0, microsecond=0)
+    market_close = now.replace(hour=23, minute=31, second=0, microsecond=0)
 
     return market_open <= now <= market_close
 
