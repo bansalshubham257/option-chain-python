@@ -1212,7 +1212,8 @@ def analyze_instrument(symbol_key, data, batch_data):
             print(f"\n⏭️ Skipping entry (low OI {oi_same} < {MIN_OI_FOR_ENTRY}): {symbol_key}")
         else:
             moneyness = "FUT" if is_fut else classify_strike(symbol_key, data)
-            print(f"\n🚀 BIG BUYER SITTING: {symbol_key} | Qty: {qty} | Price: {price} | LTP: {ltp} | {moneyness}")
+            print(f"\n🚀 BIG BUYER SITTING: {symbol_key} | Qty: {qty} | Price: {price} | LTP: {ltp} | moneyness: {moneyness}")
+            print(f"\n Symbol: {symbol_key} | Qty: {qty} | Price: {price} | LTP: {ltp} | Moneyness: {moneyness} | PCR: {pcr} | OI (same): {oi_same} | OI (opp): {oi_opposite}")
             record_entry(symbol_key, "BUY", qty, price, ltp, moneyness, pcr, oi_same, oi_opposite, instrument_token)
 
     if curr_ask and curr_ask != prev_ask:
@@ -1222,7 +1223,7 @@ def analyze_instrument(symbol_key, data, batch_data):
             print(f"\n⏭️ Skipping entry (low OI {oi_same} < {MIN_OI_FOR_ENTRY}): {symbol_key}")
         else:
             moneyness = "FUT" if is_fut else classify_strike(symbol_key, data)
-            print(f"\n🔻 BIG SELLER SITTING: {symbol_key} | Qty: {qty} | Price: {price} | LTP: {ltp} | {moneyness}")
+            print(f"\n🔻 BIG SELLER SITTING: {symbol_key} | Qty: {qty} | Price: {price} | LTP: {ltp} | moneyness: {moneyness}")
             print(f"\n Symbol: {symbol_key} | Qty: {qty} | Price: {price} | LTP: {ltp} | Moneyness: {moneyness} | PCR: {pcr} | OI (same): {oi_same} | OI (opp): {oi_opposite}")
             record_entry(symbol_key, "SELL", qty, price, ltp, moneyness, pcr, oi_same, oi_opposite, instrument_token)
 
