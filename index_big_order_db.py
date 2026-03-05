@@ -33,6 +33,9 @@ NG_EXPIRY         = "2029-12-23"   # MCX Natural Gas expiry
 # MINIMUM NOTIONAL VALUE FOR "BIG ORDER"
 MIN_ORDER_VALUE = 950000  # ₹9L
 
+# FLAG: Include futures or not (True = fetch futures keys, False = skip futures)
+INCLUDE_FUTURES = False
+
 # API CONFIG
 BASE_URL_V2 = "https://api.upstox.com/v2"
 URL_NSE_FO  = "https://assets.upstox.com/market-quote/instruments/exchange/NSE.csv.gz"
@@ -795,20 +798,23 @@ def build_all_instruments():
         print(f"✅ Loaded {len(df_fno_stk)} stock option contracts (OPTSTK).")
 
         # Index/stock futures (nearest expiry per symbol)
-        df_fut = select_near_expiry_futures(df_nse_fo, ['FUTIDX', 'FUTSTK'])
-        for _, row in df_fut.iterrows():
-            key = row['instrument_key']
-            all_keys.append(key)
-            instrument_meta[key] = {
-                "name": row.get('name'),
-                "symbol": str(row.get('symbol') or row.get('name') or '').upper(),
-                "strike": row.get('strike'),
-                "expiry": row.get('expiry'),
-                "instrument_type": row.get('instrument_type'),
-                "option_type": None,
-                "lot_size": row.get('lot_size', DEFAULT_LOT_SIZE),
-            }
-        print(f"✅ Loaded {len(df_fut)} near-month futures (FUTIDX/FUTSTK).")
+        if INCLUDE_FUTURES:
+            df_fut = select_near_expiry_futures(df_nse_fo, ['FUTIDX', 'FUTSTK'])
+            for _, row in df_fut.iterrows():
+                key = row['instrument_key']
+                all_keys.append(key)
+                instrument_meta[key] = {
+                    "name": row.get('name'),
+                    "symbol": str(row.get('symbol') or row.get('name') or '').upper(),
+                    "strike": row.get('strike'),
+                    "expiry": row.get('expiry'),
+                    "instrument_type": row.get('instrument_type'),
+                    "option_type": None,
+                    "lot_size": row.get('lot_size', DEFAULT_LOT_SIZE),
+                }
+            print(f"✅ Loaded {len(df_fut)} near-month futures (FUTIDX/FUTSTK).")
+        else:
+            print(f"⏭️  Skipping futures loading (INCLUDE_FUTURES = False).")
 
     # ----- BSE_FO (SENSEX) -----
     df_bse_fo = download_instruments(URL_BSE_FO, "BSE_FO")
