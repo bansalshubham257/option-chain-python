@@ -333,6 +333,44 @@
           border-color: rgba(52,211,153,0.7);
           color: #a7f3d0;
         }
+        .badge-hedge {
+          background: rgba(59,130,246,0.15);
+          color: #bfdbfe;
+          border: 1px solid rgba(59,130,246,0.4);
+          font-weight: 600;
+        }
+        .badge-naked {
+          background: rgba(248,113,113,0.15);
+          color: #fecaca;
+          border: 1px solid rgba(248,113,113,0.4);
+          font-weight: 600;
+        }
+        .copy-btn {
+          display: inline-flex;
+          align-items: center;
+          justify-content: center;
+          width: 20px;
+          height: 20px;
+          margin-left: 6px;
+          background: #374151;
+          border: 1px solid #4b5563;
+          border-radius: 4px;
+          color: #9ca3af;
+          cursor: pointer;
+          font-size: 0.7rem;
+          transition: all 0.2s ease;
+          padding: 0;
+        }
+        .copy-btn:hover {
+          background: #4b5563;
+          color: #e5e7eb;
+          border-color: #60a5fa;
+        }
+        .copy-btn.copied {
+          background: #059669;
+          color: white;
+          border-color: #059669;
+        }
         .status-bar {
           font-size: 0.75rem;
           color: #9ca3af;
@@ -591,6 +629,7 @@
                 <option value="">All</option>
                 <option value="CE">CE</option>
                 <option value="PE">PE</option>
+                <option value="FUT">FUT</option>
             </select>
         </div>
         <div class="filter-group">
@@ -637,6 +676,15 @@
             </select>
         </div>
         <div class="filter-group">
+            <label for="showIndexFilter">Show Index</label>
+            <select id="showIndexFilter" multiple style="min-height: 80px;">
+                <option value="NIFTY">NIFTY</option>
+                <option value="SENSEX">SENSEX</option>
+                <option value="CRUDEOIL">CRUDEOIL</option>
+                <option value="NATURALGAS">NATURALGAS</option>
+            </select>
+        </div>
+        <div class="filter-group">
             <label for="progressLabelFilter">Progress Label</label>
             <select id="progressLabelFilter">
                 <option value="">All</option>
@@ -648,6 +696,20 @@
                 <option value="-25%">-25%</option>
                 <option value="-50%">-50%</option>
                 <option value="-75%">-75%</option>
+            </select>
+        </div>
+        <div class="filter-group">
+            <label for="pcrAdviceFilter">PCR Advice</label>
+            <select id="pcrAdviceFilter">
+                <option value="">All</option>
+                <option value="No PCR view">No PCR view</option>
+                <option value="Bullish PCR — CE long OK / Hold">Bullish PCR — CE long OK / Hold</option>
+                <option value="Neutral PCR — CE trade with caution">Neutral PCR — CE trade with caution</option>
+                <option value="Bearish PCR — Consider booking/avoid new CE">Bearish PCR — Consider booking/avoid new CE</option>
+                <option value="Bearish PCR — PE long OK / Hold">Bearish PCR — PE long OK / Hold</option>
+                <option value="Neutral PCR — PE trade with caution">Neutral PCR — PE trade with caution</option>
+                <option value="Bullish PCR — Consider booking/avoid new PE">Bullish PCR — Consider booking/avoid new PE</option>
+                <option value="PCR view for options only">PCR view for options only</option>
             </select>
         </div>
         <div class="filter-group">
@@ -675,9 +737,33 @@
             <input type="number" id="maxHighToFilter" placeholder="e.g. 100" step="0.1" />
         </div>
         <div class="filter-group">
+            <label>Max Low % (From)</label>
+            <input type="number" id="maxLowFromFilter" placeholder="e.g. -50" step="0.1" />
+        </div>
+        <div class="filter-group">
+            <label>Max Low % (To)</label>
+            <input type="number" id="maxLowToFilter" placeholder="e.g. 0" step="0.1" />
+        </div>
+        <div class="filter-group">
+            <label>Return - Max High Diff (Max)</label>
+            <input type="number" id="returnMaxHighDiffFilter" placeholder="e.g. 10" step="0.1" />
+        </div>
+        <div class="filter-group">
             <label style="display: flex; align-items: center; gap: 8px; margin-top: 20px;">
                 <input type="checkbox" id="multipleEntriesFilter" style="cursor: pointer; width: 16px; height: 16px;" />
                 <span>Multiple Entries Only</span>
+            </label>
+        </div>
+        <div class="filter-group">
+            <label style="display: flex; align-items: center; gap: 8px;">
+                <input type="checkbox" id="hideFutFilter" style="cursor: pointer; width: 16px; height: 16px;" />
+                <span>Hide FUT Trades</span>
+            </label>
+        </div>
+        <div class="filter-group">
+            <label style="display: flex; align-items: center; gap: 8px;">
+                <input type="checkbox" id="goodPeOnlyFilter" style="cursor: pointer; width: 16px; height: 16px;" />
+                <span>Good PE Trades Only</span>
             </label>
         </div>
         <div class="filter-group">
@@ -708,12 +794,15 @@
                 <th>Expiry</th>
                 <th class="sortable" data-sort-key="strike">Strike<span class="sort-indicator"></span></th>
                 <th>Option</th>
+                <th>Hedge?</th>
                 <th>Role</th>
                 <th class="sortable" data-sort-key="price">Entry Price<span class="sort-indicator"></span></th>
                 <th class="sortable" data-sort-key="ltp">Live LTP 🔴<span class="sort-indicator"></span></th>
                 <th class="sortable" data-sort-key="pnlPct">Return<span class="sort-indicator"></span></th>
                 <th class="sortable" data-sort-key="maxReturnHigh">Max High %<span class="sort-indicator"></span></th>
                 <th class="sortable" data-sort-key="maxReturnLow">Max Low %<span class="sort-indicator"></span></th>
+                <th>P15</th>
+                <th>P20</th>
                 <th>P25</th>
                 <th>P50</th>
                 <th>P75</th>
@@ -725,7 +814,7 @@
                 <th class="sortable" data-sort-key="oiOpposite">OI (Opp.)<span class="sort-indicator"></span></th>
                 <th>Strike Type</th>
                 <th class="sortable" data-sort-key="daysPassed">Days Passed<span class="sort-indicator"></span></th>
-                <th>Filled Time</th>
+                <th class="sortable" data-sort-key="timestamp">Filled Time<span class="sort-indicator"></span></th>
                 <th class="sortable" data-sort-key="progressHistory">Progress History<span class="sort-indicator"></span></th>
             </tr>
             </thead>
@@ -891,6 +980,8 @@
             <th class="sortable" data-sort-key="pnlPct">Current Return<span class="sort-indicator"></span></th>
             <th class="sortable" data-sort-key="maxReturnLow">Lowest Loss %<span class="sort-indicator"></span></th>
             <th class="sortable" data-sort-key="maxReturnHigh">Max High %<span class="sort-indicator"></span></th>
+            <th>P15</th>
+            <th>P20</th>
             <th>P25</th>
             <th>P50</th>
             <th>P75</th>
@@ -912,13 +1003,14 @@
 
 <script>
     const API_BASE_URL = "https://new-dashboard-service.onrender.com"; // Database API endpoint
-    const REFRESH_INTERVAL = 30000; // Auto-refresh every 30 seconds (30,000ms)
+    const REFRESH_INTERVAL = 3000; // Auto-refresh every 30 seconds (30,000ms)
 
     let allGroups = [];      // groups by stock+strike+option
     let filteredGroups = [];
     let currentSortKey = "pnlPct";
     let currentSortDir = "desc"; // 'asc' or 'desc'
     let percentageRangeFilter = "all"; // Track selected percentage range
+    let previousGroupCount = 0; // Track previous group count to detect new entries
     let returnRanges = {
       lt25: { count: 0, total: 0, profit: 0, loss: 0, values: [] },
       range25_50: { count: 0, total: 0, profit: 0, loss: 0, values: [] },
@@ -962,6 +1054,8 @@
     function saveFilterStateToStorage() {
       const hideIndexFilterEl = document.getElementById("hideIndexFilter");
       const hideIndexArray = Array.from(hideIndexFilterEl.selectedOptions).map(opt => opt.value);
+      const showIndexFilterEl = document.getElementById("showIndexFilter");
+      const showIndexArray = Array.from(showIndexFilterEl.selectedOptions).map(opt => opt.value);
       const filterState = {
         stock: document.getElementById("stockFilter").value,
         optionType: document.getElementById("optionTypeFilter").value,
@@ -970,6 +1064,7 @@
         status: document.getElementById("statusFilter").value,
         pnlType: document.getElementById("pnlTypeFilter").value,
         hideIndex: hideIndexArray,
+        showIndex: showIndexArray,
         progressLabel: document.getElementById("progressLabelFilter").value,
         dateFrom: document.getElementById("dateFromFilter").value,
         dateTo: document.getElementById("dateToFilter").value,
@@ -977,7 +1072,10 @@
         returnTo: document.getElementById("returnToFilter").value,
         maxHighFrom: document.getElementById("maxHighFromFilter").value,
         maxHighTo: document.getElementById("maxHighToFilter").value,
+        returnMaxHighDiff: document.getElementById("returnMaxHighDiffFilter").value,
         multipleEntriesOnly: document.getElementById("multipleEntriesFilter").checked,
+        hideFut: document.getElementById("hideFutFilter").checked,
+        goodPeOnly: document.getElementById("goodPeOnlyFilter").checked,
         sortKey: currentSortKey,
         sortDir: currentSortDir
       };
@@ -1005,6 +1103,12 @@
             opt.selected = filterState.hideIndex.includes(opt.value);
           }
         }
+        if (filterState.showIndex && Array.isArray(filterState.showIndex)) {
+          const showIndexFilterEl = document.getElementById("showIndexFilter");
+          for (const opt of showIndexFilterEl.options) {
+            opt.selected = filterState.showIndex.includes(opt.value);
+          }
+        }
         if (filterState.progressLabel) document.getElementById("progressLabelFilter").value = filterState.progressLabel;
         if (filterState.dateFrom) document.getElementById("dateFromFilter").value = filterState.dateFrom;
         if (filterState.dateTo) document.getElementById("dateToFilter").value = filterState.dateTo;
@@ -1012,7 +1116,10 @@
         if (filterState.returnTo) document.getElementById("returnToFilter").value = filterState.returnTo;
         if (filterState.maxHighFrom) document.getElementById("maxHighFromFilter").value = filterState.maxHighFrom;
         if (filterState.maxHighTo) document.getElementById("maxHighToFilter").value = filterState.maxHighTo;
+        if (filterState.returnMaxHighDiff) document.getElementById("returnMaxHighDiffFilter").value = filterState.returnMaxHighDiff;
         if (filterState.multipleEntriesOnly) document.getElementById("multipleEntriesFilter").checked = filterState.multipleEntriesOnly;
+        if (filterState.hideFut) document.getElementById("hideFutFilter").checked = filterState.hideFut;
+        if (filterState.goodPeOnly) document.getElementById("goodPeOnlyFilter").checked = filterState.goodPeOnly;
         // Restore sort state
         if (filterState.sortKey) currentSortKey = filterState.sortKey;
         if (filterState.sortDir) currentSortDir = filterState.sortDir;
@@ -1232,6 +1339,9 @@
         allGroups = groupEntries(entries);
         populateStockDropdown(allGroups);
 
+        // Check for new NIFTY/SENSEX orders and notify
+        checkAndNotifyNewOrders(allGroups);
+
         // Restore live prices from snapshot
         for (const group of allGroups) {
           const primary = group.primary;
@@ -1281,9 +1391,59 @@
       return `${sign}${pnlAbs.toFixed(2)} (${signPct}${pnlPct.toFixed(1)}%)`;
     }
 
+    // Function to play notification sound for new orders
+    function playNotificationSound() {
+      try {
+        // Create an AudioContext and generate a beep sound
+        const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+        const oscillator = audioContext.createOscillator();
+        const gainNode = audioContext.createGain();
+
+        oscillator.connect(gainNode);
+        gainNode.connect(audioContext.destination);
+
+        // Set frequency (high beep for pleasant notification)
+        oscillator.frequency.value = 800; // Hz
+        oscillator.type = 'sine';
+
+        // Set timing
+        const now = audioContext.currentTime;
+        gainNode.gain.setValueAtTime(0.3, now);
+        gainNode.gain.exponentialRampToValueAtTime(0.01, now + 0.5);
+
+        oscillator.start(now);
+        oscillator.stop(now + 0.5);
+      } catch (e) {
+        console.log("Sound notification not available:", e);
+      }
+    }
+
+    // Function to check for new NIFTY or SENSEX orders and play sound
+    function checkAndNotifyNewOrders(newGroups) {
+      const currentGroupCount = newGroups.length;
+
+      if (previousGroupCount > 0 && currentGroupCount > previousGroupCount) {
+        // New orders have been added
+        const newOrderCount = currentGroupCount - previousGroupCount;
+
+        // Check if any new orders are NIFTY or SENSEX
+        const lastNewGroups = newGroups.slice(-newOrderCount);
+        const hasIndexOrder = lastNewGroups.some(g =>
+          g.stock === 'NIFTY' || g.stock === 'SENSEX'
+        );
+
+        if (hasIndexOrder) {
+          playNotificationSound();
+          console.log(`New NIFTY/SENSEX order detected! Total new orders: ${newOrderCount}`);
+        }
+      }
+
+      previousGroupCount = currentGroupCount;
+    }
+
     function getPcrAdvice(pcr, optionType) {
       if (pcr === null || pcr === undefined || isNaN(pcr) || pcr <= 0) {
-        return { text: "No PCR view", cls: "pcr-neutral" };
+        return { text: "No PCR view", cls: "pcr-neutral", isGoodPe: false };
       }
 
       // Simple logic:
@@ -1292,23 +1452,51 @@
       // - High PCR (>1.2) -> bearish (puts favoured)
       if (optionType === "CE") {
         if (pcr < 0.8) {
-          return { text: "Bullish PCR — CE long OK / Hold", cls: "pcr-bullish" };
+          return { text: "Bullish PCR — CE long OK / Hold", cls: "pcr-bullish", isGoodPe: false };
         } else if (pcr <= 1.2) {
-          return { text: "Neutral PCR — CE trade with caution", cls: "pcr-neutral" };
+          return { text: "Neutral PCR — CE trade with caution", cls: "pcr-neutral", isGoodPe: false };
         } else {
-          return { text: "Bearish PCR — Consider booking/avoid new CE", cls: "pcr-bearish" };
+          return { text: "Bearish PCR — Consider booking/avoid new CE", cls: "pcr-bearish", isGoodPe: false };
         }
       } else if (optionType === "PE") {
         if (pcr > 1.2) {
-          return { text: "Bearish PCR — PE long OK / Hold", cls: "pcr-bearish" };
+          // Bearish PCR — PE long OK / Hold -> good for seller
+          return { text: "Bearish PCR — PE long OK / Hold", cls: "pcr-bearish", isGoodPe: true };
         } else if (pcr >= 0.8) {
-          return { text: "Neutral PCR — PE trade with caution", cls: "pcr-neutral" };
+          // Neutral PCR — PE trade with caution -> good for seller with caution
+          return { text: "Neutral PCR — PE trade with caution", cls: "pcr-neutral", isGoodPe: true };
         } else {
-          return { text: "Bullish PCR — Consider booking/avoid new PE", cls: "pcr-bullish" };
+          return { text: "Bullish PCR — Consider booking/avoid new PE", cls: "pcr-bullish", isGoodPe: false };
         }
       } else {
-        return { text: "PCR view for options only", cls: "pcr-neutral" };
+        return { text: "PCR view for options only", cls: "pcr-neutral", isGoodPe: false };
       }
+    }
+
+    // Helper function to determine if a PE trade is "good"
+    // Based on PCR (Put Call Ratio) logic
+    function isGoodPeTrade(group) {
+      const e = group.primary;
+
+      // Must be PE option type
+      if (e.optionType !== "PE") return false;
+
+      // Must be Seller role (good PE is for sellers)
+      if (e.role !== "Seller") return false;
+
+      // If PCR data is available, apply the PCR logic
+      if (e.pcr !== undefined && e.pcr !== null) {
+        // Bearish PCR (> 1.2) is good for PE sellers
+        if (e.pcr > 1.2) return true;
+        // Neutral PCR (0.8 to 1.2) is okay for PE sellers with caution
+        if (e.pcr >= 0.8) return true;
+        // Below 0.8 (Bullish) is not good for PE sellers
+        return false;
+      }
+
+      // If no PCR data, we can't determine if it's a "good PE" trade
+      // Return false to be conservative
+      return false;
     }
 
     async function loadDataFromDB() {
@@ -1327,6 +1515,7 @@
         const entries = transformAPIToEntries(json.data);
         allGroups = groupEntries(entries);
         populateStockDropdown(allGroups);
+        checkAndNotifyNewOrders(allGroups);
         applyFiltersAndRender();
       } catch (e) {
         console.error(e);
@@ -1336,18 +1525,21 @@
 
     function transformAPIToEntries(apiData) {
       const now = new Date();
+      const FUT_LOT_FALLBACK = 50;
       const entries = [];
 
       for (const item of apiData) {
         const underlying = item.symbol ? item.symbol.toUpperCase() : "";
         const instKey = item.instrument_key || "";
         const strikeStr = item.strike ? item.strike.toString() : "";
-        const optType = item.option_type ? item.option_type.toUpperCase() : "";
+        let optType = item.option_type ? item.option_type.toUpperCase() : "";
+        if (optType === "FU" || optType === "FUTURE") optType = "FUT";
 
         const parsedInst = parseFoInstrument(instKey, underlying, strikeStr, optType);
         const stock = parsedInst.stock;
         const expiry = parsedInst.expiry;
         const strike = parsedInst.strike;
+        optType = parsedInst.optionType || optType;
 
         const side = item.side ? item.side.toUpperCase() : "";
         const role = side === "BUY" ? "Buyer" : side === "SELL" ? "Seller" : side || "-";
@@ -1387,15 +1579,20 @@
           displayStatus = "done";
         }
 
+        const groupKey = optType === "FUT" ? `${stock}|${expiry || "FUT"}|${optType}` : `${stock}|${strike}|${optType}`;
+        const qty = item.qty || 0;
+        const lots = optType === "FUT" && qty ? Math.max(1, Math.round(qty / FUT_LOT_FALLBACK)) : null;
+
         entries.push({
-          groupKey: `${stock}|${strike}|${optType}`,
+          groupKey,
           stock,
           expiry,
           strike,
           optionType: optType,
           side,
           role,
-          qty: item.qty || 0,
+          qty,
+          lots,
           price,
           ltp,
           mRaw: moneyness,
@@ -1412,10 +1609,76 @@
           progressHistory: item.progress_history || "",
           maxReturnHigh: parseFloat(item.max_return_high) || 0,
           maxReturnLow: parseFloat(item.max_return_low) || 0,
+          hedgeTag: null,
         });
       }
 
+      // Tag futures as Hedge/Naked based on nearby option flows (±5 minutes)
+      const optionTimesByStock = new Map();
+      entries.forEach(e => {
+        if (e.optionType === "FUT") return;
+        const t = Date.parse(e.timestamp);
+        if (!isNaN(t)) {
+          const arr = optionTimesByStock.get(e.stock) || [];
+          arr.push(t);
+          optionTimesByStock.set(e.stock, arr);
+        }
+      });
+
+      const HEDGE_WINDOW_MS = 5 * 60 * 1000;
+      entries.forEach(e => {
+        if (e.optionType !== "FUT") return;
+        const t = Date.parse(e.timestamp);
+        const candidates = optionTimesByStock.get(e.stock) || [];
+        let tag = "NAKED";
+        if (!isNaN(t)) {
+          const matched = candidates.some(ts => Math.abs(ts - t) <= HEDGE_WINDOW_MS);
+          if (matched) tag = "HEDGE";
+        }
+        e.hedgeTag = tag;
+      });
+
       return entries;
+    }
+
+    function parseFoInstrument(instKey, fallbackStock, fallbackStrike, fallbackOptType) {
+      if (!instKey) {
+        return {
+          stock: fallbackStock || "-",
+          expiry: "",
+          strike: fallbackStrike ? parseFloat(fallbackStrike) : "",
+          optionType: fallbackOptType || ""
+        };
+      }
+      const parts = instKey.split(":");
+      const raw = parts.length > 1 ? parts[1] : parts[0];
+
+      const m = raw.match(/^([A-Z0-9]+)(\d{2}[A-Z]{3})(\d+)(CE|PE)$/i);
+      if (m) {
+        return {
+          stock: m[1].toUpperCase(),
+          expiry: m[2].toUpperCase(),
+          strike: parseFloat(m[3]),
+          optionType: m[4].toUpperCase()
+        };
+      }
+
+      const futMatch = raw.match(/^([A-Z0-9]+)(\d{2}[A-Z]{3})FUT$/i);
+      if (futMatch) {
+        return {
+          stock: futMatch[1].toUpperCase(),
+          expiry: futMatch[2].toUpperCase(),
+          strike: "",
+          optionType: "FUT"
+        };
+      }
+
+      return {
+        stock: fallbackStock || raw.toUpperCase(),
+        expiry: "",
+        strike: fallbackStrike ? parseFloat(fallbackStrike) : "",
+        optionType: fallbackOptType || ""
+      };
     }
 
     function parseFoInstrument(instKey, fallbackStock, fallbackStrike, fallbackOptType) {
@@ -1559,11 +1822,29 @@
 
     function populateStockDropdown(groups) {
       const select = document.getElementById("stockFilter");
+      // Clear existing options except the first "All" option
+      while (select.options.length > 1) {
+        select.remove(1);
+      }
+
       const names = [...new Set(groups.map(g => g.stock).filter(Boolean))].sort();
       for (const n of names) {
+        // Check if this stock has multiple entries with different returns
+        const stockGroups = groups.filter(g => g.stock === n);
+        let hasMultipleReturns = false;
+
+        if (stockGroups.length > 1) {
+          // Check if returns are different
+          const returns = stockGroups.map(g => g.primary.pnlPct).filter(r => r !== null);
+          if (returns.length > 1) {
+            const uniqueReturns = new Set(returns.map(r => r.toFixed(2)));
+            hasMultipleReturns = uniqueReturns.size > 1;
+          }
+        }
+
         const opt = document.createElement("option");
         opt.value = n;
-        opt.textContent = n;
+        opt.textContent = hasMultipleReturns ? n + " ⚠" : n;
         select.appendChild(opt);
       }
       document.getElementById("totalRows").textContent = groups.reduce((sum, g) => sum + g.items.length, 0);
@@ -1581,14 +1862,21 @@
       document.getElementById("statusFilter").addEventListener("change", saveAndRender);
       document.getElementById("pnlTypeFilter").addEventListener("change", saveAndRender);
       document.getElementById("hideIndexFilter").addEventListener("change", saveAndRender);
+      document.getElementById("showIndexFilter").addEventListener("change", saveAndRender);
       document.getElementById("progressLabelFilter").addEventListener("change", saveAndRender);
+      document.getElementById("pcrAdviceFilter").addEventListener("change", saveAndRender);
       document.getElementById("dateFromFilter").addEventListener("change", saveAndRender);
       document.getElementById("dateToFilter").addEventListener("change", saveAndRender);
       document.getElementById("returnFromFilter").addEventListener("change", saveAndRender);
       document.getElementById("returnToFilter").addEventListener("change", saveAndRender);
       document.getElementById("maxHighFromFilter").addEventListener("change", saveAndRender);
       document.getElementById("maxHighToFilter").addEventListener("change", saveAndRender);
+      document.getElementById("maxLowFromFilter").addEventListener("change", saveAndRender);
+      document.getElementById("maxLowToFilter").addEventListener("change", saveAndRender);
+      document.getElementById("returnMaxHighDiffFilter").addEventListener("change", saveAndRender);
       document.getElementById("multipleEntriesFilter").addEventListener("change", saveAndRender);
+      document.getElementById("hideFutFilter").addEventListener("change", saveAndRender);
+      document.getElementById("goodPeOnlyFilter").addEventListener("change", saveAndRender);
 
 
       // Clear filters button
@@ -1624,14 +1912,21 @@
       document.getElementById("statusFilter").value = "open";
       document.getElementById("pnlTypeFilter").value = "";
       document.getElementById("hideIndexFilter").value = "";
+      document.getElementById("showIndexFilter").value = "";
       document.getElementById("progressLabelFilter").value = "";
+      document.getElementById("pcrAdviceFilter").value = "";
       document.getElementById("dateFromFilter").value = "";
       document.getElementById("dateToFilter").value = "";
       document.getElementById("returnFromFilter").value = "";
       document.getElementById("returnToFilter").value = "";
       document.getElementById("maxHighFromFilter").value = "";
       document.getElementById("maxHighToFilter").value = "";
+      document.getElementById("maxLowFromFilter").value = "";
+      document.getElementById("maxLowToFilter").value = "";
+      document.getElementById("returnMaxHighDiffFilter").value = "";
       document.getElementById("multipleEntriesFilter").checked = false;
+      document.getElementById("hideFutFilter").checked = false;
+      document.getElementById("goodPeOnlyFilter").checked = false;
 
       // Apply filters and save state
       applyFiltersAndRender();
@@ -1697,14 +1992,22 @@
       const pnlTypeFilter = document.getElementById("pnlTypeFilter").value;
       const hideIndexFilterEl = document.getElementById("hideIndexFilter");
       const hideIndexArray = Array.from(hideIndexFilterEl.selectedOptions).map(opt => opt.value);
+      const showIndexFilterEl = document.getElementById("showIndexFilter");
+      const showIndexArray = Array.from(showIndexFilterEl.selectedOptions).map(opt => opt.value);
       const progressLabelFilter = document.getElementById("progressLabelFilter").value;
+      const pcrAdviceFilter = document.getElementById("pcrAdviceFilter").value;
       const dateFromVal = document.getElementById("dateFromFilter").value;
       const dateToVal   = document.getElementById("dateToFilter").value;
       const returnFromVal = document.getElementById("returnFromFilter").value;
       const returnToVal = document.getElementById("returnToFilter").value;
       const maxHighFromVal = document.getElementById("maxHighFromFilter").value;
       const maxHighToVal = document.getElementById("maxHighToFilter").value;
+      const maxLowFromVal = document.getElementById("maxLowFromFilter").value;
+      const maxLowToVal = document.getElementById("maxLowToFilter").value;
+      const returnMaxHighDiffVal = document.getElementById("returnMaxHighDiffFilter").value;
       const multipleEntriesOnly = document.getElementById("multipleEntriesFilter").checked;
+      const hideFut = document.getElementById("hideFutFilter").checked;
+      const goodPeOnly = document.getElementById("goodPeOnlyFilter").checked;
 
       const fromDate = dateFromVal ? new Date(dateFromVal + "T00:00:00") : null;
       const toDate   = dateToVal ? new Date(dateToVal + "T23:59:59") : null;
@@ -1713,6 +2016,9 @@
       const returnToNum = returnToVal !== "" ? parseFloat(returnToVal) : null;
       const maxHighFromNum = maxHighFromVal !== "" ? parseFloat(maxHighFromVal) : null;
       const maxHighToNum = maxHighToVal !== "" ? parseFloat(maxHighToVal) : null;
+      const maxLowFromNum = maxLowFromVal !== "" ? parseFloat(maxLowFromVal) : null;
+      const maxLowToNum = maxLowToVal !== "" ? parseFloat(maxLowToVal) : null;
+      const returnMaxHighDiffNum = returnMaxHighDiffVal !== "" ? parseFloat(returnMaxHighDiffVal) : null;
 
       filteredGroups = allGroups.filter(g => {
         const e = g.primary;
@@ -1727,18 +2033,32 @@
 
         if (statusFilter && e.displayStatus !== statusFilter) return false;
 
+        // Filter by Hide FUT
+        if (hideFut && e.optionType === "FUT") return false;
+
         // Filter by PnL Type (Profit/Loss/Both)
         if (pnlTypeFilter) {
           if (pnlTypeFilter === "profit" && e.pnlPct <= 0) return false;  // Show only profit trades
           if (pnlTypeFilter === "loss" && e.pnlPct >= 0) return false;    // Show only loss trades
         }
 
-        // Filter by Hidden Indices (hide selected indices)
-        if (hideIndexArray.length > 0) {
-          if (hideIndexArray.includes(g.stock)) return false;  // Hide if stock is in the hide list
-        }
+         // Filter by Hidden Indices (hide selected indices)
+         if (hideIndexArray.length > 0) {
+           if (hideIndexArray.includes(g.stock)) return false;  // Hide if stock is in the hide list
+         }
+
+         // Filter by Shown Indices (show only selected indices)
+         if (showIndexArray.length > 0) {
+           if (!showIndexArray.includes(g.stock)) return false;  // Show only if stock is in the show list
+         }
 
         if (progressLabelFilter && e.progressLabel !== progressLabelFilter) return false;
+
+        // Filter by PCR Advice (exact match)
+        if (pcrAdviceFilter) {
+          const pcrAdvice = getPcrAdvice(e.pcr, e.optionType);
+          if (pcrAdvice.text !== pcrAdviceFilter) return false;
+        }
 
         if (fromDate || toDate) {
           if (!e.timestamp) return false;
@@ -1761,8 +2081,25 @@
           if (maxHighToNum !== null && e.maxReturnHigh > maxHighToNum) return false;
         }
 
+        // Filter by Max Low % Range
+        if (maxLowFromNum !== null || maxLowToNum !== null) {
+          if (e.maxReturnLow === null) return false;  // Skip if no max low data
+          if (maxLowFromNum !== null && e.maxReturnLow < maxLowFromNum) return false;
+          if (maxLowToNum !== null && e.maxReturnLow > maxLowToNum) return false;
+        }
+
+        // Filter by Return - Max High Difference (hide if difference is greater than specified value)
+        if (returnMaxHighDiffNum !== null) {
+          if (e.pnlPct === null || e.maxReturnHigh === null) return false;  // Skip if either data is missing
+          const difference = e.maxReturnHigh - e.pnlPct;
+          if (difference > returnMaxHighDiffNum) return false;  // Hide if difference exceeds threshold
+        }
+
         // Filter by Multiple Entries
         if (multipleEntriesOnly && g.items.length <= 1) return false;
+
+        // Filter by Good PE Trades Only
+        if (goodPeOnly && !isGoodPeTrade(g)) return false;
 
         // Filter by Percentage Range (from tabs)
         if (percentageRangeFilter !== "all") {
@@ -1904,6 +2241,23 @@
       document.getElementById("return-gt100-min").textContent = gt100Min + "%";
     }
 
+    // Check if same symbol has a better return in ALL groups (including hidden by filters)
+    function hasSymbolWithBetterReturn(currentGroup, currentReturnPct) {
+      const currentSymbol = currentGroup.stock;
+
+      // Search through ALL groups (not just filtered) to catch hidden rows with better returns
+      for (const group of allGroups) {
+        if (group.stock === currentSymbol && group !== currentGroup) {
+          // Check if this group has a better return
+          const otherReturnPct = group.primary.pnlPct;
+          if (otherReturnPct !== null && otherReturnPct > currentReturnPct) {
+            return true;
+          }
+        }
+      }
+      return false;
+    }
+
     function sortGroups() {
       const key = currentSortKey;
       const dir = currentSortDir === "asc" ? 1 : -1;
@@ -2014,9 +2368,126 @@
         }
         tr.appendChild(tdExpand);
 
-        // Stock
+        // Stock with Copy Button
         const tdStock = document.createElement("td");
-        tdStock.textContent = g.stock || "-";
+        const stockContainer = document.createElement("div");
+        stockContainer.style.display = "flex";
+        stockContainer.style.alignItems = "center";
+        stockContainer.style.gap = "6px";
+
+        const stockSpan = document.createElement("span");
+
+        // Check if same symbol has better return and add signature
+        const hasBetterReturn = hasSymbolWithBetterReturn(g, e.pnlPct);
+        if (hasBetterReturn) {
+          stockSpan.textContent = (g.stock || "-") + " ⚠";
+          stockSpan.title = "Another entry for this symbol has better return";
+          stockSpan.style.color = "#fbbf24";
+        } else {
+          stockSpan.textContent = g.stock || "-";
+        }
+        stockContainer.appendChild(stockSpan);
+
+        // Check if this is a good PE opportunity for Seller role
+        const advice = getPcrAdvice(e.pcr, e.optionType);
+        if (e.role === "Seller" && e.optionType === "PE" && advice.isGoodPe) {
+          const goodPeBadge = document.createElement("span");
+          goodPeBadge.classList.add("badge");
+          goodPeBadge.style.background = "#10b981";
+          goodPeBadge.style.color = "white";
+          goodPeBadge.style.padding = "2px 6px";
+          goodPeBadge.style.borderRadius = "4px";
+          goodPeBadge.style.fontSize = "0.7rem";
+          goodPeBadge.style.fontWeight = "600";
+          goodPeBadge.textContent = "good pe";
+          goodPeBadge.title = "Good PE selling opportunity for Seller role";
+          stockContainer.appendChild(goodPeBadge);
+        }
+
+        // Copy button
+        const copyBtn = document.createElement("button");
+        copyBtn.classList.add("copy-btn");
+        copyBtn.innerHTML = "📋";
+        copyBtn.title = `Copy "${g.stock} ${e.strike} ${e.optionType}"`;
+        copyBtn.style.border = "none";
+        copyBtn.style.background = "transparent";
+        copyBtn.style.padding = "0 4px";
+        copyBtn.style.cursor = "pointer";
+        copyBtn.style.fontSize = "0.8rem";
+        copyBtn.style.color = "#9ca3af";
+        copyBtn.style.transition = "color 0.2s ease";
+
+        copyBtn.addEventListener("mouseenter", function() {
+          this.style.color = "#e5e7eb";
+        });
+        copyBtn.addEventListener("mouseleave", function() {
+          this.style.color = "#9ca3af";
+        });
+
+        copyBtn.addEventListener("click", function(event) {
+          event.stopPropagation();
+          const textToCopy = `${g.stock} ${e.strike} ${e.optionType}`;
+          navigator.clipboard.writeText(textToCopy).then(() => {
+            // Show success feedback
+            const originalColor = this.style.color;
+            this.innerHTML = "✓";
+            this.style.color = "#4ade80";
+            setTimeout(() => {
+              this.innerHTML = "📋";
+              this.style.color = originalColor;
+            }, 2000);
+          }).catch(err => {
+            console.error("Copy failed:", err);
+          });
+        });
+
+        stockContainer.appendChild(copyBtn);
+
+        // Delete button (generates SQL DELETE command)
+        const deleteBtn = document.createElement("button");
+        deleteBtn.classList.add("delete-btn");
+        deleteBtn.innerHTML = "🗑️";
+        deleteBtn.title = `Delete command for "${g.stock} ${e.strike} ${e.optionType}"`;
+        deleteBtn.style.border = "none";
+        deleteBtn.style.background = "transparent";
+        deleteBtn.style.padding = "0 4px";
+        deleteBtn.style.cursor = "pointer";
+        deleteBtn.style.fontSize = "0.8rem";
+        deleteBtn.style.color = "#9ca3af";
+        deleteBtn.style.transition = "color 0.2s ease";
+
+        deleteBtn.addEventListener("mouseenter", function() {
+          this.style.color = "#ef4444";
+        });
+        deleteBtn.addEventListener("mouseleave", function() {
+          this.style.color = "#9ca3af";
+        });
+
+        deleteBtn.addEventListener("click", function(event) {
+          event.stopPropagation();
+          // Generate SQL DELETE command
+          // For futures, option_type is "FUT", for options it's "CE" or "PE"
+          const strikeValue = e.strike && e.strike !== "" ? e.strike : "NULL";
+          const optionTypeValue = e.optionType || "NULL";
+
+          const sqlCommand = `DELETE FROM whale_successes WHERE symbol = '${g.stock}' AND strike = ${strikeValue} AND option_type = '${optionTypeValue}';`;
+
+          navigator.clipboard.writeText(sqlCommand).then(() => {
+            // Show success feedback
+            const originalColor = this.style.color;
+            this.innerHTML = "✓";
+            this.style.color = "#4ade80";
+            setTimeout(() => {
+              this.innerHTML = "🗑️";
+              this.style.color = originalColor;
+            }, 2000);
+          }).catch(err => {
+            console.error("Copy failed:", err);
+          });
+        });
+
+        stockContainer.appendChild(deleteBtn);
+        tdStock.appendChild(stockContainer);
         tr.appendChild(tdStock);
 
         // Expiry
@@ -2025,25 +2496,40 @@
         tr.appendChild(tdExpiry);
 
         // Strike
-        const tdStrike = document.createElement("td");
-        tdStrike.textContent = e.strike !== "" && e.strike !== null ? e.strike : "-";
-        tr.appendChild(tdStrike);
+         const tdStrike = document.createElement("td");
+         tdStrike.textContent = e.strike !== "" && e.strike !== null ? e.strike : "-";
+         tr.appendChild(tdStrike);
 
-        // Option
-        const tdOpt = document.createElement("td");
-        if (e.optionType === "CE") {
-          tdOpt.innerHTML = '<span class="pill pill-ce">CE</span>';
-        } else if (e.optionType === "PE") {
-          tdOpt.innerHTML = '<span class="pill pill-pe">PE</span>';
-        } else if (e.optionType === "FUTURE") {
-          tdOpt.innerHTML = '<span class="pill pill-fut">FUT</span>';
-        } else {
-          tdOpt.textContent = e.optionType || "-";
-        }
-        tr.appendChild(tdOpt);
+         // Option
+         const tdOpt = document.createElement("td");
+         if (e.optionType === "CE") {
+           tdOpt.innerHTML = '<span class="pill pill-ce">CE</span>';
+         } else if (e.optionType === "PE") {
+           tdOpt.innerHTML = '<span class="pill pill-pe">PE</span>';
+         } else if (e.optionType === "FUT") {
+           tdOpt.innerHTML = '<span class="pill pill-fut">FUT</span>';
+         } else {
+           tdOpt.textContent = e.optionType || "-";
+         }
+         tr.appendChild(tdOpt);
 
-        // Role
-        const tdRole = document.createElement("td");
+         // Hedge/Naked tag (for futures)
+         const tdHedge = document.createElement("td");
+         if (e.optionType === "FUT") {
+           if (e.hedgeTag === "HEDGE") {
+             tdHedge.innerHTML = '<span class="badge badge-hedge">Hedge</span>';
+           } else if (e.hedgeTag === "NAKED") {
+             tdHedge.innerHTML = '<span class="badge badge-naked">Naked</span>';
+           } else {
+             tdHedge.textContent = "-";
+           }
+         } else {
+           tdHedge.textContent = "-";
+         }
+         tr.appendChild(tdHedge);
+
+         // Role
+         const tdRole = document.createElement("td");
         if (e.role === "Buyer") {
           tdRole.innerHTML = '<span class="badge badge-buyer">Buyer</span>';
         } else if (e.role === "Seller") {
@@ -2096,6 +2582,16 @@
           tdMaxLow.textContent = "-";
         }
         tr.appendChild(tdMaxLow);
+
+        // P15 (Entry price + 15%)
+        const tdP15 = document.createElement("td");
+        tdP15.textContent = e.price !== undefined ? (Number(e.price) * 1.15).toFixed(2) : "-";
+        tr.appendChild(tdP15);
+
+        // P20 (Entry price + 20%)
+        const tdP20 = document.createElement("td");
+        tdP20.textContent = e.price !== undefined ? (Number(e.price) * 1.20).toFixed(2) : "-";
+        tr.appendChild(tdP20);
 
         // P25 (Entry price + 25%)
         const tdP25 = document.createElement("td");
@@ -2174,9 +2670,9 @@
 
         // PCR advice
         const tdAdvice = document.createElement("td");
-        const advice = getPcrAdvice(e.pcr, e.optionType);
-        tdAdvice.classList.add(advice.cls);
-        tdAdvice.textContent = advice.text;
+        const pcrAdvice = getPcrAdvice(e.pcr, e.optionType);
+        tdAdvice.classList.add(pcrAdvice.cls);
+        tdAdvice.textContent = pcrAdvice.text;
         tr.appendChild(tdAdvice);
 
         // OI (This)
@@ -2247,10 +2743,48 @@
             }
           }).filter(step => step !== null);
 
+          // Club consecutive identical steps (case-insensitive)
+          const clubbedSteps = [];
+          let currentGroup = null;
+
+          parsedSteps.forEach(step => {
+            const normalizedLabel = step.label.trim().toLowerCase();
+            const currentLabel = currentGroup ? currentGroup.originalLabel.trim().toLowerCase() : null;
+
+            if (currentGroup && currentLabel === normalizedLabel) {
+              // Same label, add to group
+              currentGroup.count++;
+              currentGroup.timestamps.push(step.timestamp);
+            } else {
+              // Different label, start new group
+              if (currentGroup) {
+                clubbedSteps.push(currentGroup);
+              }
+              currentGroup = {
+                label: step.label,
+                originalLabel: step.label,
+                count: 1,
+                timestamps: [step.timestamp]
+              };
+            }
+          });
+          if (currentGroup) {
+            clubbedSteps.push(currentGroup);
+          }
+
+          // DEBUG: Log the original and clubbed steps
+          if (parsedSteps.length > 0 && clubbedSteps.length > 0) {
+            console.log(`Stock: ${g.stock}, Strike: ${e.strike}, Parsed: ${parsedSteps.length}, Clubbed: ${clubbedSteps.length}`, {
+              original: parsedSteps.map(s => s.label),
+              clubbed: clubbedSteps.map(s => `${s.label} (${s.count})`)
+            });
+          }
+
           // Create badges with only labels (no timestamps)
-          const historyHtml = parsedSteps.map((step, idx) => {
+          const historyHtml = clubbedSteps.map((step, idx) => {
             let badgeClass = "badge-progress-running";
             const label = step.label;
+            const displayText = step.count > 1 ? `${label} (${step.count})` : label;
 
             // Determine badge class based on label content
             if (label.includes("done")) {
@@ -2268,7 +2802,7 @@
             } else if (label.includes("-25")) {
               badgeClass = "badge-progress-neg25";
             }
-            return `<span class="badge ${badgeClass}" style="font-size: 0.65rem; padding: 1px 4px; cursor: pointer;" title="Click to see timestamp">${label}</span>`;
+            return `<span class="badge ${badgeClass}" style="font-size: 0.65rem; padding: 1px 4px; cursor: pointer;" title="Click to see timestamp">${displayText}</span>`;
           }).join('<span class="progress-history-arrow">→</span>');
 
           const progressContainer = document.createElement("div");
@@ -2307,10 +2841,14 @@
           timestampsDiv.style.color = "#6b7280";
           timestampsDiv.style.fontStyle = "italic";
 
-          const stepTimestamps = parsedSteps.map((step, i) => {
-            return `${step.label}: ${step.timestamp}`;
+          const stepTimestamps = clubbedSteps.map((step, i) => {
+            if (step.count > 1) {
+              return `${step.label} (${step.count}x):<br/>${step.timestamps.join("<br/>")}`;
+            } else {
+              return `${step.label}: ${step.timestamps[0]}`;
+            }
           });
-          timestampsDiv.innerHTML = stepTimestamps.join("<br/>");
+          timestampsDiv.innerHTML = stepTimestamps.join("<br/><br/>");
 
           tdProgressHistory.appendChild(timestampsDiv);
         } else {
@@ -2340,20 +2878,22 @@
 
           const innerTable = document.createElement("table");
           innerTable.classList.add("details-table");
-          innerTable.innerHTML = `
-            <thead>
-              <tr>
-                <th>Time</th>
-                <th>Side</th>
-                <th>Qty</th>
-                <th>Entry Price</th>
-                <th>LTP</th>
-                <th>Return</th>
-                <th>PCR</th>
-              </tr>
-            </thead>
-            <tbody></tbody>
-          `;
+           innerTable.innerHTML = `
+             <thead>
+               <tr>
+                 <th>Time</th>
+                 <th>Side</th>
+                 <th>Qty</th>
+                 <th>Lots</th>
+                 <th>Entry Price</th>
+                 <th>LTP</th>
+                 <th>Return</th>
+                 <th>PCR</th>
+                 <th>Hedge</th>
+               </tr>
+             </thead>
+             <tbody></tbody>
+           `;
 
           const innerTbody = innerTable.querySelector("tbody");
           g.items.forEach(item => {
@@ -2367,9 +2907,17 @@
             tSide.textContent = item.side || "-";
             r.appendChild(tSide);
 
-            const tQty = document.createElement("td");
-            tQty.textContent = item.qty || "-";
-            r.appendChild(tQty);
+             const tQty = document.createElement("td");
+             tQty.textContent = item.qty || "-";
+             r.appendChild(tQty);
+
+             const tLots = document.createElement("td");
+             if (item.optionType === "FUT" && item.lots) {
+               tLots.textContent = `${item.lots}`;
+             } else {
+               tLots.textContent = "-";
+             }
+             r.appendChild(tLots);
 
             const tPrice = document.createElement("td");
             tPrice.textContent = item.price !== undefined ? Number(item.price).toFixed(2) : "-";
@@ -2389,9 +2937,23 @@
             }
             r.appendChild(tPnl);
 
-            const tPcr = document.createElement("td");
-            tPcr.textContent = item.pcr !== null ? item.pcr.toFixed(2) : "-";
-            r.appendChild(tPcr);
+             const tPcr = document.createElement("td");
+             tPcr.textContent = item.pcr !== null ? item.pcr.toFixed(2) : "-";
+             r.appendChild(tPcr);
+
+             const tHedge = document.createElement("td");
+             if (item.optionType === "FUT") {
+               if (item.hedgeTag === "HEDGE") {
+                 tHedge.innerHTML = '<span class="badge badge-hedge">Hedge</span>';
+               } else if (item.hedgeTag === "NAKED") {
+                 tHedge.innerHTML = '<span class="badge badge-naked">Naked</span>';
+               } else {
+                 tHedge.textContent = "-";
+               }
+             } else {
+               tHedge.textContent = "-";
+             }
+             r.appendChild(tHedge);
 
             innerTbody.appendChild(r);
           });
@@ -2507,7 +3069,7 @@
           tdOpt.innerHTML = '<span class="pill pill-ce">CE</span>';
         } else if (e.optionType === "PE") {
           tdOpt.innerHTML = '<span class="pill pill-pe">PE</span>';
-        } else if (e.optionType === "FUTURE") {
+        } else if (e.optionType === "FUT") {
           tdOpt.innerHTML = '<span class="pill pill-fut">FUT</span>';
         } else {
           tdOpt.textContent = e.optionType || "-";
@@ -2568,6 +3130,16 @@
           tdMaxHigh.textContent = "-";
         }
         tr.appendChild(tdMaxHigh);
+
+        // P15 (Entry price + 15%)
+        const tdP15 = document.createElement("td");
+        tdP15.textContent = e.price !== undefined ? (Number(e.price) * 1.15).toFixed(2) : "-";
+        tr.appendChild(tdP15);
+
+        // P20 (Entry price + 20%)
+        const tdP20 = document.createElement("td");
+        tdP20.textContent = e.price !== undefined ? (Number(e.price) * 1.20).toFixed(2) : "-";
+        tr.appendChild(tdP20);
 
         // P25 (Entry price + 25%)
         const tdP25 = document.createElement("td");
