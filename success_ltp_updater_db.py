@@ -562,11 +562,7 @@ def update_success_ltp_once():
                     except ValueError:
                         new_idx = 3
 
-                    # Allow update if moving forward
-                    if str(current_progress).strip() == "running" or new_idx >= current_idx:
-                        progress_label = new_progress
-                    else:
-                        progress_label = current_progress or "running"
+                    progress_label = new_progress
 
                     # Track progress history - build history string with progress transitions
                     if progress_label:
