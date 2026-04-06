@@ -25,8 +25,8 @@ CURRENT_TOKEN_INDEX = 0  # Track which token to use
 
 # 2. ENTER EXPIRY DATES (Format: YYYY-MM-DD)
 NIFTY_EXPIRY      = "2026-04-07"   # NIFTY options expiry
-SENSEX_EXPIRY     = "2026-04-02"   # SENSEX options expiry (BSE_FO)
-STOCK_FNO_EXPIRY  = "2021-03-30"   # NSE stock options expiry (OPTSTK)
+SENSEX_EXPIRY     = "2026-04-09"   # SENSEX options expiry (BSE_FO)
+STOCK_FNO_EXPIRY  = "2029-03-30"   # NSE stock options expiry (OPTSTK)
 CRUDE_EXPIRY      = "2029-12-16"   # MCX Crudeoil expiry
 NG_EXPIRY         = "2029-12-23"   # MCX Natural Gas expiry
 
@@ -1031,9 +1031,9 @@ def limit_option_strikes(all_keys):
                 key=lambda i: abs(strikes_only[i] - cmp_price)
             )
 
-        # ATM range: ATM-3 to ATM+3 (7 strikes)
-        atm_start = max(0, atm_idx - 4)
-        atm_end   = min(len(strikes_only) - 1, atm_idx + 4)
+        # ATM range: ATM-7 to ATM+7 (15 strikes)
+        atm_start = max(0, atm_idx - 7)
+        atm_end   = min(len(strikes_only) - 1, atm_idx + 7)
 
         allowed_strike_indices = set(range(atm_start, atm_end + 1))
 
@@ -1053,14 +1053,14 @@ def limit_option_strikes(all_keys):
 
         # Add 1 OTM strike (further from ATM than current range)
         if opt_type == "CE":
-            # For CE: OTM is above ATM (higher strike), so take atm_idx+4 if available
-            if atm_idx + 4 < len(strikes_only):
-                otm_idx = atm_idx + 4
+            # For CE: OTM is above ATM (higher strike), so take atm_idx+7 if available
+            if atm_idx + 7 < len(strikes_only):
+                otm_idx = atm_idx + 7
                 allowed_strike_indices.add(otm_idx)
         else:  # PE
-            # For PE: OTM is below ATM (lower strike), so take atm_idx-4 if available
-            if atm_idx - 4 >= 0:
-                otm_idx = atm_idx - 4
+            # For PE: OTM is below ATM (lower strike), so take atm_idx-7 if available
+            if atm_idx - 7 >= 0:
+                otm_idx = atm_idx - 7
                 allowed_strike_indices.add(otm_idx)
 
         allowed_strikes = set(strikes_only[i] for i in allowed_strike_indices)
