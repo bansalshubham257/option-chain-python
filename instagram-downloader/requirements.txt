@@ -1,0 +1,6 @@
+Flask==2.3.3
+Werkzeug==2.3.7
+yt-dlp>=2024.1.1
+instagrapi==2.0.0
+requests==2.31.0
+gunicorn==21.2.0
