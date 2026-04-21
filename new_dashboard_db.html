@@ -803,6 +803,8 @@
 
     <div class="percentage-tabs">
         <button class="percentage-tab" data-range="all">All Records</button>
+        <button class="percentage-tab" data-range="index-only">📈 Index Only</button>
+        <button class="percentage-tab" data-range="stocks-only">🏢 Stocks Only</button>
         <button class="percentage-tab" data-range="0-25">0-25%</button>
         <button class="percentage-tab" data-range="25-50">25-50%</button>
         <button class="percentage-tab" data-range="50-75">50-75%</button>
@@ -850,6 +852,45 @@
         <div>Total fills: <span class="status-highlight" id="totalRows">0</span></div>
         <div>Filtered: <span class="status-highlight" id="filteredRows">0</span></div>
     </div>
+</div>
+
+<h2 style="color: #e5e7eb; margin-top: 40px; margin-bottom: 20px; font-size: 1.3rem;">🔄 Recovery Trades</h2>
+<p style="color: #9ca3af; margin-bottom: 20px; font-size: 0.9rem;">Trades that were down 30% or more and are now recovering (cost-to-cost or in profit)</p>
+
+<div class="table-wrapper" id="recoveryTableWrapper">
+    <table id="recoveryTable">
+        <thead>
+        <tr>
+            <th></th>
+            <th class="sortable" data-sort-key="stock">Stock<span class="sort-indicator"></span></th>
+            <th>Expiry</th>
+            <th class="sortable" data-sort-key="strike">Strike<span class="sort-indicator"></span></th>
+            <th>Option</th>
+            <th>Role</th>
+            <th class="sortable" data-sort-key="price">Entry Price<span class="sort-indicator"></span></th>
+            <th class="sortable" data-sort-key="ltp">Live LTP 🔴<span class="sort-indicator"></span></th>
+            <th class="sortable" data-sort-key="pnlPct">Current Return<span class="sort-indicator"></span></th>
+            <th class="sortable" data-sort-key="maxReturnLow">Lowest Loss %<span class="sort-indicator"></span></th>
+            <th class="sortable" data-sort-key="maxReturnHigh">Max High %<span class="sort-indicator"></span></th>
+            <th>P15</th>
+            <th>P20</th>
+            <th>P25</th>
+            <th>P50</th>
+            <th>P75</th>
+            <th class="sortable" data-sort-key="daysPassed">Days Passed<span class="sort-indicator"></span></th>
+            <th>Filled Time</th>
+            <th>Recovery Status</th>
+        </tr>
+        </thead>
+        <tbody></tbody>
+    </table>
+</div>
+
+<div class="status-bar" id="recoveryStatusBar">
+    <div>Recovery Trades: <span class="status-highlight" id="recoveryTradesCount">0</span></div>
+    <div>Avg Recovery: <span class="status-highlight" id="recoveryAverage">0%</span></div>
+    <div>Still Recovering: <span class="status-highlight" id="recoveryStillRecovering">0</span></div>
+    <div>Recovered to Profit: <span class="status-highlight" id="recoveryProfit">0</span></div>
 </div>
 
 <div class="return-tables-container">
@@ -986,44 +1027,6 @@
     </div>
 </div>
 
-<h2 style="color: #e5e7eb; margin-top: 40px; margin-bottom: 20px; font-size: 1.3rem;">🔄 Recovery Trades</h2>
-<p style="color: #9ca3af; margin-bottom: 20px; font-size: 0.9rem;">Trades that were down 30% or more and are now recovering (cost-to-cost or in profit)</p>
-
-<div class="table-wrapper" id="recoveryTableWrapper">
-    <table id="recoveryTable">
-        <thead>
-        <tr>
-            <th></th>
-            <th class="sortable" data-sort-key="stock">Stock<span class="sort-indicator"></span></th>
-            <th>Expiry</th>
-            <th class="sortable" data-sort-key="strike">Strike<span class="sort-indicator"></span></th>
-            <th>Option</th>
-            <th>Role</th>
-            <th class="sortable" data-sort-key="price">Entry Price<span class="sort-indicator"></span></th>
-            <th class="sortable" data-sort-key="ltp">Live LTP 🔴<span class="sort-indicator"></span></th>
-            <th class="sortable" data-sort-key="pnlPct">Current Return<span class="sort-indicator"></span></th>
-            <th class="sortable" data-sort-key="maxReturnLow">Lowest Loss %<span class="sort-indicator"></span></th>
-            <th class="sortable" data-sort-key="maxReturnHigh">Max High %<span class="sort-indicator"></span></th>
-            <th>P15</th>
-            <th>P20</th>
-            <th>P25</th>
-            <th>P50</th>
-            <th>P75</th>
-            <th class="sortable" data-sort-key="daysPassed">Days Passed<span class="sort-indicator"></span></th>
-            <th>Filled Time</th>
-            <th>Recovery Status</th>
-        </tr>
-        </thead>
-        <tbody></tbody>
-    </table>
-</div>
-
-<div class="status-bar" id="recoveryStatusBar">
-    <div>Recovery Trades: <span class="status-highlight" id="recoveryTradesCount">0</span></div>
-    <div>Avg Recovery: <span class="status-highlight" id="recoveryAverage">0%</span></div>
-    <div>Still Recovering: <span class="status-highlight" id="recoveryStillRecovering">0</span></div>
-    <div>Recovered to Profit: <span class="status-highlight" id="recoveryProfit">0</span></div>
-</div>
 
 <script>
     const API_BASE_URL = "https://new-dashboard-service.onrender.com"; // Database API endpoint
@@ -1034,6 +1037,7 @@
     let currentSortKey = "pnlPct";
     let currentSortDir = "desc"; // 'asc' or 'desc'
     let percentageRangeFilter = "all"; // Track selected percentage range
+    const INDEX_STOCKS = ["NIFTY", "SENSEX", "CRUDEOIL", "NATURALGAS", "BANKNIFTY", "FINNIFTY", "MIDCPNIFTY"]; // Stocks treated as index
     let previousGroupCount = 0; // Track previous group count to detect new entries
     let returnRanges = {
       lt25: { count: 0, total: 0, profit: 0, loss: 0, values: [] },
@@ -2046,6 +2050,14 @@
 
       filteredGroups = allGroups.filter(g => {
         const e = g.primary;
+
+        // Index Only / Stocks Only tabs bypass all other filters
+        if (percentageRangeFilter === "index-only") {
+          return INDEX_STOCKS.includes(g.stock);
+        }
+        if (percentageRangeFilter === "stocks-only") {
+          return !INDEX_STOCKS.includes(g.stock);
+        }
 
         if (stockFilter && g.stock !== stockFilter) return false;
 
