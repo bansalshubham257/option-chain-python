@@ -272,20 +272,20 @@
         }
         .badge-progress-75 {
           background: rgba(34,197,94,0.2);
-          color: #86efac;
-          border: 1px solid rgba(34,197,94,0.5);
+          color: #10b981;
+          border: 1px solid rgba(34,197,94,0.6);
           font-weight: 600;
         }
         .badge-progress-50 {
-          background: rgba(250,204,21,0.2);
-          color: #fde047;
-          border: 1px solid rgba(250,204,21,0.5);
+          background: rgba(34,197,94,0.15);
+          color: #6ee7b7;
+          border: 1px solid rgba(34,197,94,0.5);
           font-weight: 600;
         }
         .badge-progress-25 {
-          background: rgba(249,115,22,0.2);
-          color: #fed7aa;
-          border: 1px solid rgba(249,115,22,0.5);
+          background: rgba(34,197,94,0.1);
+          color: #a7f3d0;
+          border: 1px solid rgba(34,197,94,0.4);
           font-weight: 600;
         }
         .badge-progress-running {
@@ -295,21 +295,21 @@
           font-weight: 500;
         }
         .badge-progress-neg25 {
-          background: rgba(249,115,22,0.2);
-          color: #fed7aa;
-          border: 1px solid rgba(249,115,22,0.5);
+          background: rgba(220,38,38,0.1);
+          color: #fca5a5;
+          border: 1px solid rgba(220,38,38,0.4);
           font-weight: 600;
         }
         .badge-progress-neg50 {
-          background: rgba(248,113,113,0.2);
-          color: #fca5a5;
-          border: 1px solid rgba(248,113,113,0.5);
+          background: rgba(220,38,38,0.15);
+          color: #f87171;
+          border: 1px solid rgba(220,38,38,0.5);
           font-weight: 600;
         }
         .badge-progress-neg75 {
           background: rgba(220,38,38,0.2);
-          color: #fca5a5;
-          border: 1px solid rgba(220,38,38,0.5);
+          color: #dc2626;
+          border: 1px solid rgba(220,38,38,0.6);
           font-weight: 600;
         }
         .pill {
@@ -344,6 +344,30 @@
           color: #fecaca;
           border: 1px solid rgba(248,113,113,0.4);
           font-weight: 600;
+        }
+        .badge-ok-pe {
+          background: rgba(248,113,113,0.2);
+          color: #fecaca;
+          border: 1px solid rgba(248,113,113,0.6);
+          font-weight: 700;
+        }
+        .badge-ok-ce {
+          background: rgba(59,130,246,0.2);
+          color: #bfdbfe;
+          border: 1px solid rgba(59,130,246,0.6);
+          font-weight: 700;
+        }
+        .badge-caution-pe {
+          background: rgba(250,204,21,0.2);
+          color: #fde047;
+          border: 1px solid rgba(250,204,21,0.6);
+          font-weight: 700;
+        }
+        .badge-caution-ce {
+          background: rgba(250,204,21,0.2);
+          color: #fde047;
+          border: 1px solid rgba(250,204,21,0.6);
+          font-weight: 700;
         }
         .copy-btn {
           display: inline-flex;
@@ -2402,6 +2426,46 @@
           goodPeBadge.textContent = "good pe";
           goodPeBadge.title = "Good PE selling opportunity for Seller role";
           stockContainer.appendChild(goodPeBadge);
+        }
+
+        // Add OK PE badge if trade is PE and PCR advice is "Bullish PCR — Consider booking/avoid new PE"
+        if (e.optionType === "PE" && advice.text === "Bullish PCR — Consider booking/avoid new PE") {
+          const okPeBadge = document.createElement("span");
+          okPeBadge.classList.add("badge");
+          okPeBadge.classList.add("badge-ok-pe");
+          okPeBadge.textContent = "OK PE";
+          okPeBadge.title = "OK PE: Bullish PCR - Consider booking or avoid new PE";
+          stockContainer.appendChild(okPeBadge);
+        }
+
+        // Add OK CE badge if trade is CE and PCR advice is "Bullish PCR — CE long OK / Hold"
+        if (e.optionType === "CE" && advice.text === "Bullish PCR — CE long OK / Hold") {
+          const okCeBadge = document.createElement("span");
+          okCeBadge.classList.add("badge");
+          okCeBadge.classList.add("badge-ok-ce");
+          okCeBadge.textContent = "OK CE";
+          okCeBadge.title = "OK CE: Bullish PCR - CE long OK / Hold";
+          stockContainer.appendChild(okCeBadge);
+        }
+
+        // Add caution PE badge if trade is PE and PCR advice is "Neutral PCR — PE trade with caution"
+        if (e.optionType === "PE" && advice.text === "Neutral PCR — PE trade with caution") {
+          const cautionPeBadge = document.createElement("span");
+          cautionPeBadge.classList.add("badge");
+          cautionPeBadge.classList.add("badge-caution-pe");
+          cautionPeBadge.textContent = "OK PE Caution";
+          cautionPeBadge.title = "PE trade with caution: Neutral PCR";
+          stockContainer.appendChild(cautionPeBadge);
+        }
+
+        // Add caution CE badge if trade is CE and PCR advice is "Neutral PCR — CE trade with caution"
+        if (e.optionType === "CE" && advice.text === "Neutral PCR — CE trade with caution") {
+          const cautionCeBadge = document.createElement("span");
+          cautionCeBadge.classList.add("badge");
+          cautionCeBadge.classList.add("badge-caution-ce");
+          cautionCeBadge.textContent = "OK CE Caution";
+          cautionCeBadge.title = "CE trade with caution: Neutral PCR";
+          stockContainer.appendChild(cautionCeBadge);
         }
 
         // Copy button
