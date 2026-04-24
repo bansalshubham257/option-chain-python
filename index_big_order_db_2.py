@@ -23,9 +23,9 @@ from services.database import DatabaseService
 # AngelOne credentials
 ANGELONE_API_KEY     = "WQl601Ee"
 ANGELONE_SECRET_KEY  = "cf422f7a-7eb8-46b3-8558-a4cf31139021"
-ANGELONE_CLIENT_ID   = os.getenv('ANGELONE_CLIENT_ID',   'S58264557')   # e.g. "A123456"
-ANGELONE_PASSWORD    = os.getenv('ANGELONE_PASSWORD',    '1282')   # login PIN / password
-ANGELONE_TOTP_SECRET = os.getenv('ANGELONE_TOTP_SECRET', 'W6G2U6GQW4QFC7KXSPUCR5E5GA')   # base32 TOTP secret (optional)
+ANGELONE_CLIENT_ID   = os.getenv('ANGELONE_CLIENT_ID',   '')   # e.g. "A123456"
+ANGELONE_PASSWORD    = os.getenv('ANGELONE_PASSWORD',    '')   # login PIN / password
+ANGELONE_TOTP_SECRET = os.getenv('ANGELONE_TOTP_SECRET', '')   # base32 TOTP secret (optional)
 
 # Expiry dates in AngelOne format  DDMMMYYYY  (uppercase)
 NIFTY_EXPIRY      = os.getenv('NIFTY_EXPIRY_2',      "28APR2026")
