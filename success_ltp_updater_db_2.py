@@ -13,8 +13,8 @@ import pytz
 from services.database import DatabaseService
 
 # ==== ANGELONE CONFIG ====
-ANGELONE_API_KEY     = "WQl601Ee"
-ANGELONE_SECRET_KEY  = "cf422f7a-7eb8-46b3-8558-a4cf31139021"
+ANGELONE_API_KEY     = os.getenv('ANGELONE_API_KEY',   '')
+ANGELONE_SECRET_KEY  = os.getenv('ANGELONE_SECRET_KEY',   '')
 ANGELONE_CLIENT_ID   = os.getenv('ANGELONE_CLIENT_ID',   '')
 ANGELONE_PASSWORD    = os.getenv('ANGELONE_PASSWORD',    '')
 ANGELONE_TOTP_SECRET = os.getenv('ANGELONE_TOTP_SECRET', '')
