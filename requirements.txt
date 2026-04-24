@@ -11,7 +11,7 @@ scipy
 bokeh
 pytz
 # Database
-psycopg2-binary==2.9.9
+psycopg2-binary>=2.9.10
 python-dotenv==1.0.0
 flask-socketio==5.3.4
 python-socketio==5.8.0
