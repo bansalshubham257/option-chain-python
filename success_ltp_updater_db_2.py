@@ -15,9 +15,9 @@ from services.database import DatabaseService
 # ==== ANGELONE CONFIG ====
 ANGELONE_API_KEY     = "WQl601Ee"
 ANGELONE_SECRET_KEY  = "cf422f7a-7eb8-46b3-8558-a4cf31139021"
-ANGELONE_CLIENT_ID   = os.getenv('ANGELONE_CLIENT_ID',   'S58264557')
-ANGELONE_PASSWORD    = os.getenv('ANGELONE_PASSWORD',    '1282')
-ANGELONE_TOTP_SECRET = os.getenv('ANGELONE_TOTP_SECRET', 'W6G2U6GQW4QFC7KXSPUCR5E5GA')
+ANGELONE_CLIENT_ID   = os.getenv('ANGELONE_CLIENT_ID',   '')
+ANGELONE_PASSWORD    = os.getenv('ANGELONE_PASSWORD',    '')
+ANGELONE_TOTP_SECRET = os.getenv('ANGELONE_TOTP_SECRET', '')
 
 BASE_URL_ANGEL  = "https://apiconnect.angelbroking.com"
 INSTRUMENT_URL  = "https://margincalculator.angelbroking.com/OpenAPI_File/files/OpenAPIScripMaster.json"
