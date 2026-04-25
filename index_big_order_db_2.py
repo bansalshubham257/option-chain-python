@@ -29,9 +29,9 @@ ANGELONE_PASSWORD    = os.getenv('ANGELONE_PASSWORD',    '')
 ANGELONE_TOTP_SECRET = os.getenv('ANGELONE_TOTP_SECRET', '')
 
 # Expiry dates in AngelOne format  DDMMMYYYY  (uppercase)
-NIFTY_EXPIRY      = os.getenv('NIFTY_EXPIRY_2',      "28APR2026")
-SENSEX_EXPIRY     = os.getenv('SENSEX_EXPIRY_2',     "30APR2026")
-STOCK_FNO_EXPIRY  = os.getenv('STOCK_FNO_EXPIRY_2',  "30APR2029")
+NIFTY_EXPIRY      = os.getenv('NIFTY_EXPIRY_2',      "28APR2029")
+SENSEX_EXPIRY     = os.getenv('SENSEX_EXPIRY_2',     "30APR2029")
+STOCK_FNO_EXPIRY  = os.getenv('STOCK_FNO_EXPIRY_2',  "26MAY2026")
 CRUDE_EXPIRY      = os.getenv('CRUDE_EXPIRY_2',      "16DEC2029")
 NG_EXPIRY         = os.getenv('NG_EXPIRY_2',         "23DEC2029")
 
