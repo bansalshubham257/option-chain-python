@@ -1115,7 +1115,7 @@ def is_market_open():
     now = datetime.now(IST)
     if now.weekday() >= 5:
         return False
-    market_open  = now.replace(hour=8,  minute=14, second=0, microsecond=0)
+    market_open  = now.replace(hour=9,  minute=14, second=0, microsecond=0)
     market_close = now.replace(hour=15, minute=31, second=0, microsecond=0)
     return market_open <= now <= market_close
 
