@@ -1,3536 +1,1280 @@
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8" />
-    <title>Angle One Dashboard</title>
-    <style>
-        body {
-          font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-          background: #0f172a;
-          color: #e5e7eb;
-          margin: 0;
-          padding: 20px;
-        }
-        h1 {
-          margin-top: 0;
-          margin-bottom: 10px;
-        }
-        .subtitle {
-          margin-bottom: 20px;
-          color: #9ca3af;
-          font-size: 0.9rem;
-        }
-        .card {
-          background: #020617;
-          border-radius: 12px;
-          padding: 16px;
-          box-shadow: 0 10px 30px rgba(15,23,42,0.7);
-          border: 1px solid #1f2937;
-        }
-        .filters {
-          display: flex;
-          flex-wrap: wrap;
-          gap: 12px;
-          margin-bottom: 16px;
-        }
-        .filter-group {
-          display: flex;
-          flex-direction: column;
-          gap: 4px;
-          min-width: 150px;
-        }
-        .percentage-tabs {
-          display: flex;
-          gap: 8px;
-          margin-bottom: 16px;
-          flex-wrap: wrap;
-        }
-        .percentage-tab {
-          padding: 8px 16px;
-          background: #020617;
-          color: #9ca3af;
-          border: 1px solid #374151;
-          border-radius: 6px;
-          cursor: pointer;
-          font-weight: 600;
-          font-size: 0.85rem;
-          transition: all 0.3s ease;
-        }
-        .percentage-tab:hover {
-          border-color: #60a5fa;
-          color: #e5e7eb;
-        }
-        .percentage-tab.active {
-          background: #3b82f6;
-          color: white;
-          border-color: #3b82f6;
-          box-shadow: 0 0 10px rgba(59, 130, 246, 0.3);
-        }
-        label {
-          font-size: 0.75rem;
-          text-transform: uppercase;
-          letter-spacing: 0.05em;
-          color: #9ca3af;
-        }
-        select, input[type="date"] {
-          background: #020617;
-          color: #e5e7eb;
-          border: 1px solid #374151;
-          border-radius: 6px;
-          padding: 6px 8px;
-          font-size: 0.85rem;
-          outline: none;
-        }
-        select:focus, input[type="date"]:focus {
-          border-color: #60a5fa;
-          box-shadow: 0 0 0 1px #60a5fa33;
-        }
-        #stockSearchInput:focus {
-          border-color: #60a5fa;
-          box-shadow: 0 0 0 1px #60a5fa33;
-        }
-        #stockSearchInput::placeholder {
-          color: #4b5563;
-        }
-        button#updateLiveBtn {
-          padding: 6px 12px;
-          background: #059669;
-          color: white;
-          border: none;
-          border-radius: 6px;
-          cursor: pointer;
-          font-weight: 600;
-          font-size: 0.85rem;
-          transition: all 0.3s ease;
-        }
-        button#updateLiveBtn:hover:not(:disabled) {
-          background: #047857;
-          box-shadow: 0 0 10px rgba(5, 150, 105, 0.3);
-        }
-        button#updateLiveBtn:disabled {
-          opacity: 0.6;
-          cursor: not-allowed;
-        }
-        button#updateLiveBtn:active:not(:disabled) {
-          background: #065f46;
-          transform: scale(0.98);
-        }
-        button#clearFiltersBtn {
-          padding: 6px 12px;
-          background: #ef4444;
-          color: white;
-          border: none;
-          border-radius: 6px;
-          cursor: pointer;
-          font-weight: 600;
-          font-size: 0.85rem;
-          transition: all 0.3s ease;
-        }
-        button#todayTradesBtn {
-          padding: 6px 12px;
-          background: #3b82f6;
-          color: white;
-          border: none;
-          border-radius: 6px;
-          cursor: pointer;
-          font-weight: 600;
-          font-size: 0.85rem;
-          transition: all 0.3s ease;
-          margin-right: 8px;
-        }
-        button#todayTradesBtn:hover {
-          background: #2563eb;
-          box-shadow: 0 0 10px rgba(59, 130, 246, 0.3);
-        }
-        button#todayTradesBtn:active {
-          background: #1d4ed8;
-          transform: scale(0.98);
-        }
-        button#clearFiltersBtn:hover {
-          background: #dc2626;
-          box-shadow: 0 0 10px rgba(239, 68, 68, 0.3);
-        }
-        button#clearFiltersBtn:active {
-          background: #b91c1c;
-          transform: scale(0.98);
-        }
-        input[type="number"] {
-          background: #020617;
-          color: #e5e7eb;
-          border: 1px solid #374151;
-          border-radius: 6px;
-          padding: 6px 8px;
-          font-size: 0.85rem;
-          outline: none;
-        }
-        input[type="number"]:focus {
-          border-color: #60a5fa;
-          box-shadow: 0 0 0 1px #60a5fa33;
-        }
-        input[type="checkbox"] {
-          cursor: pointer;
-          accent-color: #3b82f6;
-        }
-        input[type="checkbox"]:hover {
-          opacity: 0.8;
-        }
-        input[type="number"]:focus {
-          border-color: #60a5fa;
-          box-shadow: 0 0 0 1px #60a5fa33;
-        }
-        #liveUpdateStatus {
-          font-size: 0.7rem;
-          margin-top: 4px;
-          min-height: 14px;
-        }
-        .table-wrapper {
-          max-height: 70vh;
-          overflow: auto;
-          border-radius: 8px;
-          border: 1px solid #1f2937;
-        }
-        table {
-          width: 100%;
-          border-collapse: collapse;
-          font-size: 0.85rem;
-        }
-        thead {
-          position: sticky;
-          top: 0;
-          background: #020617;
-          z-index: 1;
-        }
-        th, td {
-          padding: 8px 10px;
-          text-align: left;
-          border-bottom: 1px solid #111827;
-          white-space: nowrap;
-        }
-        tr:nth-child(even) td {
-          background: #020617;
-        }
-        tr:nth-child(odd) td {
-          background: #030712;
-        }
-        th {
-          font-weight: 600;
-          color: #9ca3af;
-          cursor: pointer;
-          position: relative;
-          user-select: none;
-        }
-        th.sortable:hover {
-          color: #e5e7eb;
-          background: #020617;
-        }
-        th .sort-indicator {
-          margin-left: 4px;
-          font-size: 0.7rem;
-          opacity: 0.8;
-        }
-        .badge {
-          display: inline-flex;
-          align-items: center;
-          padding: 2px 6px;
-          border-radius: 999px;
-          font-size: 0.7rem;
-          font-weight: 600;
-        }
-        .badge-buyer {
-          background: rgba(22,163,74,0.1);
-          color: #4ade80;
-          border: 1px solid rgba(34,197,94,0.4);
-        }
-        .badge-seller {
-          background: rgba(220,38,38,0.1);
-          color: #f87171;
-          border: 1px solid rgba(239,68,68,0.4);
-        }
-        .badge-atm {
-          background: rgba(59,130,246,0.12);
-          color: #93c5fd;
-          border: 1px solid rgba(59,130,246,0.5);
-        }
-        .badge-itm {
-          background: rgba(22,163,74,0.12);
-          color: #6ee7b7;
-          border: 1px solid rgba(22,163,74,0.5);
-        }
-        .badge-otm {
-          background: rgba(249,115,22,0.12);
-          color: #fed7aa;
-          border: 1px solid rgba(249,115,22,0.5);
-        }
-        .badge-other {
-          background: rgba(148,163,184,0.12);
-          color: #cbd5f5;
-          border: 1px solid rgba(148,163,184,0.5);
-        }
-        .badge-done {
-          background: rgba(34,197,94,0.15);
-          color: #86efac;
-          border: 1px solid rgba(34,197,94,0.6);
-          font-weight: 700;
-        }
-        .badge-open {
-          background: rgba(59,130,246,0.15);
-          color: #93c5fd;
-          border: 1px solid rgba(59,130,246,0.6);
-        }
-        .badge-progress-75 {
-          background: rgba(34,197,94,0.2);
-          color: #10b981;
-          border: 1px solid rgba(34,197,94,0.6);
-          font-weight: 600;
-        }
-        .badge-progress-50 {
-          background: rgba(34,197,94,0.15);
-          color: #6ee7b7;
-          border: 1px solid rgba(34,197,94,0.5);
-          font-weight: 600;
-        }
-        .badge-progress-25 {
-          background: rgba(34,197,94,0.1);
-          color: #a7f3d0;
-          border: 1px solid rgba(34,197,94,0.4);
-          font-weight: 600;
-        }
-        .badge-progress-running {
-          background: rgba(148,163,184,0.15);
-          color: #cbd5e1;
-          border: 1px solid rgba(148,163,184,0.5);
-          font-weight: 500;
-        }
-        .badge-progress-neg25 {
-          background: rgba(220,38,38,0.1);
-          color: #fca5a5;
-          border: 1px solid rgba(220,38,38,0.4);
-          font-weight: 600;
-        }
-        .badge-progress-neg50 {
-          background: rgba(220,38,38,0.15);
-          color: #f87171;
-          border: 1px solid rgba(220,38,38,0.5);
-          font-weight: 600;
-        }
-        .badge-progress-neg75 {
-          background: rgba(220,38,38,0.2);
-          color: #dc2626;
-          border: 1px solid rgba(220,38,38,0.6);
-          font-weight: 600;
-        }
-        .pill {
-          display: inline-flex;
-          align-items: center;
-          padding: 2px 6px;
-          border-radius: 999px;
-          font-size: 0.7rem;
-          border: 1px solid #374151;
-          color: #e5e7eb;
-        }
-        .pill-ce {
-          border-color: rgba(59,130,246,0.7);
-          color: #bfdbfe;
-        }
-        .pill-pe {
-          border-color: rgba(248,113,113,0.7);
-          color: #fecaca;
-        }
-        .pill-fut {
-          border-color: rgba(52,211,153,0.7);
-          color: #a7f3d0;
-        }
-        .badge-hedge {
-          background: rgba(59,130,246,0.15);
-          color: #bfdbfe;
-          border: 1px solid rgba(59,130,246,0.4);
-          font-weight: 600;
-        }
-        .badge-naked {
-          background: rgba(248,113,113,0.15);
-          color: #fecaca;
-          border: 1px solid rgba(248,113,113,0.4);
-          font-weight: 600;
-        }
-        .badge-ok-pe {
-          background: rgba(248,113,113,0.2);
-          color: #fecaca;
-          border: 1px solid rgba(248,113,113,0.6);
-          font-weight: 700;
-        }
-        .badge-ok-ce {
-          background: rgba(59,130,246,0.2);
-          color: #bfdbfe;
-          border: 1px solid rgba(59,130,246,0.6);
-          font-weight: 700;
-        }
-        .badge-caution-pe {
-          background: rgba(250,204,21,0.2);
-          color: #fde047;
-          border: 1px solid rgba(250,204,21,0.6);
-          font-weight: 700;
-        }
-        .badge-caution-ce {
-          background: rgba(250,204,21,0.2);
-          color: #fde047;
-          border: 1px solid rgba(250,204,21,0.6);
-          font-weight: 700;
-        }
-        .copy-btn {
-          display: inline-flex;
-          align-items: center;
-          justify-content: center;
-          width: 20px;
-          height: 20px;
-          margin-left: 6px;
-          background: #374151;
-          border: 1px solid #4b5563;
-          border-radius: 4px;
-          color: #9ca3af;
-          cursor: pointer;
-          font-size: 0.7rem;
-          transition: all 0.2s ease;
-          padding: 0;
-        }
-        .copy-btn:hover {
-          background: #4b5563;
-          color: #e5e7eb;
-          border-color: #60a5fa;
-        }
-        .copy-btn.copied {
-          background: #059669;
-          color: white;
-          border-color: #059669;
-        }
-        .group-row.is-hidden-row {
-          opacity: 0.45;
-          background: repeating-linear-gradient(
-            45deg,
-            transparent,
-            transparent 6px,
-            rgba(100,100,100,0.06) 6px,
-            rgba(100,100,100,0.06) 12px
-          );
-        }
-        .group-row.is-hidden-row td:first-child::after {
-          content: " 🙈";
-          font-size: 0.7rem;
-        }
-        .status-bar {
-          font-size: 0.75rem;
-          color: #9ca3af;
-          margin-top: 8px;
-          display: flex;
-          justify-content: space-between;
-          gap: 10px;
-          flex-wrap: wrap;
-        }
-        .status-highlight {
-          color: #e5e7eb;
-          font-weight: 500;
-        }
-        .error {
-          color: #fecaca;
-          margin-bottom: 10px;
-          font-size: 0.8rem;
-        }
-        .pnl-positive {
-          color: #4ade80;
-        }
-        .pnl-negative {
-          color: #f97373;
-        }
-        .progress-history {
-          font-size: 0.75rem;
-          color: #9ca3af;
-          word-break: break-word;
-          max-width: 200px;
-        }
-        .progress-history-container {
-          user-select: none;
-          padding: 2px 0;
-        }
-        .progress-history-container:hover {
-          opacity: 0.8;
-        }
-        .progress-timestamps {
-          background: rgba(15, 23, 42, 0.8);
-          border: 1px solid #374151;
-          border-radius: 4px;
-          padding: 6px;
-          margin-top: 4px;
-          line-height: 1.4;
-        }
-        .progress-history-item {
-          display: inline-block;
-          padding: 1px 4px;
-          margin: 1px 2px;
-          border-radius: 3px;
-          background: rgba(148, 163, 184, 0.1);
-          border: 1px solid rgba(148, 163, 184, 0.3);
-        }
-        .progress-history-arrow {
-          margin: 0 2px;
-          color: #9ca3af;
-          font-weight: 300;
-        }
-        .pcr-bullish {
-          color: #4ade80;
-        }
-        .pcr-bearish {
-          color: #f97373;
-        }
-        .pcr-neutral {
-          color: #e5e7eb;
-        }
-        .expand-cell {
-          cursor: pointer;
-          font-size: 0.8rem;
-          color: #9ca3af;
-        }
-        .expand-cell:hover {
-          color: #e5e7eb;
-        }
-        .details-row td {
-          background: #020617 !important;
-          border-top: 1px solid #1f2937;
-        }
-        .details-box {
-          padding: 8px 4px;
-          border-radius: 6px;
-          border: 1px solid #1f2937;
-          background: #020617;
-        }
-        .details-title {
-          font-size: 0.78rem;
-          margin-bottom: 6px;
-          color: #9ca3af;
-        }
-        .details-table {
-          width: 100%;
-          border-collapse: collapse;
-          font-size: 0.78rem;
-        }
-        .details-table th, .details-table td {
-          padding: 3px 6px;
-          border-bottom: 1px solid #111827;
-        }
-        .details-table th {
-          color: #9ca3af;
-          font-weight: 500;
-        }
-        .details-table tr:last-child td {
-          border-bottom: none;
-        }
-        .stats-container {
-          display: grid;
-          grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-          gap: 12px;
-          margin-bottom: 20px;
-        }
-        .stat-card {
-          background: #020617;
-          border-radius: 12px;
-          padding: 16px;
-          border: 1px solid #1f2937;
-          box-shadow: 0 10px 30px rgba(15,23,42,0.7);
-        }
-        .stat-label {
-          font-size: 0.75rem;
-          text-transform: uppercase;
-          letter-spacing: 0.05em;
-          color: #9ca3af;
-          margin-bottom: 8px;
-        }
-        .stat-value {
-          font-size: 2rem;
-          font-weight: 700;
-          color: #4ade80;
-        }
-        .stat-value.warning {
-          color: #fbbf24;
-        }
-        .stat-value.danger {
-          color: #f87171;
-        }
-        .return-tables-container {
-          display: grid;
-          grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
-          gap: 12px;
-          margin-bottom: 20px;
-        }
-        .return-table-card {
-          background: #020617;
-          border-radius: 12px;
-          padding: 16px;
-          border: 1px solid #1f2937;
-          box-shadow: 0 10px 30px rgba(15,23,42,0.7);
-        }
-        .return-table-title {
-          font-size: 0.9rem;
-          font-weight: 600;
-          color: #e5e7eb;
-          margin-bottom: 12px;
-          display: flex;
-          align-items: center;
-          gap: 8px;
-        }
-        .return-table-title .badge {
-          font-size: 0.75rem;
-          padding: 2px 6px;
-        }
-        .return-summary-table {
-          width: 100%;
-          border-collapse: collapse;
-          font-size: 0.8rem;
-        }
-        .return-summary-table th, .return-summary-table td {
-          padding: 6px 8px;
-          text-align: left;
-          border-bottom: 1px solid #111827;
-        }
-        .return-summary-table th {
-          color: #9ca3af;
-          font-weight: 600;
-          background: #030712;
-        }
-        .return-summary-table td {
-          color: #e5e7eb;
-        }
-        .return-summary-table tr:last-child td {
-          border-bottom: none;
-        }
-        .return-stat {
-          font-weight: 600;
-          font-size: 1.1rem;
-        }
-        .return-stat.positive {
-          color: #4ade80;
-        }
-        .return-stat.negative {
-          color: #f87171;
-        }
-        @media (max-width: 768px) {
-          .filters {
-            flex-direction: column;
-          }
-          th, td {
-            padding: 6px 8px;
-          }
-          .stats-container {
-            grid-template-columns: 1fr;
-          }
-          .return-tables-container {
-            grid-template-columns: 1fr;
-          }
-        }
-    </style>
-</head>
-<body>
-<h1>Big Players Success Dashboard</h1>
-<div class="subtitle">
-    Reading <code>successful_whale_orders.csv</code> from the same folder. Each row is a successfully filled big-player order.
-</div>
+"""
+index_big_order_db_2.py  –  AngelOne Edition
+Tables : whale_entries_2 / whale_successes_2
+Version: 2
+"""
 
-<div id="error" class="error" style="display:none;"></div>
+import re
+import sys
+import time
+import requests
+import pandas as pd
+import os
+import pyotp
+import yfinance as yf
+from datetime import datetime, timedelta
+import pytz
+import psycopg2
+from contextlib import contextmanager
 
-<div class="stats-container">
-    <div class="stat-card">
-        <div class="stat-label">Total Success Trades</div>
-        <div class="stat-value" id="totalSuccessTrades">0</div>
-    </div>
-    <div class="stat-card">
-        <div class="stat-label">Total Orders Tracked</div>
-        <div class="stat-value" id="totalOrdersTracked">0</div>
-    </div>
-    <div class="stat-card">
-        <div class="stat-label">Success Rate</div>
-        <div class="stat-value" id="successRate">0%</div>
-    </div>
-    <div class="stat-card">
-        <div class="stat-label">Avg. Return</div>
-        <div class="stat-value" id="avgReturn">0%</div>
-    </div>
-</div>
+from services.database import DatabaseService
 
-<div class="card">
-    <div class="filters">
-        <div class="filter-group">
-            <label>Live Updates</label>
-            <button id="updateLiveBtn" style="padding: 6px 12px; background: #059669; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: 600; font-size: 0.85rem;">
-                🔄 Fetch Live LTP
-            </button>
-            <div id="liveUpdateStatus" style="font-size: 0.7rem; color: #9ca3af; margin-top: 4px;">-</div>
-        </div>
-        <div class="filter-group">
-            <label for="stockSearchInput">Stock Search</label>
-            <div style="display:flex; gap:6px; align-items:center;">
-                <input type="text" id="stockSearchInput" placeholder="Type stock name…"
-                    style="background:#020617;color:#e5e7eb;border:1px solid #374151;border-radius:6px;padding:6px 8px;font-size:0.85rem;outline:none;width:140px;"
-                    autocomplete="off" />
-                <button id="clearStockSearchBtn" title="Clear search"
-                    style="background:transparent;border:none;color:#9ca3af;cursor:pointer;font-size:1rem;padding:0 4px;">✕</button>
-            </div>
-        </div>
-        <div class="filter-group">
-            <label for="stockFilter">Stock (exact)</label>
-            <select id="stockFilter">
-                <option value="">All</option>
-            </select>
-        </div>
-        <div class="filter-group">
-            <label for="optionTypeFilter">Option Type</label>
-            <select id="optionTypeFilter">
-                <option value="">All</option>
-                <option value="CE">CE</option>
-                <option value="PE">PE</option>
-                <option value="FUT">FUT</option>
-            </select>
-        </div>
-        <div class="filter-group">
-            <label for="strikeTypeFilter">Strike Type</label>
-            <select id="strikeTypeFilter">
-                <option value="">All</option>
-                <option value="ATM">ATM</option>
-                <option value="ITM">ITM</option>
-                <option value="OTM">OTM</option>
-                <option value="OTHER">Other</option>
-            </select>
-        </div>
-        <div class="filter-group">
-            <label for="roleFilter">Role</label>
-            <select id="roleFilter">
-                <option value="">Both</option>
-                <option value="Buyer">Buyer</option>
-                <option value="Seller">Seller</option>
-            </select>
-        </div>
-        <div class="filter-group">
-            <label for="statusFilter">Trade Status</label>
-            <select id="statusFilter">
-                <option value="open">Open Trades</option>
-                <option value="done">Closed Trades</option>
-                <option value="">Both</option>
-            </select>
-        </div>
-        <div class="filter-group">
-            <label for="pnlTypeFilter">PnL Type</label>
-            <select id="pnlTypeFilter">
-                <option value="">All</option>
-                <option value="profit">Profit</option>
-                <option value="loss">Loss</option>
-            </select>
-        </div>
-        <div class="filter-group">
-            <label for="hideIndexFilter">Hide Index</label>
-            <select id="hideIndexFilter" multiple style="min-height: 80px;">
-                <option value="NIFTY">NIFTY</option>
-                <option value="SENSEX">SENSEX</option>
-                <option value="CRUDEOIL">CRUDEOIL</option>
-                <option value="NATURALGAS">NATURALGAS</option>
-            </select>
-        </div>
-        <div class="filter-group">
-            <label for="showIndexFilter">Show Index</label>
-            <select id="showIndexFilter" multiple style="min-height: 80px;">
-                <option value="NIFTY">NIFTY</option>
-                <option value="SENSEX">SENSEX</option>
-                <option value="CRUDEOIL">CRUDEOIL</option>
-                <option value="NATURALGAS">NATURALGAS</option>
-            </select>
-        </div>
-        <div class="filter-group">
-            <label for="progressLabelFilter">Progress Label</label>
-            <select id="progressLabelFilter">
-                <option value="">All</option>
-                <option value="done">✓ Done</option>
-                <option value="+75%">+75%</option>
-                <option value="+50%">+50%</option>
-                <option value="+25%">+25%</option>
-                <option value="running">Running</option>
-                <option value="-25%">-25%</option>
-                <option value="-50%">-50%</option>
-                <option value="-75%">-75%</option>
-            </select>
-        </div>
-        <div class="filter-group">
-            <label for="pcrAdviceFilter">PCR Advice</label>
-            <select id="pcrAdviceFilter">
-                <option value="">All</option>
-                <option value="No PCR view">No PCR view</option>
-                <option value="Bullish PCR — CE long OK / Hold">Bullish PCR — CE long OK / Hold</option>
-                <option value="Neutral PCR — CE trade with caution">Neutral PCR — CE trade with caution</option>
-                <option value="Bearish PCR — Consider booking/avoid new CE">Bearish PCR — Consider booking/avoid new CE</option>
-                <option value="Bearish PCR — PE long OK / Hold">Bearish PCR — PE long OK / Hold</option>
-                <option value="Neutral PCR — PE trade with caution">Neutral PCR — PE trade with caution</option>
-                <option value="Bullish PCR — Consider booking/avoid new PE">Bullish PCR — Consider booking/avoid new PE</option>
-                <option value="PCR view for options only">PCR view for options only</option>
-            </select>
-        </div>
-        <div class="filter-group">
-            <label>Day Filled (From)</label>
-            <input type="date" id="dateFromFilter" />
-        </div>
-        <div class="filter-group">
-            <label>Day Filled (To)</label>
-            <input type="date" id="dateToFilter" />
-        </div>
-        <div class="filter-group">
-            <label>Return % (From)</label>
-            <input type="number" id="returnFromFilter" placeholder="e.g. -38" step="0.1" />
-        </div>
-        <div class="filter-group">
-            <label>Return % (To)</label>
-            <input type="number" id="returnToFilter" placeholder="e.g. -10" step="0.1" />
-        </div>
-        <div class="filter-group">
-            <label>Max High % (From)</label>
-            <input type="number" id="maxHighFromFilter" placeholder="e.g. 0" step="0.1" />
-        </div>
-        <div class="filter-group">
-            <label>Max High % (To)</label>
-            <input type="number" id="maxHighToFilter" placeholder="e.g. 100" step="0.1" />
-        </div>
-        <div class="filter-group">
-            <label>Max Low % (From)</label>
-            <input type="number" id="maxLowFromFilter" placeholder="e.g. -50" step="0.1" />
-        </div>
-        <div class="filter-group">
-            <label>Max Low % (To)</label>
-            <input type="number" id="maxLowToFilter" placeholder="e.g. 0" step="0.1" />
-        </div>
-        <div class="filter-group">
-            <label>Return - Max High Diff (Max)</label>
-            <input type="number" id="returnMaxHighDiffFilter" placeholder="e.g. 10" step="0.1" />
-        </div>
-        <div class="filter-group">
-            <label style="display: flex; align-items: center; gap: 8px; margin-top: 20px;">
-                <input type="checkbox" id="multipleEntriesFilter" style="cursor: pointer; width: 16px; height: 16px;" />
-                <span>Multiple Entries Only</span>
-            </label>
-        </div>
-        <div class="filter-group">
-            <label style="display: flex; align-items: center; gap: 8px;">
-                <input type="checkbox" id="hideFutFilter" style="cursor: pointer; width: 16px; height: 16px;" />
-                <span>Hide FUT Trades</span>
-            </label>
-        </div>
-        <div class="filter-group">
-            <label style="display: flex; align-items: center; gap: 8px;">
-                <input type="checkbox" id="goodPeOnlyFilter" style="cursor: pointer; width: 16px; height: 16px;" />
-                <span>Good PE Trades Only</span>
-            </label>
-        </div>
-        <div class="filter-group">
-            <label>&nbsp;</label>
-            <button id="todayTradesBtn" style="padding: 6px 12px; background: #3b82f6; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: 600; font-size: 0.85rem; margin-right: 8px;">
-                📅 Today's Trades
-            </button>
-            <button id="clearFiltersBtn" style="padding: 6px 12px; background: #ef4444; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: 600; font-size: 0.85rem;">
-                🔄 Clear All Filters
-            </button>
-        </div>
-        <div class="filter-group">
-            <label>&nbsp;</label>
-            <button id="toggleHiddenBtn" style="padding: 6px 12px; background: #6b7280; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: 600; font-size: 0.85rem; margin-right: 8px;">
-                👁 Show Hidden Rows (<span id="hiddenCount">0</span>)
-            </button>
-            <button id="clearHiddenBtn" style="padding: 6px 12px; background: #7c3aed; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: 600; font-size: 0.85rem;">
-                🗑 Clear Hidden
-            </button>
-        </div>
-    </div>
+# ===================== USER CONFIGURATION =====================
+# AngelOne credentials
+ANGELONE_API_KEY     = "WQl601Ee"
+ANGELONE_SECRET_KEY  = "cf422f7a-7eb8-46b3-8558-a4cf31139021"
+ANGELONE_CLIENT_ID   = os.getenv('ANGELONE_CLIENT_ID',   'S58264557')   # e.g. "A123456"
+ANGELONE_PASSWORD    = os.getenv('ANGELONE_PASSWORD',    '1282')   # login PIN / password
+ANGELONE_TOTP_SECRET = os.getenv('ANGELONE_TOTP_SECRET', 'W6G2U6GQW4QFC7KXSPUCR5E5GA')   # base32 TOTP secret (optional)
 
-    <div class="percentage-tabs">
-        <button class="percentage-tab" data-range="all">All Records</button>
-        <button class="percentage-tab" data-range="index-only">📈 Index Only</button>
-        <button class="percentage-tab" data-range="stocks-only">🏢 Stocks Only</button>
-        <button class="percentage-tab" data-range="0-25">0-25%</button>
-        <button class="percentage-tab" data-range="25-50">25-50%</button>
-        <button class="percentage-tab" data-range="50-75">50-75%</button>
-        <button class="percentage-tab" data-range="75-100">75-100%</button>
-    </div>
+# Expiry dates in AngelOne format  DDMMMYYYY  (uppercase)
+NIFTY_EXPIRY      = os.getenv('NIFTY_EXPIRY_2',      "28APR2026")
+SENSEX_EXPIRY     = os.getenv('SENSEX_EXPIRY_2',     "30APR2026")
+STOCK_FNO_EXPIRY  = os.getenv('STOCK_FNO_EXPIRY_2',  "30APR2029")
+CRUDE_EXPIRY      = os.getenv('CRUDE_EXPIRY_2',      "16DEC2029")
+NG_EXPIRY         = os.getenv('NG_EXPIRY_2',         "23DEC2029")
 
-    <div class="table-wrapper">
-        <table id="entriesTable">
-            <thead>
-            <tr>
-                <th></th>
-                <th class="sortable" data-sort-key="stock">Stock<span class="sort-indicator"></span></th>
-                <th>Expiry</th>
-                <th class="sortable" data-sort-key="strike">Strike<span class="sort-indicator"></span></th>
-                <th>Option</th>
-                <th>Hedge?</th>
-                <th>Role</th>
-                <th class="sortable" data-sort-key="price">Entry Price<span class="sort-indicator"></span></th>
-                <th class="sortable" data-sort-key="ltp">Live LTP 🔴<span class="sort-indicator"></span></th>
-                <th class="sortable" data-sort-key="pnlPct">Return<span class="sort-indicator"></span></th>
-                <th class="sortable" data-sort-key="maxReturnHigh">Max High %<span class="sort-indicator"></span></th>
-                <th class="sortable" data-sort-key="maxReturnLow">Max Low %<span class="sort-indicator"></span></th>
-                <th>P15</th>
-                <th>P20</th>
-                <th>P25</th>
-                <th>P50</th>
-                <th>P75</th>
-                <th class="sortable" data-sort-key="status">Status<span class="sort-indicator"></span></th>
-                <th class="sortable" data-sort-key="progressLabel">Progress<span class="sort-indicator"></span></th>
-                <th class="sortable" data-sort-key="pcr">PCR<span class="sort-indicator"></span></th>
-                <th>PCR Advice</th>
-                <th class="sortable" data-sort-key="oiSame">OI (This)<span class="sort-indicator"></span></th>
-                <th class="sortable" data-sort-key="oiOpposite">OI (Opp.)<span class="sort-indicator"></span></th>
-                <th>Strike Type</th>
-                <th class="sortable" data-sort-key="daysPassed">Days Passed<span class="sort-indicator"></span></th>
-                <th class="sortable" data-sort-key="timestamp">Filled Time<span class="sort-indicator"></span></th>
-                <th class="sortable" data-sort-key="progressHistory">Progress History<span class="sort-indicator"></span></th>
-            </tr>
-            </thead>
-            <tbody></tbody>
-        </table>
-    </div>
+MIN_ORDER_VALUE   = 950000   # Rs 9.5 L
+INCLUDE_FUTURES   = False
 
-    <div class="status-bar" id="statusBar">
-        <div>Total fills: <span class="status-highlight" id="totalRows">0</span></div>
-        <div>Filtered: <span class="status-highlight" id="filteredRows">0</span></div>
-    </div>
-</div>
+# AngelOne API base
+BASE_URL_ANGEL  = "https://apiconnect.angelbroking.com"
+INSTRUMENT_URL  = "https://margincalculator.angelbroking.com/OpenAPI_File/files/OpenAPIScripMaster.json"
 
-<h2 style="color: #e5e7eb; margin-top: 40px; margin-bottom: 20px; font-size: 1.3rem;">🔄 Recovery Trades</h2>
-<p style="color: #9ca3af; margin-bottom: 20px; font-size: 0.9rem;">Trades that were down 30% or more and are now recovering (cost-to-cost or in profit)</p>
+MAX_TOKENS_PER_CALL = 50    # AngelOne FULL mode: max 50 tokens per exchange per call
+DEFAULT_LOT_SIZE    = 50
 
-<div class="table-wrapper" id="recoveryTableWrapper">
-    <table id="recoveryTable">
-        <thead>
-        <tr>
-            <th></th>
-            <th class="sortable" data-sort-key="stock">Stock<span class="sort-indicator"></span></th>
-            <th>Expiry</th>
-            <th class="sortable" data-sort-key="strike">Strike<span class="sort-indicator"></span></th>
-            <th>Option</th>
-            <th>Role</th>
-            <th class="sortable" data-sort-key="price">Entry Price<span class="sort-indicator"></span></th>
-            <th class="sortable" data-sort-key="ltp">Live LTP 🔴<span class="sort-indicator"></span></th>
-            <th class="sortable" data-sort-key="pnlPct">Current Return<span class="sort-indicator"></span></th>
-            <th class="sortable" data-sort-key="maxReturnLow">Lowest Loss %<span class="sort-indicator"></span></th>
-            <th class="sortable" data-sort-key="maxReturnHigh">Max High %<span class="sort-indicator"></span></th>
-            <th>P15</th>
-            <th>P20</th>
-            <th>P25</th>
-            <th>P50</th>
-            <th>P75</th>
-            <th class="sortable" data-sort-key="daysPassed">Days Passed<span class="sort-indicator"></span></th>
-            <th>Filled Time</th>
-            <th>Recovery Status</th>
-        </tr>
-        </thead>
-        <tbody></tbody>
-    </table>
-</div>
+# Detection tuning
+MIN_WHALE_PERSISTENCE_S  = 3
+MIN_FILL_VOL_RATIO       = 0.3
+FUT_MIN_TOTAL_LOTS       = 1035
+MIN_OI_FOR_ENTRY         = 500
+MIN_OI_DELTA_FOR_SUCCESS = 300
 
-<div class="status-bar" id="recoveryStatusBar">
-    <div>Recovery Trades: <span class="status-highlight" id="recoveryTradesCount">0</span></div>
-    <div>Avg Recovery: <span class="status-highlight" id="recoveryAverage">0%</span></div>
-    <div>Still Recovering: <span class="status-highlight" id="recoveryStillRecovering">0</span></div>
-    <div>Recovered to Profit: <span class="status-highlight" id="recoveryProfit">0</span></div>
-</div>
+# ===================== GLOBAL STATE =====================
+ACCESS_TOKEN      = None   # AngelOne JWT token
 
-<div class="return-tables-container">
-    <div class="return-table-card">
-        <div class="return-table-title">
-            Return <25%
-            <span class="badge badge-progress-25">Low</span>
-        </div>
-        <table class="return-summary-table">
-            <thead>
-            <tr>
-                <th>Metric</th>
-                <th>Value</th>
-            </tr>
-            </thead>
-            <tbody>
-            <tr>
-                <td>Count</td>
-                <td class="return-stat" id="return-lt25-count">0</td>
-            </tr>
-            <tr>
-                <td>Avg Return</td>
-                <td class="return-stat negative" id="return-lt25-avg">0%</td>
-            </tr>
-            <tr>
-                <td>Profit Count</td>
-                <td class="return-stat positive" id="return-lt25-profit">0</td>
-            </tr>
-            <tr>
-                <td>Loss Count</td>
-                <td class="return-stat negative" id="return-lt25-loss">0</td>
-            </tr>
-            </tbody>
-        </table>
-    </div>
+underlying_pcr    = {}     # underlying -> PCR
+history           = {}     # per-key snapshot
+instrument_meta   = {}     # "NFO:12345" -> metadata dict
+underlying_spots  = {}     # underlying symbol -> CMP
+index_spots       = {}     # NIFTY / SENSEX spot
 
-    <div class="return-table-card">
-        <div class="return-table-title">
-            Return 25% - 50%
-            <span class="badge badge-progress-50">Medium</span>
-        </div>
-        <table class="return-summary-table">
-            <thead>
-            <tr>
-                <th>Metric</th>
-                <th>Value</th>
-            </tr>
-            </thead>
-            <tbody>
-            <tr>
-                <td>Count</td>
-                <td class="return-stat" id="return-25-50-count">0</td>
-            </tr>
-            <tr>
-                <td>Avg Return</td>
-                <td class="return-stat positive" id="return-25-50-avg">0%</td>
-            </tr>
-            <tr>
-                <td>Profit Count</td>
-                <td class="return-stat positive" id="return-25-50-profit">0</td>
-            </tr>
-            <tr>
-                <td>Loss Count</td>
-                <td class="return-stat negative" id="return-25-50-loss">0</td>
-            </tr>
-            </tbody>
-        </table>
-    </div>
+success_keys      = set()
+entry_keys        = set()
+success_positions = {}
 
-    <div class="return-table-card">
-        <div class="return-table-title">
-            Return 50% - 75%
-            <span class="badge badge-progress-75">High</span>
-        </div>
-        <table class="return-summary-table">
-            <thead>
-            <tr>
-                <th>Metric</th>
-                <th>Value</th>
-            </tr>
-            </thead>
-            <tbody>
-            <tr>
-                <td>Count</td>
-                <td class="return-stat" id="return-50-75-count">0</td>
-            </tr>
-            <tr>
-                <td>Avg Return</td>
-                <td class="return-stat positive" id="return-50-75-avg">0%</td>
-            </tr>
-            <tr>
-                <td>Profit Count</td>
-                <td class="return-stat positive" id="return-50-75-profit">0</td>
-            </tr>
-            <tr>
-                <td>Loss Count</td>
-                <td class="return-stat negative" id="return-50-75-loss">0</td>
-            </tr>
-            </tbody>
-        </table>
-    </div>
+db = DatabaseService()
+DATABASE_URL = os.getenv(
+    'DATABASE_URL',
+    'postgresql://postgres:LZjgyzthYpacmWhOSAnDMnMWxkntEEqe@switchback.proxy.rlwy.net:22297/railway'
+)
 
-    <div class="return-table-card">
-        <div class="return-table-title">
-            Return > 100%
-            <span class="badge badge-done">Success</span>
-        </div>
-        <table class="return-summary-table">
-            <thead>
-            <tr>
-                <th>Metric</th>
-                <th>Value</th>
-            </tr>
-            </thead>
-            <tbody>
-            <tr>
-                <td>Count</td>
-                <td class="return-stat positive" id="return-gt100-count">0</td>
-            </tr>
-            <tr>
-                <td>Avg Return</td>
-                <td class="return-stat positive" id="return-gt100-avg">0%</td>
-            </tr>
-            <tr>
-                <td>Max Return</td>
-                <td class="return-stat positive" id="return-gt100-max">0%</td>
-            </tr>
-            <tr>
-                <td>Min Return</td>
-                <td class="return-stat positive" id="return-gt100-min">0%</td>
-            </tr>
-            </tbody>
-        </table>
-    </div>
-</div>
+# ===================== DATABASE HELPERS =====================
+@contextmanager
+def get_db_connection():
+    conn = None
+    try:
+        conn = psycopg2.connect(DATABASE_URL)
+        yield conn
+        conn.commit()
+    except Exception as e:
+        if conn:
+            conn.rollback()
+        print(f"Database error: {e}")
+        raise
+    finally:
+        if conn:
+            conn.close()
 
 
-<script>
-    const API_BASE_URL = "https://option-chain-python-sxvi.onrender.com"; // Database API endpoint
-    const REFRESH_INTERVAL = 60000;          // DB refresh every 60 s (was 3 s — caused constant flicker)
-    const LIVE_LTP_REFRESH_INTERVAL = 15000; // Live LTP every 15 s (was 5 s — too noisy)
+def create_whale_tables():
+    """Create whale_entries_2 and whale_successes_2 tables if they don't exist."""
+    with get_db_connection() as conn:
+        with conn.cursor() as cur:
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS whale_entries_2 (
+                    id BIGSERIAL PRIMARY KEY,
+                    timestamp TIMESTAMPTZ DEFAULT NOW(),
+                    instrument_key VARCHAR(100) NOT NULL,
+                    instrument_token VARCHAR(100),
+                    symbol VARCHAR(50) NOT NULL,
+                    option_type CHAR(2),
+                    side VARCHAR(10) NOT NULL,
+                    qty INTEGER NOT NULL,
+                    price DECIMAL(10, 4) NOT NULL,
+                    ltp DECIMAL(10, 4),
+                    moneyness VARCHAR(20),
+                    pcr DECIMAL(10, 4),
+                    oi_same INTEGER,
+                    oi_opposite INTEGER,
+                    stock_current_price DECIMAL(10, 4),
+                    stock_pct_change_today DECIMAL(10, 4),
+                    unique_key VARCHAR(100) UNIQUE NOT NULL,
+                    created_at TIMESTAMPTZ DEFAULT NOW()
+                );
+                CREATE INDEX IF NOT EXISTS idx_whale_entries_2_unique_key        ON whale_entries_2(unique_key);
+                CREATE INDEX IF NOT EXISTS idx_whale_entries_2_timestamp         ON whale_entries_2(timestamp DESC);
+                CREATE INDEX IF NOT EXISTS idx_whale_entries_2_symbol            ON whale_entries_2(symbol);
+                CREATE INDEX IF NOT EXISTS idx_whale_entries_2_instrument_token  ON whale_entries_2(instrument_token);
+            """)
+            cur.execute("""
+                CREATE TABLE IF NOT EXISTS whale_successes_2 (
+                    id BIGSERIAL PRIMARY KEY,
+                    timestamp TIMESTAMPTZ DEFAULT NOW(),
+                    instrument_key VARCHAR(100) NOT NULL,
+                    instrument_token VARCHAR(100),
+                    symbol VARCHAR(50) NOT NULL,
+                    strike DECIMAL(10, 2),
+                    option_type CHAR(2),
+                    side VARCHAR(10) NOT NULL,
+                    qty INTEGER NOT NULL,
+                    price DECIMAL(10, 4) NOT NULL,
+                    ltp DECIMAL(10, 4),
+                    vol_diff INTEGER,
+                    oi_diff INTEGER,
+                    moneyness VARCHAR(20),
+                    pcr DECIMAL(10, 4),
+                    oi_same INTEGER,
+                    oi_opposite INTEGER,
+                    stock_current_price DECIMAL(10, 4),
+                    stock_pct_change_today DECIMAL(10, 4),
+                    live_ltp DECIMAL(10, 4),
+                    live_pnl DECIMAL(12, 4),
+                    live_pnl_pct DECIMAL(10, 4),
+                    last_live_update TIMESTAMPTZ,
+                    status VARCHAR(20) DEFAULT 'open',
+                    progress_label VARCHAR(20),
+                    progress_history TEXT,
+                    max_return_high DECIMAL(10, 4),
+                    max_return_low DECIMAL(10, 4),
+                    stock_pct_at_exit DECIMAL(10, 4),
+                    unique_key VARCHAR(100) UNIQUE NOT NULL,
+                    created_at TIMESTAMPTZ DEFAULT NOW()
+                );
+                CREATE INDEX IF NOT EXISTS idx_whale_successes_2_unique_key        ON whale_successes_2(unique_key);
+                CREATE INDEX IF NOT EXISTS idx_whale_successes_2_timestamp         ON whale_successes_2(timestamp DESC);
+                CREATE INDEX IF NOT EXISTS idx_whale_successes_2_symbol            ON whale_successes_2(symbol);
+                CREATE INDEX IF NOT EXISTS idx_whale_successes_2_status            ON whale_successes_2(status);
+                CREATE INDEX IF NOT EXISTS idx_whale_successes_2_instrument_token  ON whale_successes_2(instrument_token);
+            """)
+    print("Whale tables (v2) created/verified")
 
-    // ── EMA smoothing for live LTP ────────────────────────────────────────────
-    // Reduces tick-by-tick noise.  alpha=0.3 → new price gets 30 % weight,
-    // previous smoothed price gets 70 % weight.  Increase alpha for faster response.
-    const LTP_EMA_ALPHA = 0.3;
-    // Minimum absolute change needed to update the displayed price.
-    // Prevents sub-0.5 fluctuations from triggering a re-render.
-    const LTP_MIN_CHANGE = 0.5;
-    // Map of "symbol|entry_price" → smoothed LTP (persists across refreshes)
-    const ltpSmoothedMap = new Map();
 
-    let allGroups = [];      // groups by stock+strike+option
-    let filteredGroups = [];
-    let currentSortKey = "pnlPct";
-    let hiddenRowKeys = new Set(JSON.parse(localStorage.getItem("hiddenRowKeys") || "[]"));
-    let showHiddenRows = false;
-    let currentSortDir = "desc"; // 'asc' or 'desc'
-    let percentageRangeFilter = "all"; // Track selected percentage range
-    const INDEX_STOCKS = ["NIFTY", "SENSEX", "CRUDEOIL", "NATURALGAS", "BANKNIFTY", "FINNIFTY", "MIDCPNIFTY"]; // Stocks treated as index
-    let previousGroupCount = 0; // Track previous group count to detect new entries
-    let returnRanges = {
-      lt25: { count: 0, total: 0, profit: 0, loss: 0, values: [] },
-      range25_50: { count: 0, total: 0, profit: 0, loss: 0, values: [] },
-      range50_75: { count: 0, total: 0, profit: 0, loss: 0, values: [] },
-      gt100: { count: 0, total: 0, max: -Infinity, min: Infinity, values: [] }
-    };
-
-    document.addEventListener("DOMContentLoaded", () => {
-      attachFilterListeners();
-      attachSortListeners();
-      attachPercentageTabListeners();
-      attachLiveUpdateListeners();
-      loadDataFromDB();
-      // Load and restore filters AFTER data loads (so stock dropdown is populated)
-      setTimeout(() => {
-        loadFilterStateFromStorage();
-        applyFiltersAndRender();
-      }, 100);
-      startAutoRefresh();
-      startAutoLiveUpdate();
-    });
-
-    // Save filters before page unload/refresh
-    window.addEventListener("beforeunload", () => {
-      saveFilterStateToStorage();
-    });
-
-    function showError(msg) {
-      const errEl = document.getElementById("error");
-      errEl.textContent = msg;
-      errEl.style.display = "block";
+# ===================== ANGELONE AUTH =====================
+def get_angel_headers(with_auth=False):
+    h = {
+        'Content-Type':     'application/json',
+        'Accept':           'application/json',
+        'X-UserType':       'USER',
+        'X-SourceID':       'WEB',
+        'X-ClientLocalIP':  '127.0.0.1',
+        'X-ClientPublicIP': '127.0.0.1',
+        'X-MACAddress':     '00:00:00:00:00:00',
+        'X-PrivateKey':     ANGELONE_API_KEY,
     }
+    if with_auth and ACCESS_TOKEN:
+        h['Authorization'] = f'Bearer {ACCESS_TOKEN}'
+    return h
 
-    function clearError() {
-      const errEl = document.getElementById("error");
-      errEl.textContent = "";
-      errEl.style.display = "none";
-    }
 
-    // Save current filter state to localStorage
-    function saveFilterStateToStorage() {
-      const hideIndexFilterEl = document.getElementById("hideIndexFilter");
-      const hideIndexArray = Array.from(hideIndexFilterEl.selectedOptions).map(opt => opt.value);
-      const showIndexFilterEl = document.getElementById("showIndexFilter");
-      const showIndexArray = Array.from(showIndexFilterEl.selectedOptions).map(opt => opt.value);
-      const filterState = {
-        stock: document.getElementById("stockFilter").value,
-        stockSearch: document.getElementById("stockSearchInput").value,
-        optionType: document.getElementById("optionTypeFilter").value,
-        strikeType: document.getElementById("strikeTypeFilter").value,
-        role: document.getElementById("roleFilter").value,
-        status: document.getElementById("statusFilter").value,
-        pnlType: document.getElementById("pnlTypeFilter").value,
-        hideIndex: hideIndexArray,
-        showIndex: showIndexArray,
-        progressLabel: document.getElementById("progressLabelFilter").value,
-        dateFrom: document.getElementById("dateFromFilter").value,
-        dateTo: document.getElementById("dateToFilter").value,
-        returnFrom: document.getElementById("returnFromFilter").value,
-        returnTo: document.getElementById("returnToFilter").value,
-        maxHighFrom: document.getElementById("maxHighFromFilter").value,
-        maxHighTo: document.getElementById("maxHighToFilter").value,
-        returnMaxHighDiff: document.getElementById("returnMaxHighDiffFilter").value,
-        multipleEntriesOnly: document.getElementById("multipleEntriesFilter").checked,
-        hideFut: document.getElementById("hideFutFilter").checked,
-        goodPeOnly: document.getElementById("goodPeOnlyFilter").checked,
-        sortKey: currentSortKey,
-        sortDir: currentSortDir
-      };
-      localStorage.setItem("dashboardFilterState", JSON.stringify(filterState));
-      saveExpandedRowsState();
-    }
+def login_angelone():
+    """Login to AngelOne SmartAPI and store JWT token globally."""
+    global ACCESS_TOKEN
+    client_id   = ANGELONE_CLIENT_ID
+    password    = ANGELONE_PASSWORD
+    totp_secret = ANGELONE_TOTP_SECRET
 
-    // Load filter state from localStorage and restore
-    function loadFilterStateFromStorage() {
-      const saved = localStorage.getItem("dashboardFilterState");
-      if (!saved) return;
+    if not client_id or not password:
+        print("Set env vars: ANGELONE_CLIENT_ID, ANGELONE_PASSWORD (and optionally ANGELONE_TOTP_SECRET)")
+        return None
 
-      try {
-        const filterState = JSON.parse(saved);
-        // Restore filter values
-        if (filterState.stock) document.getElementById("stockFilter").value = filterState.stock;
-        if (filterState.stockSearch) document.getElementById("stockSearchInput").value = filterState.stockSearch;
-        if (filterState.optionType) document.getElementById("optionTypeFilter").value = filterState.optionType;
-        if (filterState.strikeType) document.getElementById("strikeTypeFilter").value = filterState.strikeType;
-        if (filterState.role) document.getElementById("roleFilter").value = filterState.role;
-        if (filterState.status) document.getElementById("statusFilter").value = filterState.status;
-        if (filterState.pnlType) document.getElementById("pnlTypeFilter").value = filterState.pnlType;
-        if (filterState.hideIndex && Array.isArray(filterState.hideIndex)) {
-          const hideIndexFilterEl = document.getElementById("hideIndexFilter");
-          for (const opt of hideIndexFilterEl.options) {
-            opt.selected = filterState.hideIndex.includes(opt.value);
-          }
+    totp_code = ""
+    if totp_secret:
+        try:
+            totp_code = pyotp.TOTP(totp_secret).now()
+        except Exception as e:
+            print(f"TOTP generation failed: {e}")
+
+    try:
+        resp = requests.post(
+            f"{BASE_URL_ANGEL}/rest/auth/angelbroking/user/v1/loginByPassword",
+            headers=get_angel_headers(),
+            json={"clientcode": client_id, "password": password, "totp": totp_code},
+            timeout=10
+        )
+        data = resp.json()
+        if data.get('status'):
+            ACCESS_TOKEN = data['data']['jwtToken']
+            print(f"AngelOne login successful. Token: {ACCESS_TOKEN[:30]}...")
+            return ACCESS_TOKEN
+        else:
+            print(f"AngelOne login failed: {data.get('message', 'Unknown error')}")
+            return None
+    except Exception as e:
+        print(f"AngelOne login error: {e}")
+        return None
+
+
+# ===================== DB RECORD HELPERS =====================
+def load_existing_successes():
+    global success_keys
+    success_keys.clear()
+    try:
+        with get_db_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT unique_key FROM whale_successes_2")
+                for row in cur.fetchall():
+                    success_keys.add(row[0])
+        print(f"Loaded {len(success_keys)} existing success records")
+    except Exception as e:
+        print(f"Could not load success records: {e}")
+
+
+def load_existing_entries():
+    global entry_keys
+    entry_keys.clear()
+    try:
+        with get_db_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("SELECT unique_key FROM whale_entries_2")
+                for row in cur.fetchall():
+                    entry_keys.add(row[0])
+        print(f"Loaded {len(entry_keys)} existing entry records")
+    except Exception as e:
+        print(f"Could not load entry records: {e}")
+
+
+def record_success(symbol, side, qty, price, vol_diff, oi_diff, ltp,
+                   moneyness, pcr, oi_same, oi_opposite, instrument_token=None):
+    global success_keys
+    parsed            = parse_underlying_from_symbol(symbol)
+    underlying        = parsed["underlying"]
+    strike            = parsed["strike"]
+    option_type       = parsed["option_type"]
+    meta              = instrument_meta.get(symbol, {})
+    is_fut            = is_future_symbol(symbol)
+    expiry            = meta.get('expiry')
+    option_type_value = "FU" if is_fut else option_type
+    strike_value      = None if is_fut else strike
+
+    if is_fut:
+        if underlying is None or price is None:
+            return
+        unique_key = f"{underlying}|FUT|{expiry or 'NA'}|{price}"
+    else:
+        if underlying is None or strike is None or option_type_value is None or price is None:
+            return
+        unique_key = f"{underlying}|{strike}|{option_type_value}|{price}"
+
+    if unique_key in success_keys:
+        return
+    success_keys.add(unique_key)
+
+    ts = datetime.now()
+    underlying_price, stock_pct_change = get_daily_pct_change_for_underlying(symbol)
+
+    try:
+        with get_db_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    INSERT INTO whale_successes_2 (
+                        timestamp, instrument_key, instrument_token, symbol, strike, option_type,
+                        side, qty, price, ltp, vol_diff, oi_diff, moneyness, pcr,
+                        oi_same, oi_opposite, stock_current_price, stock_pct_change_today, unique_key
+                    ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                """, (
+                    ts, symbol, instrument_token, underlying, strike_value, option_type_value,
+                    str(side).upper(), qty, float(price), float(ltp),
+                    vol_diff, oi_diff, moneyness, pcr,
+                    oi_same, oi_opposite, underlying_price, stock_pct_change, unique_key
+                ))
+    except Exception as e:
+        print(f"Could not write success record: {e}")
+
+
+def record_entry(symbol, side, qty, price, ltp,
+                 moneyness, pcr, oi_same, oi_opposite, instrument_token=None):
+    global entry_keys
+    parsed            = parse_underlying_from_symbol(symbol)
+    underlying        = parsed["underlying"]
+    strike            = parsed["strike"]
+    option_type       = parsed["option_type"]
+    meta              = instrument_meta.get(symbol, {})
+    is_fut            = is_future_symbol(symbol)
+    expiry            = meta.get('expiry')
+    option_type_value = "FU" if is_fut else option_type
+
+    if is_fut:
+        if underlying is None or price is None:
+            return
+        unique_key = f"{underlying}|FUT|{expiry or 'NA'}|{round(float(price), 2)}"
+    else:
+        if underlying is None or strike is None or option_type_value is None or price is None:
+            return
+        unique_key = f"{underlying}|{strike}|{option_type_value}|{round(float(price), 2)}"
+
+    if unique_key in entry_keys:
+        return
+    entry_keys.add(unique_key)
+
+    ts = datetime.now()
+    underlying_price, stock_pct_change = get_daily_pct_change_for_underlying(symbol)
+
+    try:
+        with get_db_connection() as conn:
+            with conn.cursor() as cur:
+                cur.execute("""
+                    INSERT INTO whale_entries_2 (
+                        timestamp, instrument_key, instrument_token, symbol, option_type,
+                        side, qty, price, ltp, moneyness, pcr, oi_same, oi_opposite,
+                        stock_current_price, stock_pct_change_today, unique_key
+                    ) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                """, (
+                    ts, symbol, instrument_token, underlying, option_type_value,
+                    str(side).upper(), qty, float(price), float(ltp),
+                    moneyness, pcr, oi_same, oi_opposite,
+                    underlying_price, stock_pct_change, unique_key
+                ))
+    except Exception as e:
+        print(f"Could not write entry record: {e}")
+
+
+# ===================== ANGELONE MARKET DATA =====================
+def get_spot_indices():
+    """Fetch NIFTY (token 26000/NSE) and SENSEX (token 1/BSE) spot via AngelOne."""
+    global index_spots
+    try:
+        resp = requests.post(
+            f"{BASE_URL_ANGEL}/rest/secure/angelbroking/market/v1/quote/",
+            headers=get_angel_headers(with_auth=True),
+            json={"mode": "LTP", "exchangeTokens": {"NSE": ["26000"], "BSE": ["1"]}},
+            timeout=10
+        )
+        data = resp.json()
+        if data.get('status'):
+            for item in data.get('data', {}).get('fetched', []):
+                token = str(item.get('symbolToken', ''))
+                ltp   = float(item.get('ltp', 0) or 0)
+                if token == "26000":
+                    index_spots['NIFTY']  = ltp
+                elif token == "1":
+                    index_spots['SENSEX'] = ltp
+        print(f"Index spots -> NIFTY: {index_spots.get('NIFTY')}, SENSEX: {index_spots.get('SENSEX')}")
+    except Exception as e:
+        print(f"Could not fetch index spots: {e}")
+    index_spots.setdefault('NIFTY',  24000.0)
+    index_spots.setdefault('SENSEX', 80000.0)
+
+
+def fetch_ltp_for_eq_tokens(nse_tokens: list) -> dict:
+    """Fetch NSE EQ LTP for a list of AngelOne tokens -> { token: ltp }."""
+    results = {}
+    if not nse_tokens:
+        return results
+    for i in range(0, len(nse_tokens), MAX_TOKENS_PER_CALL):
+        chunk = nse_tokens[i:i + MAX_TOKENS_PER_CALL]
+        try:
+            resp = requests.post(
+                f"{BASE_URL_ANGEL}/rest/secure/angelbroking/market/v1/quote/",
+                headers=get_angel_headers(with_auth=True),
+                json={"mode": "LTP", "exchangeTokens": {"NSE": chunk}},
+                timeout=10
+            )
+            data = resp.json()
+            if data.get('status'):
+                for item in data.get('data', {}).get('fetched', []):
+                    tok = str(item.get('symbolToken', ''))
+                    results[tok] = float(item.get('ltp', 0) or 0)
+        except Exception as e:
+            print(f"Error fetching EQ LTP: {e}")
+    return results
+
+
+def build_underlying_spots(stock_symbols):
+    """Fetch CMP for all F&O stock underlyings via AngelOne NSE EQ tokens."""
+    global underlying_spots
+    eq_token_map = getattr(build_underlying_spots, '_eq_token_map', {})
+    if not eq_token_map:
+        print("No EQ token map available — underlying spots will use yfinance fallback.")
+        return
+    tokens = list(eq_token_map.keys())
+    print(f"Fetching underlying NSE EQ CMP for {len(tokens)} stocks (AngelOne)...")
+    ltp_results = fetch_ltp_for_eq_tokens(tokens)
+    count = 0
+    for token, ltp in ltp_results.items():
+        name = eq_token_map.get(token)
+        if name and ltp > 0:
+            underlying_spots[name] = ltp
+            count += 1
+    print(f"Loaded CMP for {count} F&O underlyings via AngelOne.")
+
+
+# ===================== INSTRUMENT BUILDING =====================
+def _normalize_strike(strike_val: float) -> float:
+    """AngelOne may store strikes *100 for some instruments."""
+    if strike_val and strike_val > 1_000_000:
+        return strike_val / 100.0
+    return strike_val
+
+
+def _extract_option_type(trading_symbol: str) -> str:
+    ts = trading_symbol.strip().upper()
+    if ts.endswith('CE'):
+        return 'CE'
+    if ts.endswith('PE'):
+        return 'PE'
+    return ''
+
+
+def download_angelone_instruments() -> pd.DataFrame:
+    print("Downloading AngelOne ScripMaster...")
+    try:
+        resp = requests.get(INSTRUMENT_URL, timeout=30)
+        resp.raise_for_status()
+        df = pd.DataFrame(resp.json())
+        df.columns = [c.lower().strip() for c in df.columns]
+        print(f"Loaded {len(df)} instruments from AngelOne ScripMaster.")
+        return df
+    except Exception as e:
+        print(f"Error downloading AngelOne ScripMaster: {e}")
+        return pd.DataFrame()
+
+
+def build_all_instruments():
+    global instrument_meta
+    instrument_meta.clear()
+    all_keys = []
+
+    df_all = download_angelone_instruments()
+    if df_all.empty:
+        print("No instruments loaded.")
+        return []
+
+    # Normalise
+    if 'expiry' in df_all.columns:
+        df_all['expiry'] = df_all['expiry'].astype(str).str.strip().str.upper()
+    if 'strike' in df_all.columns:
+        df_all['strike'] = pd.to_numeric(df_all['strike'], errors='coerce')
+    if 'instrumenttype' not in df_all.columns:
+        df_all['instrumenttype'] = ''
+    if 'exch_seg' not in df_all.columns:
+        df_all['exch_seg'] = ''
+
+    eq_token_map = {}   # token -> underlying_name for NSE EQ spot lookup
+
+    # ---------- NFO (NSE F&O) ----------
+    df_nfo = df_all[df_all['exch_seg'] == 'NFO'].copy()
+
+    # NIFTY options
+    df_nifty = df_nfo[
+        (df_nfo['name'].str.upper() == 'NIFTY') &
+        (df_nfo['expiry'] == NIFTY_EXPIRY) &
+        (df_nfo['instrumenttype'].str.upper() == 'OPTIDX')
+    ]
+    for _, row in df_nifty.iterrows():
+        token = str(row['token'])
+        key   = f"NFO:{token}"
+        all_keys.append(key)
+        instrument_meta[key] = {
+            "name": "NIFTY", "symbol": "NIFTY",
+            "token": token, "exchange": "NFO",
+            "trading_symbol": str(row.get('symbol', '')),
+            "strike": _normalize_strike(float(row.get('strike', 0) or 0)),
+            "expiry": str(row.get('expiry', '')),
+            "instrument_type": "OPTIDX",
+            "option_type": _extract_option_type(str(row.get('symbol', ''))),
+            "lot_size": int(float(row.get('lotsize', DEFAULT_LOT_SIZE) or DEFAULT_LOT_SIZE)),
         }
-        if (filterState.showIndex && Array.isArray(filterState.showIndex)) {
-          const showIndexFilterEl = document.getElementById("showIndexFilter");
-          for (const opt of showIndexFilterEl.options) {
-            opt.selected = filterState.showIndex.includes(opt.value);
-          }
+    print(f"Loaded {len(df_nifty)} NIFTY option contracts.")
+
+    # Stock options (OPTSTK)
+    df_stk = df_nfo[
+        (df_nfo['instrumenttype'].str.upper() == 'OPTSTK') &
+        (df_nfo['expiry'] == STOCK_FNO_EXPIRY)
+    ]
+    for _, row in df_stk.iterrows():
+        token      = str(row['token'])
+        key        = f"NFO:{token}"
+        underlying = str(row.get('name', '')).upper()
+        all_keys.append(key)
+        instrument_meta[key] = {
+            "name": underlying, "symbol": underlying,
+            "token": token, "exchange": "NFO",
+            "trading_symbol": str(row.get('symbol', '')),
+            "strike": _normalize_strike(float(row.get('strike', 0) or 0)),
+            "expiry": str(row.get('expiry', '')),
+            "instrument_type": "OPTSTK",
+            "option_type": _extract_option_type(str(row.get('symbol', ''))),
+            "lot_size": int(float(row.get('lotsize', DEFAULT_LOT_SIZE) or DEFAULT_LOT_SIZE)),
         }
-        if (filterState.progressLabel) document.getElementById("progressLabelFilter").value = filterState.progressLabel;
-        if (filterState.dateFrom) document.getElementById("dateFromFilter").value = filterState.dateFrom;
-        if (filterState.dateTo) document.getElementById("dateToFilter").value = filterState.dateTo;
-        if (filterState.returnFrom) document.getElementById("returnFromFilter").value = filterState.returnFrom;
-        if (filterState.returnTo) document.getElementById("returnToFilter").value = filterState.returnTo;
-        if (filterState.maxHighFrom) document.getElementById("maxHighFromFilter").value = filterState.maxHighFrom;
-        if (filterState.maxHighTo) document.getElementById("maxHighToFilter").value = filterState.maxHighTo;
-        if (filterState.returnMaxHighDiff) document.getElementById("returnMaxHighDiffFilter").value = filterState.returnMaxHighDiff;
-        if (filterState.multipleEntriesOnly) document.getElementById("multipleEntriesFilter").checked = filterState.multipleEntriesOnly;
-        if (filterState.hideFut) document.getElementById("hideFutFilter").checked = filterState.hideFut;
-        if (filterState.goodPeOnly) document.getElementById("goodPeOnlyFilter").checked = filterState.goodPeOnly;
-        // Restore sort state
-        if (filterState.sortKey) currentSortKey = filterState.sortKey;
-        if (filterState.sortDir) currentSortDir = filterState.sortDir;
-      } catch (e) {
-        console.error("Error loading filter state:", e);
-      }
-    }
+    print(f"Loaded {len(df_stk)} stock option contracts (OPTSTK).")
 
-    // Save expanded rows state
-    function saveExpandedRowsState() {
-      const expandedRows = [];
-      document.querySelectorAll("table tbody tr[data-group-key]").forEach(tr => {
-        const nextTr = tr.nextElementSibling;
-        if (nextTr && nextTr.classList.contains("details-row")) {
-          if (nextTr.style.display !== "none") {
-            expandedRows.push(tr.getAttribute("data-group-key"));
-          }
-        }
-      });
-      localStorage.setItem("expandedRows", JSON.stringify(expandedRows));
-    }
+    # Futures (nearest expiry per symbol)
+    if INCLUDE_FUTURES:
+        df_fut = df_nfo[df_nfo['instrumenttype'].str.upper().isin(['FUTIDX', 'FUTSTK'])].copy()
+        if not df_fut.empty:
+            try:
+                df_fut['expiry_dt'] = pd.to_datetime(df_fut['expiry'], format='%d%b%Y', errors='coerce').dt.date
+                today   = datetime.now().date()
+                df_fut  = df_fut[df_fut['expiry_dt'] >= today]
+                df_fut['min_expiry'] = df_fut.groupby('name')['expiry_dt'].transform('min')
+                df_fut  = df_fut[df_fut['expiry_dt'] == df_fut['min_expiry']]
+                for _, row in df_fut.iterrows():
+                    token      = str(row['token'])
+                    key        = f"NFO:{token}"
+                    underlying = str(row.get('name', '')).upper()
+                    all_keys.append(key)
+                    instrument_meta[key] = {
+                        "name": underlying, "symbol": underlying,
+                        "token": token, "exchange": "NFO",
+                        "trading_symbol": str(row.get('symbol', '')),
+                        "strike": None, "expiry": str(row.get('expiry', '')),
+                        "instrument_type": str(row.get('instrumenttype', '')).upper(),
+                        "option_type": None,
+                        "lot_size": int(float(row.get('lotsize', DEFAULT_LOT_SIZE) or DEFAULT_LOT_SIZE)),
+                    }
+                print(f"Loaded {len(df_fut)} near-month futures (NFO).")
+            except Exception as e:
+                print(f"Futures loading error: {e}")
+    else:
+        print("Skipping futures (INCLUDE_FUTURES = False).")
 
-    // Restore expanded rows state
-    function restoreExpandedRowsState() {
-      const saved = localStorage.getItem("expandedRows");
-      if (!saved) return;
-
-      try {
-        const expandedRows = JSON.parse(saved);
-        document.querySelectorAll("table tbody tr[data-group-key]").forEach(tr => {
-          const groupKey = tr.getAttribute("data-group-key");
-          const nextTr = tr.nextElementSibling;
-          if (expandedRows.includes(groupKey) && nextTr && nextTr.classList.contains("details-row")) {
-            nextTr.style.display = "table-row";
-            const tdExpand = tr.querySelector("td:first-child");
-            if (tdExpand) tdExpand.textContent = "−";
-          }
-        });
-      } catch (e) {
-        console.error("Error loading expanded rows state:", e);
-      }
-    }
-
-    // Attach live update button listener
-    function attachLiveUpdateListeners() {
-      const btn = document.getElementById("updateLiveBtn");
-      if (btn) {
-        btn.addEventListener("click", () => {
-          fetchAndUpdateLiveLTP();
-        });
-      }
-    }
-
-    // Fetch live LTP data from the new API endpoint
-    async function fetchAndUpdateLiveLTP() {
-      const btn = document.getElementById("updateLiveBtn");
-      const statusEl = document.getElementById("liveUpdateStatus");
-
-      try {
-        btn.disabled = true;
-        btn.textContent = "⏳ Fetching...";
-        statusEl.textContent = "Fetching live LTP from AngelOne API...";
-        statusEl.style.color = "#fbbf24";
-
-        // Determine which status to fetch based on filter
-        const statusFilter = document.getElementById("statusFilter").value;
-        const statusParam = statusFilter || "all";
-
-        const resp = await fetch(`${API_BASE_URL}/update-live-ltp?status=${statusParam}&limit=10000`);
-
-        if (!resp.ok) {
-          throw new Error(`API error: ${resp.status}`);
-        }
-
-        const json = await resp.json();
-
-        if (json.status !== 'success') {
-          throw new Error(json.message || "API returned error");
-        }
-
-        // Update the allGroups with live LTP data
-        updateGroupsWithLiveLTP(json.data);
-
-        // Re-render the table with updated data
-        applyFiltersAndRender();
-
-        // Update UI feedback
-        const now = new Date().toLocaleTimeString();
-        statusEl.textContent = `✓ Updated ${json.updated_count} positions at ${now}`;
-        statusEl.style.color = "#4ade80";
-        btn.textContent = "🔄 Fetch Live LTP";
-
-      } catch (error) {
-        console.error("Live LTP fetch error:", error);
-        statusEl.textContent = `✗ Error: ${error.message}`;
-        statusEl.style.color = "#f87171";
-        btn.textContent = "🔄 Fetch Live LTP";
-      } finally {
-        btn.disabled = false;
-      }
-    }
-
-    // Update groups with live LTP data from API
-    // Applies EMA smoothing to reduce tick-by-tick noise and only re-renders
-    // when the change exceeds LTP_MIN_CHANGE (avoids constant screen flicker).
-    function updateGroupsWithLiveLTP(liveData) {
-      if (!liveData || liveData.length === 0) return;
-
-      let anySignificantChange = false;
-
-      // Update each group with live data
-      for (const group of allGroups) {
-        const primary = group.primary;
-
-        for (const record of liveData) {
-          if (record.symbol === primary.stock &&
-              Math.abs(parseFloat(record.entry_price) - primary.price) < 0.01) {
-
-            const rawLtp   = parseFloat(record.live_ltp);
-            const entryPrice = parseFloat(record.entry_price);
-            if (isNaN(rawLtp)) break;
-
-            // ── EMA smoothing ──────────────────────────────────────────────
-            const key = `${primary.stock}|${primary.price}`;
-            const prevSmoothed = ltpSmoothedMap.has(key) ? ltpSmoothedMap.get(key) : rawLtp;
-            const smoothedLtp  = LTP_EMA_ALPHA * rawLtp + (1 - LTP_EMA_ALPHA) * prevSmoothed;
-            ltpSmoothedMap.set(key, smoothedLtp);
-
-            // ── Minimum-change gate ────────────────────────────────────────
-            const prevDisplayed = primary.ltp !== undefined ? parseFloat(primary.ltp) : NaN;
-            const change = isNaN(prevDisplayed) ? Infinity : Math.abs(smoothedLtp - prevDisplayed);
-            if (change < LTP_MIN_CHANGE) break; // skip — not enough movement
-
-            anySignificantChange = true;
-
-            // ── Recalculate PnL ────────────────────────────────────────────
-            let pnlAbs = null, pnlPct = null;
-            if (!isNaN(entryPrice) && entryPrice !== 0) {
-              pnlAbs = smoothedLtp - entryPrice;
-              pnlPct = (pnlAbs / entryPrice) * 100;
+    # ---------- BFO (BSE F&O) — SENSEX ----------
+    df_bfo = df_all[df_all['exch_seg'] == 'BFO'].copy()
+    if not df_bfo.empty:
+        df_sensex = df_bfo[
+            (df_bfo['name'].str.upper().str.contains('SENSEX', na=False)) &
+            (df_bfo['expiry'] == SENSEX_EXPIRY) &
+            (df_bfo['instrumenttype'].str.upper() == 'OPTIDX')
+        ]
+        for _, row in df_sensex.iterrows():
+            token = str(row['token'])
+            key   = f"BFO:{token}"
+            all_keys.append(key)
+            instrument_meta[key] = {
+                "name": "SENSEX", "symbol": "SENSEX",
+                "token": token, "exchange": "BFO",
+                "trading_symbol": str(row.get('symbol', '')),
+                "strike": _normalize_strike(float(row.get('strike', 0) or 0)),
+                "expiry": str(row.get('expiry', '')),
+                "instrument_type": "OPTIDX",
+                "option_type": _extract_option_type(str(row.get('symbol', ''))),
+                "lot_size": int(float(row.get('lotsize', DEFAULT_LOT_SIZE) or DEFAULT_LOT_SIZE)),
             }
+        print(f"Loaded {len(df_sensex)} SENSEX option contracts.")
 
-            // Update primary + all sub-items
-            primary.ltp    = smoothedLtp;
-            primary.pnlAbs = pnlAbs;
-            primary.pnlPct = pnlPct;
-            if (record.live_progress === "done" || pnlPct >= 100) {
-              primary.displayStatus = "done";
+    # ---------- MCX ----------
+    df_mcx = df_all[df_all['exch_seg'] == 'MCX'].copy()
+    if not df_mcx.empty:
+        df_crude = df_mcx[
+            (df_mcx['name'].str.upper().str.contains('CRUDEOIL', na=False)) &
+            (df_mcx['expiry'] == CRUDE_EXPIRY)
+        ]
+        for _, row in df_crude.iterrows():
+            token = str(row['token'])
+            key   = f"MCX:{token}"
+            all_keys.append(key)
+            instrument_meta[key] = {
+                "name": "CRUDEOIL", "symbol": "CRUDEOIL",
+                "token": token, "exchange": "MCX",
+                "trading_symbol": str(row.get('symbol', '')),
+                "strike": _normalize_strike(float(row.get('strike', 0) or 0)),
+                "expiry": str(row.get('expiry', '')),
+                "instrument_type": str(row.get('instrumenttype', '')).upper(),
+                "option_type": _extract_option_type(str(row.get('symbol', ''))),
+                "lot_size": int(float(row.get('lotsize', DEFAULT_LOT_SIZE) or DEFAULT_LOT_SIZE)),
             }
-            for (const item of group.items) {
-              item.ltp    = smoothedLtp;
-              item.pnlAbs = pnlAbs;
-              item.pnlPct = pnlPct;
+        print(f"Loaded {len(df_crude)} CRUDEOIL MCX contracts.")
+
+        df_ng = df_mcx[
+            (df_mcx['name'].str.upper().str.contains('NATURALGAS', na=False)) &
+            (df_mcx['expiry'] == NG_EXPIRY)
+        ]
+        for _, row in df_ng.iterrows():
+            token = str(row['token'])
+            key   = f"MCX:{token}"
+            all_keys.append(key)
+            instrument_meta[key] = {
+                "name": "NATURALGAS", "symbol": "NATURALGAS",
+                "token": token, "exchange": "MCX",
+                "trading_symbol": str(row.get('symbol', '')),
+                "strike": _normalize_strike(float(row.get('strike', 0) or 0)),
+                "expiry": str(row.get('expiry', '')),
+                "instrument_type": str(row.get('instrumenttype', '')).upper(),
+                "option_type": _extract_option_type(str(row.get('symbol', ''))),
+                "lot_size": int(float(row.get('lotsize', DEFAULT_LOT_SIZE) or DEFAULT_LOT_SIZE)),
             }
+        print(f"Loaded {len(df_ng)} NATURALGAS MCX contracts.")
 
-            // ── In-place cell update (no full table re-render) ─────────────
-            updateLtpCellsInPlace(primary.stock, primary.price, smoothedLtp, pnlAbs, pnlPct);
+    print(f"\nTotal instruments before filtering: {len(all_keys)}")
 
-            break;
-          }
+    # Build EQ token map for underlying spot prices
+    df_eq = df_all[(df_all['exch_seg'] == 'NSE') & (df_all['instrumenttype'].str.upper() == 'EQ')]
+    if not df_eq.empty:
+        stock_underlyings = {
+            str(m.get('symbol')).upper()
+            for m in instrument_meta.values()
+            if m.get('instrument_type') == 'OPTSTK' and m.get('symbol')
         }
-      }
+        for _, row in df_eq.iterrows():
+            name = str(row.get('name', '')).upper()
+            if name in stock_underlyings:
+                eq_token_map[str(row['token'])] = name
 
-      // Only do a full re-render if something changed significantly
-      // (e.g. displayStatus flipped to "done"), otherwise skip — cells already updated above.
-      // We re-render at most once per LTP poll cycle to avoid flicker.
-      if (anySignificantChange) {
-        // Defer so any pending micro-tasks settle first
-        requestAnimationFrame(() => applyFiltersAndRender());
-      }
-    }
+    build_underlying_spots._eq_token_map = eq_token_map
+    build_underlying_spots(set(
+        m.get('symbol') for m in instrument_meta.values()
+        if m.get('instrument_type') == 'OPTSTK'
+    ))
 
-    // Update only the LTP and PnL cells for a given stock/entry_price in-place.
-    // This avoids blowing away the entire table DOM on every price tick.
-    function updateLtpCellsInPlace(stock, entryPrice, ltp, pnlAbs, pnlPct) {
-      const ltpStr  = ltp  !== undefined && ltp  !== null ? Number(ltp).toFixed(2)  : "-";
-      const pnlText = (pnlAbs !== null && pnlPct !== null) ? formatPnlText(pnlAbs, pnlPct) : "-";
-      const pnlCls  = pnlAbs !== null ? (pnlAbs >= 0 ? "pnl-positive" : "pnl-negative") : "";
+    return all_keys
 
-      // Target cells that have been tagged with data attributes (see renderRow changes below)
-      const selector = `[data-ltp-key="${stock}|${entryPrice}"]`;
-      document.querySelectorAll(selector).forEach(cell => {
-        if (cell.dataset.ltpType === "ltp") {
-          cell.textContent = ltpStr;
-        } else if (cell.dataset.ltpType === "pnl") {
-          cell.textContent = pnlText;
-          cell.className   = pnlCls;
-        }
-      });
-    }
 
-    // Auto-update live LTP every 15 s (EMA-smoothed, only re-renders on significant change)
-    function startAutoLiveUpdate() {
-      setInterval(() => {
-        // Only auto-update if viewing "open" positions
-        const statusFilter = document.getElementById("statusFilter").value;
-        if (statusFilter === "open" || statusFilter === "") {
-          fetchAndUpdateLiveLTP();
-        }
-      }, LIVE_LTP_REFRESH_INTERVAL);
-    }
-
-    // Start auto-refresh: reload DB data every 60 s while preserving live prices
-    function startAutoRefresh() {
-      setInterval(() => {
-        saveFilterStateToStorage();
-        loadDataFromDBSilent();
-      }, REFRESH_INTERVAL);
-    }
-
-    // Load data from database without visual feedback (silent refresh).
-    // Restores already-smoothed live prices from ltpSmoothedMap so there is
-    // no visible jump between the stored DB price and the live price on reload.
-    async function loadDataFromDBSilent() {
-      try {
-        const resp = await fetch(`${API_BASE_URL}/successes?limit=10000`);
-        if (!resp.ok) return;
-        const json = await resp.json();
-        if (json.status !== 'success' || !json.data) return;
-
-        const entries = transformAPIToEntries(json.data);
-        allGroups = groupEntries(entries);
-        populateStockDropdown(allGroups);
-        checkAndNotifyNewOrders(allGroups);
-
-        // Restore already-smoothed LTP values — no snapshot needed, just read ltpSmoothedMap
-        for (const group of allGroups) {
-          const primary = group.primary;
-          const key = `${primary.stock}|${primary.price}`;
-          if (ltpSmoothedMap.has(key)) {
-            const smoothed = ltpSmoothedMap.get(key);
-            const entryPrice = parseFloat(primary.price);
-            const pnlAbs = !isNaN(entryPrice) && entryPrice !== 0 ? smoothed - entryPrice : null;
-            const pnlPct = pnlAbs !== null ? (pnlAbs / entryPrice) * 100 : null;
-            primary.ltp    = smoothed;
-            primary.pnlAbs = pnlAbs;
-            primary.pnlPct = pnlPct;
-            for (const item of group.items) {
-              item.ltp    = smoothed;
-              item.pnlAbs = pnlAbs;
-              item.pnlPct = pnlPct;
-            }
-          }
-        }
-
-        applyFiltersAndRender();
-      } catch (e) {
-        console.error("Silent refresh error:", e);
-      }
-    }
-
-    function formatCompactNumber(value) {
-      if (value === null || value === undefined) return "-";
-      const num = Number(value);
-      if (!isFinite(num)) return "-";
-
-      const abs = Math.abs(num);
-      if (abs >= 1_000_000_000) {
-        return (num / 1_000_000_000).toFixed(1).replace(/\.0$/, "") + "B";
-      } else if (abs >= 1_000_000) {
-        return (num / 1_000_000).toFixed(1).replace(/\.0$/, "") + "M";
-      } else if (abs >= 1_000) {
-        return (num / 1_000).toFixed(1).replace(/\.0$/, "") + "K";
-      }
-      return num.toString();
-    }
-
-    function formatPnlText(pnlAbs, pnlPct) {
-      if (pnlAbs === null || pnlPct === null) return "-";
-      const sign = pnlAbs >= 0 ? "+" : "";
-      const signPct = pnlPct >= 0 ? "+" : "";
-      return `${sign}${pnlAbs.toFixed(2)} (${signPct}${pnlPct.toFixed(1)}%)`;
-    }
-
-    // Function to play notification sound for new orders
-    function playNotificationSound() {
-      try {
-        // Create an AudioContext and generate a beep sound
-        const audioContext = new (window.AudioContext || window.webkitAudioContext)();
-        const oscillator = audioContext.createOscillator();
-        const gainNode = audioContext.createGain();
-
-        oscillator.connect(gainNode);
-        gainNode.connect(audioContext.destination);
-
-        // Set frequency (high beep for pleasant notification)
-        oscillator.frequency.value = 800; // Hz
-        oscillator.type = 'sine';
-
-        // Set timing
-        const now = audioContext.currentTime;
-        gainNode.gain.setValueAtTime(0.3, now);
-        gainNode.gain.exponentialRampToValueAtTime(0.01, now + 0.5);
-
-        oscillator.start(now);
-        oscillator.stop(now + 0.5);
-      } catch (e) {
-        console.log("Sound notification not available:", e);
-      }
-    }
-
-    // Function to check for new NIFTY or SENSEX orders and play sound
-    function checkAndNotifyNewOrders(newGroups) {
-      const currentGroupCount = newGroups.length;
-
-      if (previousGroupCount > 0 && currentGroupCount > previousGroupCount) {
-        // New orders have been added
-        const newOrderCount = currentGroupCount - previousGroupCount;
-
-        // Check if any new orders are NIFTY or SENSEX
-        const lastNewGroups = newGroups.slice(-newOrderCount);
-        const hasIndexOrder = lastNewGroups.some(g =>
-          g.stock === 'NIFTY' || g.stock === 'SENSEX'
-        );
-
-        if (hasIndexOrder) {
-          playNotificationSound();
-          console.log(`New NIFTY/SENSEX order detected! Total new orders: ${newOrderCount}`);
-        }
-      }
-
-      previousGroupCount = currentGroupCount;
-    }
-
-    function getPcrAdvice(pcr, optionType) {
-      if (pcr === null || pcr === undefined || isNaN(pcr) || pcr <= 0) {
-        return { text: "No PCR view", cls: "pcr-neutral", isGoodPe: false };
-      }
-
-      // Simple logic:
-      // - Low PCR (<0.8) -> bullish (calls favoured)
-      // - Neutral (0.8–1.2)
-      // - High PCR (>1.2) -> bearish (puts favoured)
-      if (optionType === "CE") {
-        if (pcr < 0.8) {
-          return { text: "Bullish PCR — CE long OK / Hold", cls: "pcr-bullish", isGoodPe: false };
-        } else if (pcr <= 1.2) {
-          return { text: "Neutral PCR — CE trade with caution", cls: "pcr-neutral", isGoodPe: false };
-        } else {
-          return { text: "Bearish PCR — Consider booking/avoid new CE", cls: "pcr-bearish", isGoodPe: false };
-        }
-      } else if (optionType === "PE") {
-        if (pcr > 1.2) {
-          // Bearish PCR — PE long OK / Hold -> good for seller
-          return { text: "Bearish PCR — PE long OK / Hold", cls: "pcr-bearish", isGoodPe: true };
-        } else if (pcr >= 0.8) {
-          // Neutral PCR — PE trade with caution -> good for seller with caution
-          return { text: "Neutral PCR — PE trade with caution", cls: "pcr-neutral", isGoodPe: true };
-        } else {
-          return { text: "Bullish PCR — Consider booking/avoid new PE", cls: "pcr-bullish", isGoodPe: false };
-        }
-      } else {
-        return { text: "PCR view for options only", cls: "pcr-neutral", isGoodPe: false };
-      }
-    }
-
-    // Helper function to determine if a PE trade is "good"
-    // Based on PCR (Put Call Ratio) logic
-    function isGoodPeTrade(group) {
-      const e = group.primary;
-
-      // Must be PE option type
-      if (e.optionType !== "PE") return false;
-
-      // Must be Seller role (good PE is for sellers)
-      if (e.role !== "Seller") return false;
-
-      // If PCR data is available, apply the PCR logic
-      if (e.pcr !== undefined && e.pcr !== null) {
-        // Bearish PCR (> 1.2) is good for PE sellers
-        if (e.pcr > 1.2) return true;
-        // Neutral PCR (0.8 to 1.2) is okay for PE sellers with caution
-        if (e.pcr >= 0.8) return true;
-        // Below 0.8 (Bullish) is not good for PE sellers
-        return false;
-      }
-
-      // If no PCR data, we can't determine if it's a "good PE" trade
-      // Return false to be conservative
-      return false;
-    }
-
-    async function loadDataFromDB() {
-      clearError();
-      try {
-        const resp = await fetch(`${API_BASE_URL}/successes?limit=10000`);
-        if (!resp.ok) {
-          showError("Could not connect to database API at " + API_BASE_URL);
-          return;
-        }
-        const json = await resp.json();
-        if (json.status !== 'success' || !json.data) {
-          showError("Invalid API response: " + JSON.stringify(json));
-          return;
-        }
-        const entries = transformAPIToEntries(json.data);
-        allGroups = groupEntries(entries);
-        populateStockDropdown(allGroups);
-        checkAndNotifyNewOrders(allGroups);
-        applyFiltersAndRender();
-      } catch (e) {
-        console.error(e);
-        showError("Error loading from database: " + e.message);
-      }
-    }
-
-    function transformAPIToEntries(apiData) {
-      const now = new Date();
-      const FUT_LOT_FALLBACK = 50;
-      const entries = [];
-
-      for (const item of apiData) {
-        const underlying = item.symbol ? item.symbol.toUpperCase() : "";
-        const instKey = item.instrument_key || "";
-        const strikeStr = item.strike ? item.strike.toString() : "";
-        let optType = item.option_type ? item.option_type.toUpperCase() : "";
-        if (optType === "FU" || optType === "FUTURE") optType = "FUT";
-
-        const parsedInst = parseFoInstrument(instKey, underlying, strikeStr, optType);
-        const stock = parsedInst.stock;
-        const expiry = parsedInst.expiry;
-        const strike = parsedInst.strike;
-        optType = parsedInst.optionType || optType;
-
-        const side = item.side ? item.side.toUpperCase() : "";
-        const role = side === "BUY" ? "Buyer" : side === "SELL" ? "Seller" : side || "-";
-        const moneyness = item.moneyness || "";
-        const strikeType = mapMoneynessToStrikeType(moneyness);
-
-        const tsString = item.timestamp || "";
-        let daysPassed = "";
-        if (tsString) {
-          const entryDate = new Date(tsString);
-          if (!isNaN(entryDate.getTime())) {
-            const diffMs = now - entryDate;
-            daysPassed = Math.floor(diffMs / (1000 * 60 * 60 * 24));
-          }
-        }
-
-        // Calculate PnL
-        let pnlAbs = null;
-        let pnlPct = null;
-        const price = parseFloat(item.price) || 0;
-        const ltp = parseFloat(item.ltp) || 0;
-
-        if (!isNaN(price) && price !== 0 && !isNaN(ltp) && side) {
-          if (side === "BUY") {
-            pnlAbs = (ltp - price);
-          } else if (side === "SELL") {
-            pnlAbs = (price - ltp);
-          }
-          pnlPct = (pnlAbs / price) * 100;
-        }
-
-        const csvStatus = (item.status || "").toLowerCase().trim();
-        let displayStatus = "open";
-        if (csvStatus === "done") {
-          displayStatus = "done";
-        } else if (pnlPct !== null && pnlPct >= 100) {
-          displayStatus = "done";
-        }
-
-        const groupKey = optType === "FUT" ? `${stock}|${expiry || "FUT"}|${optType}` : `${stock}|${strike}|${optType}`;
-        const qty = item.qty || 0;
-        const lots = optType === "FUT" && qty ? Math.max(1, Math.round(qty / FUT_LOT_FALLBACK)) : null;
-
-        entries.push({
-          groupKey,
-          stock,
-          expiry,
-          strike,
-          optionType: optType,
-          side,
-          role,
-          qty,
-          lots,
-          price,
-          ltp,
-          mRaw: moneyness,
-          csvStatus,
-          displayStatus,
-          pcr: item.pcr && item.pcr > 0 ? parseFloat(item.pcr) : null,
-          oiSame: parseFloat(item.oi_same) || 0,
-          oiOpposite: parseFloat(item.oi_opposite) || 0,
-          timestamp: tsString,
-          daysPassed,
-          pnlAbs,
-          pnlPct,
-          progressLabel: (item.progress_label || "running").toLowerCase().trim(),
-          progressHistory: item.progress_history || "",
-          maxReturnHigh: parseFloat(item.max_return_high) || 0,
-          maxReturnLow: parseFloat(item.max_return_low) || 0,
-          hedgeTag: null,
-        });
-      }
-
-      // Tag futures as Hedge/Naked based on nearby option flows (±5 minutes)
-      const optionTimesByStock = new Map();
-      entries.forEach(e => {
-        if (e.optionType === "FUT") return;
-        const t = Date.parse(e.timestamp);
-        if (!isNaN(t)) {
-          const arr = optionTimesByStock.get(e.stock) || [];
-          arr.push(t);
-          optionTimesByStock.set(e.stock, arr);
-        }
-      });
-
-      const HEDGE_WINDOW_MS = 5 * 60 * 1000;
-      entries.forEach(e => {
-        if (e.optionType !== "FUT") return;
-        const t = Date.parse(e.timestamp);
-        const candidates = optionTimesByStock.get(e.stock) || [];
-        let tag = "NAKED";
-        if (!isNaN(t)) {
-          const matched = candidates.some(ts => Math.abs(ts - t) <= HEDGE_WINDOW_MS);
-          if (matched) tag = "HEDGE";
-        }
-        e.hedgeTag = tag;
-      });
-
-      return entries;
-    }
-
-    function parseFoInstrument(instKey, fallbackStock, fallbackStrike, fallbackOptType) {
-      if (!instKey) {
+# ===================== PARSE / EXTRACT HELPERS =====================
+def parse_underlying_from_symbol(symbol_key):
+    meta = instrument_meta.get(symbol_key)
+    if meta:
+        strike_raw = meta.get("strike")
         return {
-          stock: fallbackStock || "-",
-          expiry: "",
-          strike: fallbackStrike ? parseFloat(fallbackStrike) : "",
-          optionType: fallbackOptType || ""
-        };
-      }
-      const parts = instKey.split(":");
-      const raw = parts.length > 1 ? parts[1] : parts[0];
+            "underlying":  str(meta.get("symbol") or meta.get("name") or "").upper() or None,
+            "expiry":      meta.get("expiry"),
+            "strike":      float(strike_raw) if strike_raw is not None and not pd.isna(strike_raw) else None,
+            "option_type": (str(meta.get("option_type") or "").upper() or None),
+        }
+    return {"underlying": symbol_key.upper(), "expiry": None, "strike": None, "option_type": None}
 
-      const m = raw.match(/^([A-Z0-9]+)(\d{2}[A-Z]{3})(\d+)(CE|PE)$/i);
-      if (m) {
-        return {
-          stock: m[1].toUpperCase(),
-          expiry: m[2].toUpperCase(),
-          strike: parseFloat(m[3]),
-          optionType: m[4].toUpperCase()
-        };
-      }
 
-      const futMatch = raw.match(/^([A-Z0-9]+)(\d{2}[A-Z]{3})FUT$/i);
-      if (futMatch) {
-        return {
-          stock: futMatch[1].toUpperCase(),
-          expiry: futMatch[2].toUpperCase(),
-          strike: "",
-          optionType: "FUT"
-        };
-      }
+def extract_underlying_from_key(symbol_key: str) -> str:
+    meta = instrument_meta.get(symbol_key)
+    if meta:
+        return str(meta.get("symbol") or meta.get("name") or "").upper()
+    return symbol_key.upper()
 
-      return {
-        stock: fallbackStock || raw.toUpperCase(),
-        expiry: "",
-        strike: fallbackStrike ? parseFloat(fallbackStrike) : "",
-        optionType: fallbackOptType || ""
-      };
+
+def is_future_symbol(symbol_key: str) -> bool:
+    meta  = instrument_meta.get(symbol_key, {})
+    itype = str(meta.get('instrument_type', '')).upper()
+    return 'FUT' in itype
+
+
+def get_lot_size_for_symbol(symbol_key):
+    meta = instrument_meta.get(symbol_key, {})
+    lot  = meta.get('lot_size')
+    try:
+        if lot is not None and float(lot) > 0:
+            return float(lot)
+    except Exception:
+        pass
+    return DEFAULT_LOT_SIZE
+
+
+# ===================== UNDERLYING SPOT / PCT CHANGE =====================
+def get_daily_pct_change_for_underlying(symbol):
+    underlying = extract_underlying_from_key(symbol)
+    if not underlying:
+        return None, None
+
+    if underlying in ("NIFTY", "SENSEX"):
+        token    = "26000" if underlying == "NIFTY" else "1"
+        exchange = "NSE"   if underlying == "NIFTY" else "BSE"
+        try:
+            resp = requests.post(
+                f"{BASE_URL_ANGEL}/rest/secure/angelbroking/market/v1/quote/",
+                headers=get_angel_headers(with_auth=True),
+                json={"mode": "FULL", "exchangeTokens": {exchange: [token]}},
+                timeout=10
+            )
+            data = resp.json()
+            if data.get('status'):
+                items = data.get('data', {}).get('fetched', [])
+                if items:
+                    item    = items[0]
+                    current = float(item.get('ltp', 0) or 0)
+                    open_p  = float(item.get('open', 0) or 0)
+                    if current > 0 and open_p > 0:
+                        return current, round((current - open_p) / open_p * 100, 2)
+        except Exception:
+            pass
+        return None, None
+
+    # Stocks -> yfinance
+    try:
+        hist = yf.Ticker(underlying + ".NS").history(period="1d", interval="1m")
+        if hist is not None and not hist.empty:
+            current_price = float(hist["Close"].iloc[-1])
+            open_price    = float(hist["Open"].iloc[0])
+            if open_price > 0:
+                return current_price, round((current_price - open_price) / open_price * 100, 2)
+    except Exception:
+        pass
+    return None, None
+
+
+def get_underlying_cmp(symbol, meta=None, data=None):
+    global underlying_spots
+    underlying = extract_underlying_from_key(symbol)
+    if not underlying:
+        return None
+
+    if underlying == "NIFTY":
+        price = index_spots.get("NIFTY")
+    elif underlying == "SENSEX":
+        price = index_spots.get("SENSEX")
+    else:
+        price = underlying_spots.get(underlying)
+        if price is None:
+            try:
+                hist = yf.Ticker(underlying + ".NS").history(period="1d", interval="1m")
+                if hist is not None and not hist.empty:
+                    price = float(hist["Close"].iloc[-1])
+                    underlying_spots[underlying] = price
+            except Exception:
+                price = None
+
+    if (price is None or price <= 0) and data is not None:
+        live = data.get("underlying_price") or data.get("underlying_value")
+        try:
+            if live is not None:
+                price = float(live)
+        except Exception:
+            pass
+
+    if price is None:
+        return None
+    try:
+        price = float(price)
+        return price if price > 0 else None
+    except Exception:
+        return None
+
+
+# ===================== STRIKE CLASSIFICATION =====================
+def classify_strike(symbol_key, data):
+    meta        = instrument_meta.get(symbol_key, {})
+    parsed      = parse_underlying_from_symbol(symbol_key)
+    option_type = (parsed["option_type"] or str(meta.get("option_type", ""))).upper()
+    strike      = parsed["strike"] if parsed["strike"] is not None else meta.get("strike")
+
+    if option_type not in ("CE", "PE"):
+        return "UNKNOWN"
+    if strike is None:
+        return "UNKNOWN"
+
+    strike           = float(strike)
+    underlying_price = get_underlying_cmp(symbol_key, meta, data)
+    if not underlying_price or underlying_price <= 0:
+        return "UNKNOWN"
+
+    diff     = strike - underlying_price
+    rel_diff = abs(diff) / underlying_price
+
+    if rel_diff <= 0.01:
+        return "ATM"
+    if option_type == "CE":
+        if diff < 0:
+            return "ITM" if rel_diff <= 0.03 else "DEEP_ITM"
+        else:
+            return "OTM" if rel_diff <= 0.03 else "DEEP_OTM"
+    else:
+        if diff > 0:
+            return "ITM" if rel_diff <= 0.03 else "DEEP_ITM"
+        else:
+            return "OTM" if rel_diff <= 0.03 else "DEEP_OTM"
+
+
+# ===================== WHALE DETECTION =====================
+def get_whale_order(depth_list, lot_size, symbol_key=None):
+    if not depth_list:
+        return None
+    top_levels = depth_list[:2]
+    biggest    = max(top_levels, key=lambda x: x.get('quantity', 0))
+
+    qty    = biggest.get('quantity', 0)
+    orders = biggest.get('orders', 0)
+    price  = biggest.get('price', 0)
+
+    if orders == 0 or price == 0 or price < 10:
+        return None
+
+    total_order_value = qty * price
+    total_lots        = qty / float(lot_size) if lot_size else 0.0
+    avg_qty           = qty / orders
+    avg_lots          = avg_qty / float(lot_size) if lot_size else 0.0
+
+    if symbol_key and is_future_symbol(symbol_key):
+        if total_lots <= FUT_MIN_TOTAL_LOTS:
+            return None
+        return (qty, price, orders, avg_lots)
+    else:
+        if total_lots <= 50:
+            return None
+
+    if total_order_value >= MIN_ORDER_VALUE and avg_lots >= 1.5:
+        avg_qty  = qty / orders
+        avg_lots = avg_qty / lot_size
+        if avg_lots >= 1.5:
+            return (qty, price, orders, avg_lots)
+    return None
+
+
+# ===================== OI PAIR =====================
+def get_oi_pair_for_symbol(symbol_key, batch_data):
+    oi_same     = 0
+    oi_opposite = 0
+    if not batch_data:
+        return oi_same, oi_opposite
+
+    if symbol_key in batch_data:
+        oi_same = batch_data[symbol_key].get("oi", 0) or 0
+
+    parsed     = parse_underlying_from_symbol(symbol_key)
+    underlying = parsed["underlying"]
+    strike     = parsed["strike"]
+    opt_type   = parsed["option_type"]
+
+    if not underlying or strike is None or opt_type not in ("CE", "PE"):
+        return oi_same, oi_opposite
+
+    opposite_opt = "PE" if opt_type == "CE" else "CE"
+    for k, details in batch_data.items():
+        pk = parse_underlying_from_symbol(k)
+        if (pk["underlying"] == underlying and
+                pk["strike"] == strike and
+                pk["option_type"] == opposite_opt):
+            oi_opposite = details.get("oi", 0) or 0
+            break
+
+    return oi_same, oi_opposite
+
+
+# ===================== UTILITY =====================
+def chunked(lst, size):
+    for i in range(0, len(lst), size):
+        yield lst[i:i + size]
+
+
+def limit_option_strikes(all_keys):
+    selected_keys = set()
+    groups        = {}
+
+    for key in all_keys:
+        meta        = instrument_meta.get(key, {})
+        inst_type   = str(meta.get('instrument_type', '')).upper()
+        option_type = str(meta.get('option_type', '')).upper()
+        strike      = meta.get('strike')
+
+        if "FUT" in inst_type and not option_type:
+            selected_keys.add(key)
+            continue
+        if option_type not in ["CE", "PE"] or strike is None or pd.isna(strike):
+            selected_keys.add(key)
+            continue
+
+        underlying = str(meta.get('symbol') or meta.get('name') or "").upper()
+        groups.setdefault((underlying, option_type), []).append((key, float(strike)))
+
+    for (underlying, opt_type), items in groups.items():
+        if underlying == "NIFTY":
+            cmp_price = index_spots.get("NIFTY")
+        elif underlying == "SENSEX":
+            cmp_price = index_spots.get("SENSEX")
+        else:
+            cmp_price = underlying_spots.get(underlying)
+
+        strikes_sorted = sorted(items, key=lambda ks: ks[1])
+        strikes_only   = [s for _, s in strikes_sorted]
+        if not strikes_only:
+            continue
+
+        if not cmp_price or cmp_price <= 0:
+            atm_idx = len(strikes_only) // 2
+        else:
+            atm_idx = min(range(len(strikes_only)),
+                          key=lambda i: abs(strikes_only[i] - cmp_price))
+
+        atm_start = max(0, atm_idx - 7)
+        atm_end   = min(len(strikes_only) - 1, atm_idx + 7)
+        allowed   = set(range(atm_start, atm_end + 1))
+
+        if opt_type == "CE":
+            if atm_idx > 0:                            allowed.add(atm_idx - 1)
+            if atm_idx + 7 < len(strikes_only):        allowed.add(atm_idx + 7)
+        else:
+            if atm_idx < len(strikes_only) - 1:        allowed.add(atm_idx + 1)
+            if atm_idx - 7 >= 0:                       allowed.add(atm_idx - 7)
+
+        allowed_strikes = {strikes_only[i] for i in allowed}
+        for key, strike in strikes_sorted:
+            if strike in allowed_strikes:
+                selected_keys.add(key)
+
+    print(f"Total instruments after ATM filtering: {len(selected_keys)}")
+    return [k for k in all_keys if k in selected_keys]
+
+
+# ===================== ANGELONE QUOTE FETCH =====================
+def fetch_angel_quotes(keys_by_exchange: dict) -> dict:
+    """
+    Fetch FULL quotes from AngelOne.
+    keys_by_exchange: { "NFO": ["tok1","tok2"], "BFO": ["tok3"], ... }
+    Returns: { "NFO:tok1": normalised_data_dict, ... }
+    AngelOne FULL response fields mapped:
+      ltp            -> last_price
+      tradeVolume    -> volume
+      opnInterest    -> oi
+      totBuyQuan     -> total_buy_quantity
+      totSellQuan    -> total_sell_quantity
+      depth.buy/sell -> depth.buy/sell  (same structure: price, quantity, orders)
+    """
+    result = {}
+    if not keys_by_exchange:
+        return result
+    try:
+        resp = requests.post(
+            f"{BASE_URL_ANGEL}/rest/secure/angelbroking/market/v1/quote/",
+            headers=get_angel_headers(with_auth=True),
+            json={"mode": "FULL", "exchangeTokens": keys_by_exchange},
+            timeout=15
+        )
+        data = resp.json()
+        if data.get('status'):
+            for item in data.get('data', {}).get('fetched', []):
+                exchange = str(item.get('exchange', ''))
+                token    = str(item.get('symbolToken', ''))
+                key      = f"{exchange}:{token}"
+                result[key] = {
+                    'last_price':          float(item.get('ltp', 0) or 0),
+                    'volume':              int(item.get('tradeVolume', 0) or 0),
+                    'oi':                  int(item.get('opnInterest', 0) or 0),
+                    'total_buy_quantity':  int(item.get('totBuyQuan', 0) or 0),
+                    'total_sell_quantity': int(item.get('totSellQuan', 0) or 0),
+                    'instrument_token':    token,
+                    'open':                float(item.get('open', 0) or 0),
+                    'high':                float(item.get('high', 0) or 0),
+                    'low':                 float(item.get('low', 0) or 0),
+                    'close':               float(item.get('close', 0) or 0),
+                    'depth': {
+                        'buy':  item.get('depth', {}).get('buy', []),
+                        'sell': item.get('depth', {}).get('sell', []),
+                    },
+                }
+        else:
+            print(f"AngelOne quote API error: {data.get('message', '')}")
+    except Exception as e:
+        print(f"AngelOne fetch error: {e}")
+    return result
+
+
+# ===================== CORE ANALYSIS =====================
+_depth_debug_printed = False   # print depth sample once at startup to verify AngelOne field names
+
+def analyze_instrument(symbol_key, data, batch_data):
+    global history, _depth_debug_printed
+
+    lot_size   = get_lot_size_for_symbol(symbol_key)
+    parsed     = parse_underlying_from_symbol(symbol_key)
+    underlying = parsed["underlying"]
+    pcr        = underlying_pcr.get(underlying)
+    is_fut     = is_future_symbol(symbol_key)
+
+    oi_same, oi_opposite = get_oi_pair_for_symbol(symbol_key, batch_data)
+
+    instrument_token = data.get('instrument_token')
+    depth            = data.get('depth', {})
+    bids             = depth.get('buy', [])
+    asks             = depth.get('sell', [])
+
+    # --- DEBUG: print a sample depth record once to verify AngelOne field names ---
+    if not _depth_debug_printed and (bids or asks):
+        sample = bids[0] if bids else asks[0]
+        print(f"\n[DEBUG] AngelOne depth sample fields: {list(sample.keys())} | values: {sample}")
+        _depth_debug_printed = True
+
+    curr_vol        = data.get('volume', 0) or 0
+    curr_oi         = data.get('oi', 0) or 0
+    curr_total_buy  = data.get('total_buy_quantity', 0) or 0
+    curr_total_sell = data.get('total_sell_quantity', 0) or 0
+    ltp             = data.get('last_price', 0) or 0
+
+    curr_bid = get_whale_order(bids, lot_size, symbol_key)
+    curr_ask = get_whale_order(asks, lot_size, symbol_key)
+
+    now_ts        = time.time()
+    prev_bid      = prev_ask = None
+    prev_seen_bid = prev_seen_ask = None
+    vol_diff      = oi_diff = 0
+
+    if symbol_key in history:
+        prev          = history[symbol_key]
+        vol_diff      = curr_vol - prev['vol']
+        oi_diff       = curr_oi  - prev['oi']
+        prev_bid      = prev['bid']
+        prev_ask      = prev['ask']
+        prev_seen_bid = prev.get('seen_bid_ts')
+        prev_seen_ask = prev.get('seen_ask_ts')
+
+        # Guard: if cumulative volume never moved, vol_diff is meaningless — skip fill detection
+        vol_is_stale = (curr_vol == 0 or curr_vol == prev['vol'])
+
+        # BUYER FILLED
+        if prev_bid and not curr_bid:
+            prev_qty, prev_price, _, _ = prev_bid
+            persisted = prev_seen_bid and (now_ts - prev_seen_bid) >= MIN_WHALE_PERSISTENCE_S
+            if not persisted:
+                print(f"\n⚠️  BUYER LEFT QUICKLY (likely spoof): {symbol_key} @ {prev_price}")
+            elif vol_is_stale:
+                print(f"\n⚠️  BUYER REMOVED (vol data stale — cannot confirm fill): {symbol_key} @ {prev_price}")
+            elif vol_diff < (prev_qty * MIN_FILL_VOL_RATIO):
+                print(f"\n⚠️  FAKE BUYER REMOVED: {symbol_key}")
+                print(f"   ❌ Support at {prev_price} was FAKE.")
+            else:
+                print(f"\n✅ BIG PLAYER BOUGHT SUCCESSFULLY: {symbol_key} @ {prev_price}")
+                if not is_fut and MIN_OI_DELTA_FOR_SUCCESS > 0 and abs(oi_diff) < MIN_OI_DELTA_FOR_SUCCESS:
+                    print(f"   ⏭️ Skipping success — OI change {oi_diff} below {MIN_OI_DELTA_FOR_SUCCESS}")
+                else:
+                    moneyness = "FUT" if is_fut else classify_strike(symbol_key, data)
+                    record_success(symbol_key, "BUY", prev_qty, prev_price,
+                                   vol_diff, oi_diff, ltp, moneyness, pcr,
+                                   oi_same, oi_opposite, instrument_token)
+
+        # SELLER FILLED
+        if prev_ask and not curr_ask:
+            prev_qty, prev_price, _, _ = prev_ask
+            persisted = prev_seen_ask and (now_ts - prev_seen_ask) >= MIN_WHALE_PERSISTENCE_S
+            if not persisted:
+                print(f"\n⚠️  SELLER LEFT QUICKLY (likely spoof): {symbol_key} @ {prev_price}")
+            elif vol_is_stale:
+                print(f"\n⚠️  SELLER REMOVED (vol data stale — cannot confirm fill): {symbol_key} @ {prev_price}")
+            elif vol_diff < (prev_qty * MIN_FILL_VOL_RATIO):
+                print(f"\n⚠️  FAKE SELLER REMOVED: {symbol_key}")
+                print(f"   ❌ Resistance at {prev_price} was FAKE.")
+            else:
+                print(f"\n🔴 BIG PLAYER SOLD SUCCESSFULLY: {symbol_key} @ {prev_price}")
+                if not is_fut and MIN_OI_DELTA_FOR_SUCCESS > 0 and abs(oi_diff) < MIN_OI_DELTA_FOR_SUCCESS:
+                    print(f"   ⏭️ Skipping success — OI change {oi_diff} below {MIN_OI_DELTA_FOR_SUCCESS}")
+                else:
+                    moneyness = "FUT" if is_fut else classify_strike(symbol_key, data)
+                    record_success(symbol_key, "SELL", prev_qty, prev_price,
+                                   vol_diff, oi_diff, ltp, moneyness, pcr,
+                                   oi_same, oi_opposite, instrument_token)
+
+    # LIVE ENTRY — BUY side
+    # Only fire when the PRICE changes (not just orders/qty count), to avoid REST-poll noise
+    prev_bid_price = prev_bid[1] if prev_bid else None
+    curr_bid_price = curr_bid[1] if curr_bid else None
+    if curr_bid and curr_bid_price != prev_bid_price:
+        qty, price, _, avg_lots = curr_bid
+        if not is_fut and MIN_OI_FOR_ENTRY > 0 and oi_same < MIN_OI_FOR_ENTRY:
+            print(f"\n⏭️ Skipping entry (low OI {oi_same} < {MIN_OI_FOR_ENTRY}): {symbol_key}")
+        else:
+            moneyness = "FUT" if is_fut else classify_strike(symbol_key, data)
+            print(f"\n🚀 BIG BUYER SITTING: {symbol_key} | Qty: {qty} | Price: {price} | LTP: {ltp} | moneyness: {moneyness}")
+            print(f"\n Symbol: {symbol_key} | Qty: {qty} | Price: {price} | LTP: {ltp} | Moneyness: {moneyness} | PCR: {pcr} | OI (same): {oi_same} | OI (opp): {oi_opposite}")
+            record_entry(symbol_key, "BUY", qty, price, ltp,
+                         moneyness, pcr, oi_same, oi_opposite, instrument_token)
+
+    # LIVE ENTRY — SELL side
+    prev_ask_price = prev_ask[1] if prev_ask else None
+    curr_ask_price = curr_ask[1] if curr_ask else None
+    if curr_ask and curr_ask_price != prev_ask_price:
+        qty, price, _, avg_lots = curr_ask
+        if not is_fut and MIN_OI_FOR_ENTRY > 0 and oi_same < MIN_OI_FOR_ENTRY:
+            print(f"\n⏭️ Skipping entry (low OI {oi_same} < {MIN_OI_FOR_ENTRY}): {symbol_key}")
+        else:
+            moneyness = "FUT" if is_fut else classify_strike(symbol_key, data)
+            print(f"\n🔻 BIG SELLER SITTING: {symbol_key} | Qty: {qty} | Price: {price} | LTP: {ltp} | moneyness: {moneyness}")
+            print(f"\n Symbol: {symbol_key} | Qty: {qty} | Price: {price} | LTP: {ltp} | Moneyness: {moneyness} | PCR: {pcr} | OI (same): {oi_same} | OI (opp): {oi_opposite}")
+            record_entry(symbol_key, "SELL", qty, price, ltp,
+                         moneyness, pcr, oi_same, oi_opposite, instrument_token)
+
+    seen_bid_ts = None
+    seen_ask_ts = None
+    if curr_bid:
+        # Keep the original seen timestamp if price is unchanged (whale still at same level)
+        seen_bid_ts = prev_seen_bid if (curr_bid_price == prev_bid_price and prev_seen_bid) else now_ts
+    if curr_ask:
+        seen_ask_ts = prev_seen_ask if (curr_ask_price == prev_ask_price and prev_seen_ask) else now_ts
+
+    history[symbol_key] = {
+        'vol':         curr_vol,
+        'oi':          curr_oi,
+        'total_buy':   curr_total_buy,
+        'total_sell':  curr_total_sell,
+        'bid':         curr_bid,
+        'ask':         curr_ask,
+        'seen_bid_ts': seen_bid_ts,
+        'seen_ask_ts': seen_ask_ts,
     }
 
-    function parseFoInstrument(instKey, fallbackStock, fallbackStrike, fallbackOptType) {
-      if (!instKey) {
-        return {
-          stock: fallbackStock || "-",
-          expiry: "",
-          strike: fallbackStrike ? parseFloat(fallbackStrike) : "",
-          optionType: fallbackOptType || ""
-        };
-      }
-      const parts = instKey.split(":");
-      const raw = parts.length > 1 ? parts[1] : parts[0];
-
-      const m = raw.match(/^([A-Z0-9]+)(\d{2}[A-Z]{3})(\d+)(CE|PE)$/i);
-      if (m) {
-        return {
-          stock: m[1].toUpperCase(),
-          expiry: m[2].toUpperCase(),
-          strike: parseFloat(m[3]),
-          optionType: m[4].toUpperCase()
-        };
-      }
-
-      const futMatch = raw.match(/^([A-Z0-9]+)(\d{2}[A-Z]{3})(\d+)FUT$/i);
-      if (futMatch) {
-        return {
-          stock: futMatch[1].toUpperCase(),
-          expiry: futMatch[2].toUpperCase(),
-          strike: parseFloat(futMatch[3]),
-          optionType: "FUTURE"
-        };
-      }
-
-      return {
-        stock: fallbackStock || raw.toUpperCase(),
-        expiry: "",
-        strike: fallbackStrike ? parseFloat(fallbackStrike) : "",
-        optionType: fallbackOptType || ""
-      };
-    }
-
-    function mapMoneynessToStrikeType(m) {
-      if (!m) return "OTHER";
-      if (m === "ATM") return "ATM";
-      if (m.includes("ITM")) return "ITM";
-      if (m.includes("OTM")) return "OTM";
-      return "OTHER";
-    }
-
-    function groupEntries(entries) {
-      const groupsMap = new Map();
-      for (const e of entries) {
-        const key = e.groupKey;
-        if (!groupsMap.has(key)) {
-          groupsMap.set(key, {
-            key,
-            stock: e.stock,
-            expiry: e.expiry,
-            strike: e.strike,
-            optionType: e.optionType,
-            items: []
-          });
-        }
-        groupsMap.get(key).items.push(e);
-      }
-
-      const groups = [];
-      for (const g of groupsMap.values()) {
-        // Sort items by timestamp ascending so first = earliest
-        g.items.sort((a, b) => {
-          const da = a.timestamp ? new Date(a.timestamp).getTime() : 0;
-          const db = b.timestamp ? new Date(b.timestamp).getTime() : 0;
-          return da - db;
-        });
-
-        // Use first recorded order as entry point
-        const firstEntry = g.items[0];
-        const lastEntry = g.items[g.items.length - 1];
-
-        // Recalculate PnL using first entry's price and last entry's LTP
-        // Direct calculation: (LTP - EntryPrice) / EntryPrice * 100
-        let pnlAbs = null;
-        let pnlPct = null;
-        const entryPrice = parseFloat(firstEntry.price);
-        const currentLtp = parseFloat(lastEntry.ltp);
-
-        if (!isNaN(entryPrice) && entryPrice !== 0 && !isNaN(currentLtp)) {
-          pnlAbs = currentLtp - entryPrice;
-          pnlPct = (pnlAbs / entryPrice) * 100;
-        }
-
-        // Determine status based on return
-        // Priority: CSV "done" status > calculated based on return >= 100%
-        let displayStatus = "open";
-        const csvStatus = firstEntry.csvStatus || "";
-
-        if (csvStatus === "done") {
-          // CSV explicitly says "done", use that
-          displayStatus = "done";
-        } else if (pnlPct !== null && pnlPct >= 100) {
-          // CSV is empty/open but return >= 100%, show "done" (don't write to sheet)
-          displayStatus = "done";
-        }
-
-        // Create primary object with corrected PnL and status
-        const primary = {
-          ...firstEntry,
-          pnlAbs,
-          pnlPct,
-          displayStatus
-        };
-
-        // Debug logging for suspicious entries
-        if (Math.abs(pnlPct) > 100) {
-          console.log(`[PnL Debug] ${g.stock} ${g.strike} ${g.optionType}:`, {
-            entryPrice,
-            currentLtp,
-            pnlAbs,
-            pnlPct,
-            firstEntryPrice: firstEntry.price,
-            firstEntryLtp: firstEntry.ltp,
-            lastEntryPrice: lastEntry.price,
-            lastEntryLtp: lastEntry.ltp
-          });
-        }
-
-        groups.push({
-          key: g.key,
-          stock: g.stock,
-          expiry: g.expiry,
-          strike: g.strike,
-          optionType: g.optionType,
-          primary,
-          items: g.items
-        });
-      }
-
-      return groups;
-    }
-
-    function populateStockDropdown(groups) {
-      const select = document.getElementById("stockFilter");
-      // Clear existing options except the first "All" option
-      while (select.options.length > 1) {
-        select.remove(1);
-      }
-
-      const names = [...new Set(groups.map(g => g.stock).filter(Boolean))].sort();
-      for (const n of names) {
-        // Check if this stock has multiple entries with different returns
-        const stockGroups = groups.filter(g => g.stock === n);
-        let hasMultipleReturns = false;
-
-        if (stockGroups.length > 1) {
-          // Check if returns are different
-          const returns = stockGroups.map(g => g.primary.pnlPct).filter(r => r !== null);
-          if (returns.length > 1) {
-            const uniqueReturns = new Set(returns.map(r => r.toFixed(2)));
-            hasMultipleReturns = uniqueReturns.size > 1;
-          }
-        }
-
-        const opt = document.createElement("option");
-        opt.value = n;
-        opt.textContent = hasMultipleReturns ? n + " ⚠" : n;
-        select.appendChild(opt);
-      }
-      document.getElementById("totalRows").textContent = groups.reduce((sum, g) => sum + g.items.length, 0);
-    }
-
-    function attachFilterListeners() {
-      const saveAndRender = () => {
-        applyFiltersAndRender();
-        saveFilterStateToStorage();
-      };
-      document.getElementById("stockFilter").addEventListener("change", saveAndRender);
-      document.getElementById("stockSearchInput").addEventListener("input", saveAndRender);
-      document.getElementById("clearStockSearchBtn").addEventListener("click", () => {
-        document.getElementById("stockSearchInput").value = "";
-        saveAndRender();
-      });
-      document.getElementById("optionTypeFilter").addEventListener("change", saveAndRender);
-      document.getElementById("strikeTypeFilter").addEventListener("change", saveAndRender);
-      document.getElementById("roleFilter").addEventListener("change", saveAndRender);
-      document.getElementById("statusFilter").addEventListener("change", saveAndRender);
-      document.getElementById("pnlTypeFilter").addEventListener("change", saveAndRender);
-      document.getElementById("hideIndexFilter").addEventListener("change", saveAndRender);
-      document.getElementById("showIndexFilter").addEventListener("change", saveAndRender);
-      document.getElementById("progressLabelFilter").addEventListener("change", saveAndRender);
-      document.getElementById("pcrAdviceFilter").addEventListener("change", saveAndRender);
-      document.getElementById("dateFromFilter").addEventListener("change", saveAndRender);
-      document.getElementById("dateToFilter").addEventListener("change", saveAndRender);
-      document.getElementById("returnFromFilter").addEventListener("change", saveAndRender);
-      document.getElementById("returnToFilter").addEventListener("change", saveAndRender);
-      document.getElementById("maxHighFromFilter").addEventListener("change", saveAndRender);
-      document.getElementById("maxHighToFilter").addEventListener("change", saveAndRender);
-      document.getElementById("maxLowFromFilter").addEventListener("change", saveAndRender);
-      document.getElementById("maxLowToFilter").addEventListener("change", saveAndRender);
-      document.getElementById("returnMaxHighDiffFilter").addEventListener("change", saveAndRender);
-      document.getElementById("multipleEntriesFilter").addEventListener("change", saveAndRender);
-      document.getElementById("hideFutFilter").addEventListener("change", saveAndRender);
-      document.getElementById("goodPeOnlyFilter").addEventListener("change", saveAndRender);
-
-
-      // Clear filters button
-      document.getElementById("clearFiltersBtn").addEventListener("click", clearAllFilters);
-
-      // Today's trades button
-      document.getElementById("todayTradesBtn").addEventListener("click", showTodaysTrades);
-
-      // Toggle hidden rows button
-      document.getElementById("toggleHiddenBtn").addEventListener("click", () => {
-        showHiddenRows = !showHiddenRows;
-        const btn = document.getElementById("toggleHiddenBtn");
-        btn.style.background = showHiddenRows ? "#f59e0b" : "#6b7280";
-        btn.innerHTML = showHiddenRows
-          ? '👁 Showing Hidden (<span id="hiddenCount">' + hiddenRowKeys.size + '</span>)'
-          : '👁 Show Hidden Rows (<span id="hiddenCount">' + hiddenRowKeys.size + '</span>)';
-        applyFiltersAndRender();
-      });
-
-      // Clear hidden rows button
-      document.getElementById("clearHiddenBtn").addEventListener("click", () => {
-        hiddenRowKeys.clear();
-        localStorage.setItem("hiddenRowKeys", "[]");
-        updateHiddenCount();
-        applyFiltersAndRender();
-      });
-
-      updateHiddenCount();
-    }
-
-    function attachPercentageTabListeners() {
-      const tabs = document.querySelectorAll(".percentage-tab");
-      tabs.forEach(tab => {
-        tab.addEventListener("click", () => {
-          // Remove active class from all tabs
-          tabs.forEach(t => t.classList.remove("active"));
-          // Add active class to clicked tab
-          tab.classList.add("active");
-          // Update filter
-          percentageRangeFilter = tab.getAttribute("data-range");
-          applyFiltersAndRender();
-        });
-      });
-      // Set "All Records" as active by default
-      tabs[0].classList.add("active");
-    }
-
-    function updateHiddenCount() {
-      const countEl = document.getElementById("hiddenCount");
-      if (countEl) countEl.textContent = hiddenRowKeys.size;
-    }
-
-    function clearAllFilters() {
-      // Reset all filter inputs to their default values
-      document.getElementById("stockFilter").value = "";
-      document.getElementById("stockSearchInput").value = "";
-      document.getElementById("optionTypeFilter").value = "";
-      document.getElementById("strikeTypeFilter").value = "";
-      document.getElementById("roleFilter").value = "";
-      document.getElementById("statusFilter").value = "open";
-      document.getElementById("pnlTypeFilter").value = "";
-      document.getElementById("hideIndexFilter").value = "";
-      document.getElementById("showIndexFilter").value = "";
-      document.getElementById("progressLabelFilter").value = "";
-      document.getElementById("pcrAdviceFilter").value = "";
-      document.getElementById("dateFromFilter").value = "";
-      document.getElementById("dateToFilter").value = "";
-      document.getElementById("returnFromFilter").value = "";
-      document.getElementById("returnToFilter").value = "";
-      document.getElementById("maxHighFromFilter").value = "";
-      document.getElementById("maxHighToFilter").value = "";
-      document.getElementById("maxLowFromFilter").value = "";
-      document.getElementById("maxLowToFilter").value = "";
-      document.getElementById("returnMaxHighDiffFilter").value = "";
-      document.getElementById("multipleEntriesFilter").checked = false;
-      document.getElementById("hideFutFilter").checked = false;
-      document.getElementById("goodPeOnlyFilter").checked = false;
-
-      // Apply filters and save state
-      applyFiltersAndRender();
-      saveFilterStateToStorage();
-    }
-
-    function showTodaysTrades() {
-      // Get today's date in YYYY-MM-DD format
-      const today = new Date();
-      const year = today.getFullYear();
-      const month = String(today.getMonth() + 1).padStart(2, '0');
-      const day = String(today.getDate()).padStart(2, '0');
-      const todayStr = `${year}-${month}-${day}`;
-
-      // Set date filters to today only
-      document.getElementById("dateFromFilter").value = todayStr;
-      document.getElementById("dateToFilter").value = todayStr;
-
-      // Apply filters and save state
-      applyFiltersAndRender();
-      saveFilterStateToStorage();
-    }
-
-    function attachSortListeners() {
-      const headers = document.querySelectorAll("th.sortable");
-      headers.forEach(th => {
-        th.addEventListener("click", () => {
-          const key = th.getAttribute("data-sort-key");
-          if (!key) return;
-          if (currentSortKey === key) {
-            currentSortDir = currentSortDir === "asc" ? "desc" : "asc";
-          } else {
-            currentSortKey = key;
-            currentSortDir = "asc";
-          }
-          applyFiltersAndRender();
-          updateSortIndicators();
-          saveFilterStateToStorage();
-        });
-      });
-    }
-
-    function updateSortIndicators() {
-      const headers = document.querySelectorAll("th.sortable");
-      headers.forEach(th => {
-        const key = th.getAttribute("data-sort-key");
-        const span = th.querySelector(".sort-indicator");
-        if (!span) return;
-        if (key === currentSortKey) {
-          span.textContent = currentSortDir === "asc" ? "▲" : "▼";
-        } else {
-          span.textContent = "";
-        }
-      });
-    }
-
-    function applyFiltersAndRender() {
-      const stockFilter = document.getElementById("stockFilter").value;
-      const stockSearchVal = (document.getElementById("stockSearchInput").value || "").trim().toLowerCase();
-      const optFilter   = document.getElementById("optionTypeFilter").value;
-      const strikeFilter= document.getElementById("strikeTypeFilter").value;
-      const roleFilter  = document.getElementById("roleFilter").value;
-      const statusFilter= document.getElementById("statusFilter").value;
-      const pnlTypeFilter = document.getElementById("pnlTypeFilter").value;
-      const hideIndexFilterEl = document.getElementById("hideIndexFilter");
-      const hideIndexArray = Array.from(hideIndexFilterEl.selectedOptions).map(opt => opt.value);
-      const showIndexFilterEl = document.getElementById("showIndexFilter");
-      const showIndexArray = Array.from(showIndexFilterEl.selectedOptions).map(opt => opt.value);
-      const progressLabelFilter = document.getElementById("progressLabelFilter").value;
-      const pcrAdviceFilter = document.getElementById("pcrAdviceFilter").value;
-      const dateFromVal = document.getElementById("dateFromFilter").value;
-      const dateToVal   = document.getElementById("dateToFilter").value;
-      const returnFromVal = document.getElementById("returnFromFilter").value;
-      const returnToVal = document.getElementById("returnToFilter").value;
-      const maxHighFromVal = document.getElementById("maxHighFromFilter").value;
-      const maxHighToVal = document.getElementById("maxHighToFilter").value;
-      const maxLowFromVal = document.getElementById("maxLowFromFilter").value;
-      const maxLowToVal = document.getElementById("maxLowToFilter").value;
-      const returnMaxHighDiffVal = document.getElementById("returnMaxHighDiffFilter").value;
-      const multipleEntriesOnly = document.getElementById("multipleEntriesFilter").checked;
-      const hideFut = document.getElementById("hideFutFilter").checked;
-      const goodPeOnly = document.getElementById("goodPeOnlyFilter").checked;
-
-      const fromDate = dateFromVal ? new Date(dateFromVal + "T00:00:00") : null;
-      const toDate   = dateToVal ? new Date(dateToVal + "T23:59:59") : null;
-
-      const returnFromNum = returnFromVal !== "" ? parseFloat(returnFromVal) : null;
-      const returnToNum = returnToVal !== "" ? parseFloat(returnToVal) : null;
-      const maxHighFromNum = maxHighFromVal !== "" ? parseFloat(maxHighFromVal) : null;
-      const maxHighToNum = maxHighToVal !== "" ? parseFloat(maxHighToVal) : null;
-      const maxLowFromNum = maxLowFromVal !== "" ? parseFloat(maxLowFromVal) : null;
-      const maxLowToNum = maxLowToVal !== "" ? parseFloat(maxLowToVal) : null;
-      const returnMaxHighDiffNum = returnMaxHighDiffVal !== "" ? parseFloat(returnMaxHighDiffVal) : null;
-
-      filteredGroups = allGroups.filter(g => {
-        const e = g.primary;
-
-        // Index Only / Stocks Only tabs bypass all other filters
-        if (percentageRangeFilter === "index-only") {
-          return INDEX_STOCKS.includes(g.stock);
-        }
-        if (percentageRangeFilter === "stocks-only") {
-          return !INDEX_STOCKS.includes(g.stock);
-        }
-
-        // Filter hidden rows (unless showHiddenRows is true)
-        if (!showHiddenRows && hiddenRowKeys.has(g.key)) return false;
-
-        if (stockFilter && g.stock !== stockFilter) return false;
-        if (stockSearchVal && !g.stock.toLowerCase().includes(stockSearchVal)) return false;
-
-        if (optFilter && e.optionType !== optFilter) return false;
-
-        if (strikeFilter && mapMoneynessToStrikeType(e.mRaw) !== strikeFilter) return false;
-
-        if (roleFilter && e.role !== roleFilter) return false;
-
-        if (statusFilter && e.displayStatus !== statusFilter) return false;
-
-        // Filter by Hide FUT
-        if (hideFut && e.optionType === "FUT") return false;
-
-        // Filter by PnL Type (Profit/Loss/Both)
-        if (pnlTypeFilter) {
-          if (pnlTypeFilter === "profit" && e.pnlPct <= 0) return false;  // Show only profit trades
-          if (pnlTypeFilter === "loss" && e.pnlPct >= 0) return false;    // Show only loss trades
-        }
-
-         // Filter by Hidden Indices (hide selected indices)
-         if (hideIndexArray.length > 0) {
-           if (hideIndexArray.includes(g.stock)) return false;  // Hide if stock is in the hide list
-         }
-
-         // Filter by Shown Indices (show only selected indices)
-         if (showIndexArray.length > 0) {
-           if (!showIndexArray.includes(g.stock)) return false;  // Show only if stock is in the show list
-         }
-
-        if (progressLabelFilter && e.progressLabel !== progressLabelFilter) return false;
-
-        // Filter by PCR Advice (exact match)
-        if (pcrAdviceFilter) {
-          const pcrAdvice = getPcrAdvice(e.pcr, e.optionType);
-          if (pcrAdvice.text !== pcrAdviceFilter) return false;
-        }
-
-        if (fromDate || toDate) {
-          if (!e.timestamp) return false;
-          const d = new Date(e.timestamp);
-          if (fromDate && d < fromDate) return false;
-          if (toDate && d > toDate) return false;
-        }
-
-        // Filter by Return % Range
-        if (returnFromNum !== null || returnToNum !== null) {
-          if (e.pnlPct === null) return false;  // Skip if no PnL data
-          if (returnFromNum !== null && e.pnlPct < returnFromNum) return false;
-          if (returnToNum !== null && e.pnlPct > returnToNum) return false;
-        }
-
-        // Filter by Max High % Range
-        if (maxHighFromNum !== null || maxHighToNum !== null) {
-          if (e.maxReturnHigh === null) return false;  // Skip if no max high data
-          if (maxHighFromNum !== null && e.maxReturnHigh < maxHighFromNum) return false;
-          if (maxHighToNum !== null && e.maxReturnHigh > maxHighToNum) return false;
-        }
-
-        // Filter by Max Low % Range
-        if (maxLowFromNum !== null || maxLowToNum !== null) {
-          if (e.maxReturnLow === null) return false;  // Skip if no max low data
-          if (maxLowFromNum !== null && e.maxReturnLow < maxLowFromNum) return false;
-          if (maxLowToNum !== null && e.maxReturnLow > maxLowToNum) return false;
-        }
-
-        // Filter by Return - Max High Difference (hide if difference is greater than specified value)
-        if (returnMaxHighDiffNum !== null) {
-          if (e.pnlPct === null || e.maxReturnHigh === null) return false;  // Skip if either data is missing
-          const difference = e.maxReturnHigh - e.pnlPct;
-          if (difference > returnMaxHighDiffNum) return false;  // Hide if difference exceeds threshold
-        }
-
-        // Filter by Multiple Entries
-        if (multipleEntriesOnly && g.items.length <= 1) return false;
-
-        // Filter by Good PE Trades Only
-        if (goodPeOnly && !isGoodPeTrade(g)) return false;
-
-        // Filter by Percentage Range (from tabs)
-        if (percentageRangeFilter !== "all") {
-          if (e.pnlPct === null || !isFinite(e.pnlPct)) return false;
-
-          const pnl = e.pnlPct;
-          switch (percentageRangeFilter) {
-            case "0-25":
-              if (pnl < 0 || pnl > 25) return false;
-              break;
-            case "25-50":
-              if (pnl < 25 || pnl > 50) return false;
-              break;
-            case "50-75":
-              if (pnl < 50 || pnl > 75) return false;
-              break;
-            case "75-100":
-              if (pnl < 75 || pnl > 100) return false;
-              break;
-          }
-        }
-
-        return true;
-      });
-
-      sortGroups();
-      updateStatistics();
-      renderTable();
-      const totalRows = allGroups.reduce((sum, g) => sum + g.items.length, 0);
-      const filteredRows = filteredGroups.reduce((sum, g) => sum + g.items.length, 0);
-      document.getElementById("filteredRows").textContent = filteredRows;
-      document.getElementById("totalRows").textContent = totalRows;
-    }
-
-    function updateStatistics() {
-      // Total success trades (from filtered groups where displayStatus is "done")
-      const successTrades = filteredGroups.filter(g => g.primary.displayStatus === "done").length;
-
-      // Total orders tracked (all groups)
-      const totalOrders = allGroups.length;
-
-      // Success rate
-      const successRate = totalOrders > 0 ? ((successTrades / totalOrders) * 100).toFixed(1) : 0;
-
-      // Average return from all filtered groups
-      let totalReturn = 0;
-      let validReturns = 0;
-      filteredGroups.forEach(g => {
-        if (g.primary.pnlPct !== null && isFinite(g.primary.pnlPct)) {
-          totalReturn += g.primary.pnlPct;
-          validReturns++;
-        }
-      });
-      const avgReturn = validReturns > 0 ? (totalReturn / validReturns).toFixed(1) : 0;
-
-      // Update main stats UI
-      document.getElementById("totalSuccessTrades").textContent = successTrades;
-      document.getElementById("totalOrdersTracked").textContent = totalOrders;
-      document.getElementById("successRate").textContent = successRate + "%";
-      document.getElementById("avgReturn").textContent = avgReturn + "%";
-
-      // Color code the average return
-      const avgReturnEl = document.getElementById("avgReturn");
-      avgReturnEl.classList.remove("warning", "danger");
-      if (avgReturn < 0) {
-        avgReturnEl.classList.add("danger");
-      } else if (avgReturn < 10) {
-        avgReturnEl.classList.add("warning");
-      }
-
-      // Calculate return range statistics
-      returnRanges = {
-        lt25: { count: 0, total: 0, profit: 0, loss: 0, values: [] },
-        range25_50: { count: 0, total: 0, profit: 0, loss: 0, values: [] },
-        range50_75: { count: 0, total: 0, profit: 0, loss: 0, values: [] },
-        gt100: { count: 0, total: 0, max: -Infinity, min: Infinity, values: [] }
-      };
-
-      filteredGroups.forEach(g => {
-        const pnl = g.primary.pnlPct;
-        if (pnl === null || !isFinite(pnl)) return;
-
-        if (pnl < 25) {
-          returnRanges.lt25.count++;
-          returnRanges.lt25.total += pnl;
-          returnRanges.lt25.values.push(pnl);
-          if (pnl >= 0) returnRanges.lt25.profit++;
-          else returnRanges.lt25.loss++;
-        } else if (pnl >= 25 && pnl < 50) {
-          returnRanges.range25_50.count++;
-          returnRanges.range25_50.total += pnl;
-          returnRanges.range25_50.values.push(pnl);
-          if (pnl >= 0) returnRanges.range25_50.profit++;
-          else returnRanges.range25_50.loss++;
-        } else if (pnl >= 50 && pnl < 100) {
-          returnRanges.range50_75.count++;
-          returnRanges.range50_75.total += pnl;
-          returnRanges.range50_75.values.push(pnl);
-          if (pnl >= 0) returnRanges.range50_75.profit++;
-          else returnRanges.range50_75.loss++;
-        } else if (pnl >= 100) {
-          returnRanges.gt100.count++;
-          returnRanges.gt100.total += pnl;
-          returnRanges.gt100.values.push(pnl);
-          returnRanges.gt100.max = Math.max(returnRanges.gt100.max, pnl);
-          returnRanges.gt100.min = Math.min(returnRanges.gt100.min, pnl);
-        }
-      });
-
-      // Update return range tables
-      // < 25%
-      document.getElementById("return-lt25-count").textContent = returnRanges.lt25.count;
-      const lt25Avg = returnRanges.lt25.count > 0 ? (returnRanges.lt25.total / returnRanges.lt25.count).toFixed(1) : "0";
-      document.getElementById("return-lt25-avg").textContent = lt25Avg + "%";
-      document.getElementById("return-lt25-profit").textContent = returnRanges.lt25.profit;
-      document.getElementById("return-lt25-loss").textContent = returnRanges.lt25.loss;
-
-      // 25% - 50%
-      document.getElementById("return-25-50-count").textContent = returnRanges.range25_50.count;
-      const range25_50Avg = returnRanges.range25_50.count > 0 ? (returnRanges.range25_50.total / returnRanges.range25_50.count).toFixed(1) : "0";
-      document.getElementById("return-25-50-avg").textContent = range25_50Avg + "%";
-      document.getElementById("return-25-50-profit").textContent = returnRanges.range25_50.profit;
-      document.getElementById("return-25-50-loss").textContent = returnRanges.range25_50.loss;
-
-      // 50% - 75%
-      document.getElementById("return-50-75-count").textContent = returnRanges.range50_75.count;
-      const range50_75Avg = returnRanges.range50_75.count > 0 ? (returnRanges.range50_75.total / returnRanges.range50_75.count).toFixed(1) : "0";
-      document.getElementById("return-50-75-avg").textContent = range50_75Avg + "%";
-      document.getElementById("return-50-75-profit").textContent = returnRanges.range50_75.profit;
-      document.getElementById("return-50-75-loss").textContent = returnRanges.range50_75.loss;
-
-      // > 100%
-      document.getElementById("return-gt100-count").textContent = returnRanges.gt100.count;
-      const gt100Avg = returnRanges.gt100.count > 0 ? (returnRanges.gt100.total / returnRanges.gt100.count).toFixed(1) : "0";
-      const gt100Max = returnRanges.gt100.max !== -Infinity ? returnRanges.gt100.max.toFixed(1) : "0";
-      const gt100Min = returnRanges.gt100.min !== Infinity ? returnRanges.gt100.min.toFixed(1) : "0";
-      document.getElementById("return-gt100-avg").textContent = gt100Avg + "%";
-      document.getElementById("return-gt100-max").textContent = gt100Max + "%";
-      document.getElementById("return-gt100-min").textContent = gt100Min + "%";
-    }
-
-    // Check if same symbol has a better return in ALL groups (including hidden by filters)
-    function hasSymbolWithBetterReturn(currentGroup, currentReturnPct) {
-      const currentSymbol = currentGroup.stock;
-
-      // Search through ALL groups (not just filtered) to catch hidden rows with better returns
-      for (const group of allGroups) {
-        if (group.stock === currentSymbol && group !== currentGroup) {
-          // Check if this group has a better return
-          const otherReturnPct = group.primary.pnlPct;
-          if (otherReturnPct !== null && otherReturnPct > currentReturnPct) {
-            return true;
-          }
-        }
-      }
-      return false;
-    }
-
-    function sortGroups() {
-      const key = currentSortKey;
-      const dir = currentSortDir === "asc" ? 1 : -1;
-
-      filteredGroups.sort((ga, gb) => {
-        const a = ga.primary;
-        const b = gb.primary;
-        let va, vb;
-
-        switch (key) {
-          case "stock":
-            va = ga.stock;
-            vb = gb.stock;
-            break;
-          case "strike":
-            va = a.strike || 0;
-            vb = b.strike || 0;
-            break;
-          case "price":
-            va = a.price || 0;
-            vb = b.price || 0;
-            break;
-          case "ltp":
-            va = a.ltp || 0;
-            vb = b.ltp || 0;
-            break;
-          case "pnlPct":
-            va = a.pnlPct || 0;
-            vb = b.pnlPct || 0;
-            break;
-          case "maxReturnHigh":
-            va = a.maxReturnHigh || 0;
-            vb = b.maxReturnHigh || 0;
-            break;
-          case "maxReturnLow":
-            va = a.maxReturnLow || 0;
-            vb = b.maxReturnLow || 0;
-            break;
-          case "pcr":
-            va = a.pcr || 0;
-            vb = b.pcr || 0;
-            break;
-          case "oiSame":
-            va = a.oiSame || 0;
-            vb = b.oiSame || 0;
-            break;
-          case "oiOpposite":
-            va = a.oiOpposite || 0;
-            vb = b.oiOpposite || 0;
-            break;
-          case "daysPassed":
-            va = a.daysPassed || 0;
-            vb = b.daysPassed || 0;
-            break;
-          case "status":
-            va = a.displayStatus || "open";
-            vb = b.displayStatus || "open";
-            break;
-          case "progressLabel":
-            va = a.progressLabel || "running";
-            vb = b.progressLabel || "running";
-            break;
-          case "progressHistory":
-            va = a.progressHistory || "";
-            vb = b.progressHistory || "";
-            break;
-          default:
-            // timestamp default
-            va = a.timestamp ? new Date(a.timestamp).getTime() : 0;
-            vb = b.timestamp ? new Date(b.timestamp).getTime() : 0;
-        }
-
-        if (typeof va === "number" && typeof vb === "number") {
-          if (va < vb) return -1 * dir;
-          if (va > vb) return 1 * dir;
-          return 0;
-        }
-
-        va = String(va).toUpperCase();
-        vb = String(vb).toUpperCase();
-        if (va < vb) return -1 * dir;
-        if (va > vb) return 1 * dir;
-        return 0;
-      });
-    }
-
-    function renderTable() {
-      const tbody = document.querySelector("#entriesTable tbody");
-      tbody.innerHTML = "";
-
-      filteredGroups.forEach((g, groupIndex) => {
-        const e = g.primary;
-
-        const tr = document.createElement("tr");
-        tr.classList.add("group-row");
-        tr.dataset.groupIndex = groupIndex.toString();
-        // Add group key for tracking expanded state across refreshes
-        tr.setAttribute("data-group-key", g.key);
-
-        // Expand cell
-        const tdExpand = document.createElement("td");
-        if (g.items.length > 1) {
-          tdExpand.classList.add("expand-cell");
-          tdExpand.textContent = "+";
-          tdExpand.title = "Click to show all fills for this strike";
-        } else {
-          tdExpand.textContent = "";
-        }
-        tr.appendChild(tdExpand);
-
-        // Stock with Copy Button
-        const tdStock = document.createElement("td");
-        const stockContainer = document.createElement("div");
-        stockContainer.style.display = "flex";
-        stockContainer.style.alignItems = "center";
-        stockContainer.style.gap = "6px";
-
-        const stockSpan = document.createElement("span");
-
-        // Check if same symbol has better return and add signature
-        const hasBetterReturn = hasSymbolWithBetterReturn(g, e.pnlPct);
-        if (hasBetterReturn) {
-          stockSpan.textContent = (g.stock || "-") + " ⚠";
-          stockSpan.title = "Another entry for this symbol has better return";
-          stockSpan.style.color = "#fbbf24";
-        } else {
-          stockSpan.textContent = g.stock || "-";
-        }
-        stockContainer.appendChild(stockSpan);
-
-        // Check if this is a good PE opportunity for Seller role
-        const advice = getPcrAdvice(e.pcr, e.optionType);
-        if (e.role === "Seller" && e.optionType === "PE" && advice.isGoodPe) {
-          const goodPeBadge = document.createElement("span");
-          goodPeBadge.classList.add("badge");
-          goodPeBadge.style.background = "#10b981";
-          goodPeBadge.style.color = "white";
-          goodPeBadge.style.padding = "2px 6px";
-          goodPeBadge.style.borderRadius = "4px";
-          goodPeBadge.style.fontSize = "0.7rem";
-          goodPeBadge.style.fontWeight = "600";
-          goodPeBadge.textContent = "good pe";
-          goodPeBadge.title = "Good PE selling opportunity for Seller role";
-          stockContainer.appendChild(goodPeBadge);
-        }
-
-        // Add OK PE badge if trade is PE and PCR advice is "Bullish PCR — Consider booking/avoid new PE"
-        if (e.optionType === "PE" && advice.text === "Bullish PCR — Consider booking/avoid new PE") {
-          const okPeBadge = document.createElement("span");
-          okPeBadge.classList.add("badge");
-          okPeBadge.classList.add("badge-ok-pe");
-          okPeBadge.textContent = "OK PE";
-          okPeBadge.title = "OK PE: Bullish PCR - Consider booking or avoid new PE";
-          stockContainer.appendChild(okPeBadge);
-        }
-
-        // Add OK CE badge if trade is CE and PCR advice is "Bullish PCR — CE long OK / Hold"
-        if (e.optionType === "CE" && advice.text === "Bullish PCR — CE long OK / Hold") {
-          const okCeBadge = document.createElement("span");
-          okCeBadge.classList.add("badge");
-          okCeBadge.classList.add("badge-ok-ce");
-          okCeBadge.textContent = "OK CE";
-          okCeBadge.title = "OK CE: Bullish PCR - CE long OK / Hold";
-          stockContainer.appendChild(okCeBadge);
-        }
-
-        // Add caution PE badge if trade is PE and PCR advice is "Neutral PCR — PE trade with caution"
-        if (e.optionType === "PE" && advice.text === "Neutral PCR — PE trade with caution") {
-          const cautionPeBadge = document.createElement("span");
-          cautionPeBadge.classList.add("badge");
-          cautionPeBadge.classList.add("badge-caution-pe");
-          cautionPeBadge.textContent = "OK PE Caution";
-          cautionPeBadge.title = "PE trade with caution: Neutral PCR";
-          stockContainer.appendChild(cautionPeBadge);
-        }
-
-        // Add caution CE badge if trade is CE and PCR advice is "Neutral PCR — CE trade with caution"
-        if (e.optionType === "CE" && advice.text === "Neutral PCR — CE trade with caution") {
-          const cautionCeBadge = document.createElement("span");
-          cautionCeBadge.classList.add("badge");
-          cautionCeBadge.classList.add("badge-caution-ce");
-          cautionCeBadge.textContent = "OK CE Caution";
-          cautionCeBadge.title = "CE trade with caution: Neutral PCR";
-          stockContainer.appendChild(cautionCeBadge);
-        }
-
-        // Copy button
-        const copyBtn = document.createElement("button");
-        copyBtn.classList.add("copy-btn");
-        copyBtn.innerHTML = "📋";
-        copyBtn.title = `Copy "${g.stock} ${e.strike} ${e.optionType}"`;
-        copyBtn.style.border = "none";
-        copyBtn.style.background = "transparent";
-        copyBtn.style.padding = "0 4px";
-        copyBtn.style.cursor = "pointer";
-        copyBtn.style.fontSize = "0.8rem";
-        copyBtn.style.color = "#9ca3af";
-        copyBtn.style.transition = "color 0.2s ease";
-
-        copyBtn.addEventListener("mouseenter", function() {
-          this.style.color = "#e5e7eb";
-        });
-        copyBtn.addEventListener("mouseleave", function() {
-          this.style.color = "#9ca3af";
-        });
-
-        copyBtn.addEventListener("click", function(event) {
-          event.stopPropagation();
-          const textToCopy = `${g.stock} ${e.strike} ${e.optionType}`;
-          navigator.clipboard.writeText(textToCopy).then(() => {
-            // Show success feedback
-            const originalColor = this.style.color;
-            this.innerHTML = "✓";
-            this.style.color = "#4ade80";
-            setTimeout(() => {
-              this.innerHTML = "📋";
-              this.style.color = originalColor;
-            }, 2000);
-          }).catch(err => {
-            console.error("Copy failed:", err);
-          });
-        });
-
-        stockContainer.appendChild(copyBtn);
-
-        // Delete button (generates SQL DELETE command)
-        const deleteBtn = document.createElement("button");
-        deleteBtn.classList.add("delete-btn");
-        deleteBtn.innerHTML = "🗑️";
-        deleteBtn.title = `Delete command for "${g.stock} ${e.strike} ${e.optionType}"`;
-        deleteBtn.style.border = "none";
-        deleteBtn.style.background = "transparent";
-        deleteBtn.style.padding = "0 4px";
-        deleteBtn.style.cursor = "pointer";
-        deleteBtn.style.fontSize = "0.8rem";
-        deleteBtn.style.color = "#9ca3af";
-        deleteBtn.style.transition = "color 0.2s ease";
-
-        deleteBtn.addEventListener("mouseenter", function() {
-          this.style.color = "#ef4444";
-        });
-        deleteBtn.addEventListener("mouseleave", function() {
-          this.style.color = "#9ca3af";
-        });
-
-        deleteBtn.addEventListener("click", function(event) {
-          event.stopPropagation();
-          // Generate SQL DELETE command
-          // For futures, option_type is "FUT", for options it's "CE" or "PE"
-          const strikeValue = e.strike && e.strike !== "" ? e.strike : "NULL";
-          const optionTypeValue = e.optionType || "NULL";
-
-          const sqlCommand = `DELETE FROM whale_successes_2 WHERE symbol = '${g.stock}' AND strike = ${strikeValue} AND option_type = '${optionTypeValue}';`;
-
-          navigator.clipboard.writeText(sqlCommand).then(() => {
-            // Show success feedback
-            const originalColor = this.style.color;
-            this.innerHTML = "✓";
-            this.style.color = "#4ade80";
-            setTimeout(() => {
-              this.innerHTML = "🗑️";
-              this.style.color = originalColor;
-            }, 2000);
-          }).catch(err => {
-            console.error("Copy failed:", err);
-          });
-        });
-
-        stockContainer.appendChild(deleteBtn);
-
-        // Hide row button
-        const hideBtn = document.createElement("button");
-        hideBtn.classList.add("hide-row-btn");
-        const isHidden = hiddenRowKeys.has(g.key);
-        hideBtn.innerHTML = isHidden ? "🙈" : "👁";
-        hideBtn.title = isHidden ? `Unhide row "${g.stock} ${e.strike} ${e.optionType}"` : `Hide row "${g.stock} ${e.strike} ${e.optionType}"`;
-        hideBtn.style.border = "none";
-        hideBtn.style.background = "transparent";
-        hideBtn.style.padding = "0 4px";
-        hideBtn.style.cursor = "pointer";
-        hideBtn.style.fontSize = "0.8rem";
-        hideBtn.style.color = isHidden ? "#f59e0b" : "#9ca3af";
-        hideBtn.style.transition = "color 0.2s ease";
-
-        hideBtn.addEventListener("click", function(event) {
-          event.stopPropagation();
-          if (hiddenRowKeys.has(g.key)) {
-            hiddenRowKeys.delete(g.key);
-          } else {
-            hiddenRowKeys.add(g.key);
-          }
-          localStorage.setItem("hiddenRowKeys", JSON.stringify([...hiddenRowKeys]));
-          updateHiddenCount();
-          applyFiltersAndRender();
-        });
-
-        stockContainer.appendChild(hideBtn);
-
-        tdStock.appendChild(stockContainer);
-        tr.appendChild(tdStock);
-
-        // Expiry
-        const tdExpiry = document.createElement("td");
-        tdExpiry.textContent = g.expiry || "-";
-        tr.appendChild(tdExpiry);
-
-        // Strike
-         const tdStrike = document.createElement("td");
-         tdStrike.textContent = e.strike !== "" && e.strike !== null ? e.strike : "-";
-         tr.appendChild(tdStrike);
-
-         // Option
-         const tdOpt = document.createElement("td");
-         if (e.optionType === "CE") {
-           tdOpt.innerHTML = '<span class="pill pill-ce">CE</span>';
-         } else if (e.optionType === "PE") {
-           tdOpt.innerHTML = '<span class="pill pill-pe">PE</span>';
-         } else if (e.optionType === "FUT") {
-           tdOpt.innerHTML = '<span class="pill pill-fut">FUT</span>';
-         } else {
-           tdOpt.textContent = e.optionType || "-";
-         }
-         tr.appendChild(tdOpt);
-
-         // Hedge/Naked tag (for futures)
-         const tdHedge = document.createElement("td");
-         if (e.optionType === "FUT") {
-           if (e.hedgeTag === "HEDGE") {
-             tdHedge.innerHTML = '<span class="badge badge-hedge">Hedge</span>';
-           } else if (e.hedgeTag === "NAKED") {
-             tdHedge.innerHTML = '<span class="badge badge-naked">Naked</span>';
-           } else {
-             tdHedge.textContent = "-";
-           }
-         } else {
-           tdHedge.textContent = "-";
-         }
-         tr.appendChild(tdHedge);
-
-         // Role
-         const tdRole = document.createElement("td");
-        if (e.role === "Buyer") {
-          tdRole.innerHTML = '<span class="badge badge-buyer">Buyer</span>';
-        } else if (e.role === "Seller") {
-          tdRole.innerHTML = '<span class="badge badge-seller">Seller</span>';
-        } else {
-          tdRole.textContent = e.role || "-";
-        }
-        tr.appendChild(tdRole);
-
-        // Entry Price
-        const tdPrice = document.createElement("td");
-        tdPrice.textContent = e.price !== undefined ? Number(e.price).toFixed(2) : "-";
-        tr.appendChild(tdPrice);
-
-
-        // Current LTP (from CSV)
-        const tdLtp = document.createElement("td");
-        tdLtp.dataset.ltpKey  = `${e.stock}|${e.price}`;
-        tdLtp.dataset.ltpType = "ltp";
-        tdLtp.textContent = e.ltp !== undefined ? Number(e.ltp).toFixed(2) : "-";
-        tr.appendChild(tdLtp);
-
-        // Return
-        const tdPnl = document.createElement("td");
-        tdPnl.dataset.ltpKey  = `${e.stock}|${e.price}`;
-        tdPnl.dataset.ltpType = "pnl";
-        if (e.pnlAbs !== null && e.pnlPct !== null) {
-          const cls = e.pnlAbs >= 0 ? "pnl-positive" : "pnl-negative";
-          tdPnl.classList.add(cls);
-          tdPnl.textContent = formatPnlText(e.pnlAbs, e.pnlPct);
-        } else {
-          tdPnl.textContent = "-";
-        }
-        tr.appendChild(tdPnl);
-
-        // Max High Return
-        const tdMaxHigh = document.createElement("td");
-        if (e.maxReturnHigh !== null && isFinite(e.maxReturnHigh)) {
-          const cls = e.maxReturnHigh >= 0 ? "pnl-positive" : "pnl-negative";
-          tdMaxHigh.classList.add(cls);
-          tdMaxHigh.textContent = e.maxReturnHigh.toFixed(1) + "%";
-        } else {
-          tdMaxHigh.textContent = "-";
-        }
-        tr.appendChild(tdMaxHigh);
-
-        // Max Low Return
-        const tdMaxLow = document.createElement("td");
-        if (e.maxReturnLow !== null && isFinite(e.maxReturnLow)) {
-          const cls = e.maxReturnLow >= 0 ? "pnl-positive" : "pnl-negative";
-          tdMaxLow.classList.add(cls);
-          tdMaxLow.textContent = e.maxReturnLow.toFixed(1) + "%";
-        } else {
-          tdMaxLow.textContent = "-";
-        }
-        tr.appendChild(tdMaxLow);
-
-        // P15 (Entry price + 15%)
-        const tdP15 = document.createElement("td");
-        tdP15.textContent = e.price !== undefined ? (Number(e.price) * 1.15).toFixed(2) : "-";
-        tr.appendChild(tdP15);
-
-        // P20 (Entry price + 20%)
-        const tdP20 = document.createElement("td");
-        tdP20.textContent = e.price !== undefined ? (Number(e.price) * 1.20).toFixed(2) : "-";
-        tr.appendChild(tdP20);
-
-        // P25 (Entry price + 25%)
-        const tdP25 = document.createElement("td");
-        tdP25.textContent = e.price !== undefined ? (Number(e.price) * 1.25).toFixed(2) : "-";
-        tr.appendChild(tdP25);
-
-        // P50 (Entry price + 50%)
-        const tdP50 = document.createElement("td");
-        tdP50.textContent = e.price !== undefined ? (Number(e.price) * 1.50).toFixed(2) : "-";
-        tr.appendChild(tdP50);
-
-        // P75 (Entry price + 75%)
-        const tdP75 = document.createElement("td");
-        tdP75.textContent = e.price !== undefined ? (Number(e.price) * 1.75).toFixed(2) : "-";
-        tr.appendChild(tdP75);
-
-        // Status
-        const tdStatus = document.createElement("td");
-        if (e.displayStatus === "done") {
-          tdStatus.innerHTML = '<span class="badge badge-done">Done</span>';
-        } else {
-          tdStatus.innerHTML = '<span class="badge badge-open">Open</span>';
-        }
-        tr.appendChild(tdStatus);
-
-        // Progress Label
-        const tdProgress = document.createElement("td");
-        const progressLabel = e.progressLabel || "running";
-        let badgeHtml = '';
-
-        if (progressLabel === "done") {
-          badgeHtml = '<span class="badge badge-done">✓ Done</span>';
-        } else if (progressLabel === "+75%") {
-          badgeHtml = '<span class="badge badge-progress-75">+75% ◐</span>';
-        } else if (progressLabel === "+50%") {
-          badgeHtml = '<span class="badge badge-progress-50">+50% ◑</span>';
-        } else if (progressLabel === "+25%") {
-          badgeHtml = '<span class="badge badge-progress-25">+25% ◓</span>';
-        } else if (progressLabel === "-25%") {
-          badgeHtml = '<span class="badge badge-progress-neg25">-25% ◓</span>';
-        } else if (progressLabel === "-50%") {
-          badgeHtml = '<span class="badge badge-progress-neg50">-50% ◑</span>';
-        } else if (progressLabel === "-75%") {
-          badgeHtml = '<span class="badge badge-progress-neg75">-75% ◐</span>';
-        } else {
-          badgeHtml = '<span class="badge badge-progress-running">Running ◌</span>';
-        }
-
-        // Add summary table based on maxReturnHigh
-        let summaryTable = '';
-        const maxReturn = e.maxReturnHigh !== null ? e.maxReturnHigh : null;
-
-        if (maxReturn !== null) {
-          if (maxReturn < 25) {
-            // Show Table 1
-            summaryTable = '<div style="margin-top: 4px; font-size: 0.7rem; color: #9ca3af;">(1st table)</div>';
-          } else if (maxReturn < 50) {
-            // Show Table 2
-            summaryTable = '<div style="margin-top: 4px; font-size: 0.7rem; color: #9ca3af;">(2nd table)</div>';
-          } else if (maxReturn < 75) {
-            // Show Table 3
-            summaryTable = '<div style="margin-top: 4px; font-size: 0.7rem; color: #9ca3af;">(3rd table)</div>';
-          } else {
-            // Show Table 4
-            summaryTable = '<div style="margin-top: 4px; font-size: 0.7rem; color: #9ca3af;">(4th table)</div>';
-          }
-        }
-
-        tdProgress.innerHTML = badgeHtml + summaryTable;
-        tr.appendChild(tdProgress);
-
-        // PCR
-        const tdPcr = document.createElement("td");
-        tdPcr.textContent = e.pcr !== null ? e.pcr.toFixed(2) : "-";
-        tr.appendChild(tdPcr);
-
-        // PCR advice
-        const tdAdvice = document.createElement("td");
-        const pcrAdvice = getPcrAdvice(e.pcr, e.optionType);
-        tdAdvice.classList.add(pcrAdvice.cls);
-        tdAdvice.textContent = pcrAdvice.text;
-        tr.appendChild(tdAdvice);
-
-        // OI (This)
-        const tdOiSame = document.createElement("td");
-        tdOiSame.textContent = formatCompactNumber(e.oiSame);
-        tr.appendChild(tdOiSame);
-
-        // OI (Opposite)
-        const tdOiOpp = document.createElement("td");
-        tdOiOpp.textContent = formatCompactNumber(e.oiOpposite);
-        tr.appendChild(tdOiOpp);
-
-        // Strike Type
-        const tdStrikeType = document.createElement("td");
-        const st = mapMoneynessToStrikeType(e.mRaw);
-        if (st === "ATM") {
-          tdStrikeType.innerHTML = '<span class="badge badge-atm">ATM</span>';
-        } else if (st === "ITM") {
-          tdStrikeType.innerHTML = '<span class="badge badge-itm">ITM</span>';
-        } else if (st === "OTM") {
-          tdStrikeType.innerHTML = '<span class="badge badge-otm">OTM</span>';
-        } else {
-          tdStrikeType.innerHTML = '<span class="badge badge-other">Other</span>';
-        }
-        tr.appendChild(tdStrikeType);
-
-        // Days passed
-        const tdDays = document.createElement("td");
-        tdDays.textContent = e.daysPassed !== "" && e.daysPassed !== null ? e.daysPassed : "-";
-        tr.appendChild(tdDays);
-
-        // Timestamp
-        const tdTime = document.createElement("td");
-        tdTime.textContent = e.timestamp || "-";
-        tr.appendChild(tdTime);
-
-        // Progress History with timestamps (clickable)
-        const tdProgressHistory = document.createElement("td");
-        tdProgressHistory.classList.add("progress-history");
-
-        if (e.progressHistory) {
-          // Split by "|" to get individual steps
-          const steps = e.progressHistory.split("|");
-
-          // Parse steps to separate timestamp from label
-          const parsedSteps = steps.map(step => {
-            const trimmed = step.trim();
-            if (!trimmed) return null;
-
-            // Format: timestamp:label
-            // Match pattern: anything before last colon is timestamp, after last colon is label
-            const lastColonIndex = trimmed.lastIndexOf(":");
-
-            if (lastColonIndex > 0) {
-              const timestamp = trimmed.substring(0, lastColonIndex).trim();
-              const label = trimmed.substring(lastColonIndex + 1).trim();
-
-              return {
-                timestamp: timestamp,
-                label: label
-              };
-            } else {
-              // Fallback if pattern doesn't match
-              return {
-                timestamp: trimmed,
-                label: trimmed
-              };
-            }
-          }).filter(step => step !== null);
-
-          // Club consecutive identical steps (case-insensitive)
-          const clubbedSteps = [];
-          let currentGroup = null;
-
-          parsedSteps.forEach(step => {
-            const normalizedLabel = step.label.trim().toLowerCase();
-            const currentLabel = currentGroup ? currentGroup.originalLabel.trim().toLowerCase() : null;
-
-            if (currentGroup && currentLabel === normalizedLabel) {
-              // Same label, add to group
-              currentGroup.count++;
-              currentGroup.timestamps.push(step.timestamp);
-            } else {
-              // Different label, start new group
-              if (currentGroup) {
-                clubbedSteps.push(currentGroup);
-              }
-              currentGroup = {
-                label: step.label,
-                originalLabel: step.label,
-                count: 1,
-                timestamps: [step.timestamp]
-              };
-            }
-          });
-          if (currentGroup) {
-            clubbedSteps.push(currentGroup);
-          }
-
-          // DEBUG: Log the original and clubbed steps
-          if (parsedSteps.length > 0 && clubbedSteps.length > 0) {
-            console.log(`Stock: ${g.stock}, Strike: ${e.strike}, Parsed: ${parsedSteps.length}, Clubbed: ${clubbedSteps.length}`, {
-              original: parsedSteps.map(s => s.label),
-              clubbed: clubbedSteps.map(s => `${s.label} (${s.count})`)
-            });
-          }
-
-          // Create badges with only labels (no timestamps)
-          const historyHtml = clubbedSteps.map((step, idx) => {
-            let badgeClass = "badge-progress-running";
-            const label = step.label;
-            const displayText = step.count > 1 ? `${label} (${step.count})` : label;
-
-            // Determine badge class based on label content
-            if (label.includes("done")) {
-              badgeClass = "badge-done";
-            } else if (label.includes("+75")) {
-              badgeClass = "badge-progress-75";
-            } else if (label.includes("+50")) {
-              badgeClass = "badge-progress-50";
-            } else if (label.includes("+25")) {
-              badgeClass = "badge-progress-25";
-            } else if (label.includes("-75")) {
-              badgeClass = "badge-progress-neg75";
-            } else if (label.includes("-50")) {
-              badgeClass = "badge-progress-neg50";
-            } else if (label.includes("-25")) {
-              badgeClass = "badge-progress-neg25";
-            }
-            return `<span class="badge ${badgeClass}" style="font-size: 0.65rem; padding: 1px 4px; cursor: pointer;" title="Click to see timestamp">${displayText}</span>`;
-          }).join('<span class="progress-history-arrow">→</span>');
-
-          const progressContainer = document.createElement("div");
-          progressContainer.style.cursor = "pointer";
-          progressContainer.innerHTML = historyHtml;
-          progressContainer.setAttribute("data-group-key", g.key);
-          progressContainer.classList.add("progress-history-container");
-
-          tdProgressHistory.appendChild(progressContainer);
-
-          // Add click handler to show/hide timestamps
-          progressContainer.addEventListener("click", (event) => {
-            event.stopPropagation();
-            const isExpanded = progressContainer.classList.toggle("expanded");
-            const timesDiv = progressContainer.nextElementSibling;
-
-            if (isExpanded) {
-              // Show timestamps
-              if (timesDiv && timesDiv.classList.contains("progress-timestamps")) {
-                timesDiv.style.display = "block";
-              }
-            } else {
-              // Hide timestamps
-              if (timesDiv && timesDiv.classList.contains("progress-timestamps")) {
-                timesDiv.style.display = "none";
-              }
-            }
-          });
-
-          // Create timestamps div (hidden by default)
-          const timestampsDiv = document.createElement("div");
-          timestampsDiv.classList.add("progress-timestamps");
-          timestampsDiv.style.display = "none";
-          timestampsDiv.style.marginTop = "4px";
-          timestampsDiv.style.fontSize = "0.65rem";
-          timestampsDiv.style.color = "#6b7280";
-          timestampsDiv.style.fontStyle = "italic";
-
-          const stepTimestamps = clubbedSteps.map((step, i) => {
-            if (step.count > 1) {
-              return `${step.label} (${step.count}x):<br/>${step.timestamps.join("<br/>")}`;
-            } else {
-              return `${step.label}: ${step.timestamps[0]}`;
-            }
-          });
-          timestampsDiv.innerHTML = stepTimestamps.join("<br/><br/>");
-
-          tdProgressHistory.appendChild(timestampsDiv);
-        } else {
-          tdProgressHistory.textContent = "-";
-        }
-        tr.appendChild(tdProgressHistory);
-
-        if (showHiddenRows && hiddenRowKeys.has(g.key)) {
-          tr.classList.add("is-hidden-row");
-        }
-
-        tbody.appendChild(tr);
-
-        // Details row for multiple fills
-        if (g.items.length > 1) {
-          const detailsTr = document.createElement("tr");
-          detailsTr.classList.add("details-row");
-          detailsTr.dataset.groupIndex = groupIndex.toString();
-          detailsTr.style.display = "none";
-
-          const detailsTd = document.createElement("td");
-          detailsTd.colSpan = 21;
-
-          const box = document.createElement("div");
-          box.classList.add("details-box");
-
-          const title = document.createElement("div");
-          title.classList.add("details-title");
-          title.textContent = `All fills for ${g.stock} ${g.strike} ${g.optionType}`;
-          box.appendChild(title);
-
-          const innerTable = document.createElement("table");
-          innerTable.classList.add("details-table");
-           innerTable.innerHTML = `
-             <thead>
-               <tr>
-                 <th>Time</th>
-                 <th>Side</th>
-                 <th>Qty</th>
-                 <th>Lots</th>
-                 <th>Entry Price</th>
-                 <th>LTP</th>
-                 <th>Return</th>
-                 <th>PCR</th>
-                 <th>Hedge</th>
-               </tr>
-             </thead>
-             <tbody></tbody>
-           `;
-
-          const innerTbody = innerTable.querySelector("tbody");
-          g.items.forEach(item => {
-            const r = document.createElement("tr");
-
-            const tTime = document.createElement("td");
-            tTime.textContent = item.timestamp || "-";
-            r.appendChild(tTime);
-
-            const tSide = document.createElement("td");
-            tSide.textContent = item.side || "-";
-            r.appendChild(tSide);
-
-             const tQty = document.createElement("td");
-             tQty.textContent = item.qty || "-";
-             r.appendChild(tQty);
-
-             const tLots = document.createElement("td");
-             if (item.optionType === "FUT" && item.lots) {
-               tLots.textContent = `${item.lots}`;
-             } else {
-               tLots.textContent = "-";
-             }
-             r.appendChild(tLots);
-
-            const tPrice = document.createElement("td");
-            tPrice.textContent = item.price !== undefined ? Number(item.price).toFixed(2) : "-";
-            r.appendChild(tPrice);
-
-            const tLtp = document.createElement("td");
-            tLtp.dataset.ltpKey  = `${item.stock}|${item.price}`;
-            tLtp.dataset.ltpType = "ltp";
-            tLtp.textContent = item.ltp !== undefined ? Number(item.ltp).toFixed(2) : "-";
-            r.appendChild(tLtp);
-
-            const tPnl = document.createElement("td");
-            tPnl.dataset.ltpKey  = `${item.stock}|${item.price}`;
-            tPnl.dataset.ltpType = "pnl";
-            if (item.pnlAbs !== null && item.pnlPct !== null) {
-              const cls = item.pnlAbs >= 0 ? "pnl-positive" : "pnl-negative";
-              tPnl.classList.add(cls);
-              tPnl.textContent = formatPnlText(item.pnlAbs, item.pnlPct);
-            } else {
-              tPnl.textContent = "-";
-            }
-            r.appendChild(tPnl);
-
-             const tPcr = document.createElement("td");
-             tPcr.textContent = item.pcr !== null ? item.pcr.toFixed(2) : "-";
-             r.appendChild(tPcr);
-
-             const tHedge = document.createElement("td");
-             if (item.optionType === "FUT") {
-               if (item.hedgeTag === "HEDGE") {
-                 tHedge.innerHTML = '<span class="badge badge-hedge">Hedge</span>';
-               } else if (item.hedgeTag === "NAKED") {
-                 tHedge.innerHTML = '<span class="badge badge-naked">Naked</span>';
-               } else {
-                 tHedge.textContent = "-";
-               }
-             } else {
-               tHedge.textContent = "-";
-             }
-             r.appendChild(tHedge);
-
-            innerTbody.appendChild(r);
-          });
-
-          box.appendChild(innerTable);
-          detailsTd.appendChild(box);
-          detailsTr.appendChild(detailsTd);
-          tbody.appendChild(detailsTr);
-
-          // Toggle logic
-          tdExpand.addEventListener("click", () => {
-            const isOpen = detailsTr.style.display !== "none";
-            detailsTr.style.display = isOpen ? "none" : "table-row";
-            tdExpand.textContent = isOpen ? "+" : "−";
-            // Save expanded state when toggled
-            saveExpandedRowsState();
-          });
-
-          // Also allow clicking anywhere on row
-          tr.addEventListener("click", (ev) => {
-            // don't double toggle if clicking the + button
-            if (ev.target === tdExpand) return;
-            const isOpen = detailsTr.style.display !== "none";
-            detailsTr.style.display = isOpen ? "none" : "table-row";
-            tdExpand.textContent = isOpen ? "+" : "−";
-            // Save expanded state whenever toggled
-            saveExpandedRowsState();
-          });
-        }
-      });
-      // Restore expanded rows after rendering
-      restoreExpandedRowsState();
-
-      // Render recovery table
-      renderRecoveryTable();
-    }
-
-    function renderRecoveryTable() {
-      // Find trades that:
-      // 1. Had a max loss of -30% or worse (maxReturnLow <= -30)
-      // 2. Current PnL is >= -0.1% (running at cost or in profit)
-      // 3. EXCLUDE trades that already hit 75%+ in progress history
-
-      const recoveryTrades = allGroups.filter(g => {
-        const e = g.primary;
-
-        // Check if it had significant loss
-        const hadSignificantLoss = e.maxReturnLow !== null && e.maxReturnLow <= -30;
-
-        // Check if currently recovering (at cost or profit)
-        const isRecovering = e.pnlPct !== null && e.pnlPct >= -0.1;
-
-        // Check if it already hit 75%+ in progress history
-        let alreadyHit75Plus = false;
-        if (e.progressHistory) {
-          const steps = e.progressHistory.split("|");
-          for (const step of steps) {
-            const parts = step.split("@");
-            const label = parts[0].trim().toLowerCase();
-            if (label.includes("+75") || label === "done") {
-              alreadyHit75Plus = true;
-              break;
-            }
-          }
-        }
-
-        return hadSignificantLoss && isRecovering && !alreadyHit75Plus;
-      });
-
-      // Sort by recovery potential (by current PnL - higher is better)
-      recoveryTrades.sort((a, b) => {
-        const aPnl = a.primary.pnlPct || 0;
-        const bPnl = b.primary.pnlPct || 0;
-        return bPnl - aPnl;
-      });
-
-      const tbody = document.querySelector("#recoveryTable tbody");
-      tbody.innerHTML = "";
-
-      recoveryTrades.forEach((g, groupIndex) => {
-        const e = g.primary;
-
-        const tr = document.createElement("tr");
-        tr.classList.add("group-row");
-
-        // Expand cell
-        const tdExpand = document.createElement("td");
-        if (g.items.length > 1) {
-          tdExpand.classList.add("expand-cell");
-          tdExpand.textContent = "+";
-          tdExpand.title = "Click to show all fills";
-        }
-        tr.appendChild(tdExpand);
-
-        // Stock
-        const tdStock = document.createElement("td");
-        tdStock.textContent = g.stock || "-";
-        tr.appendChild(tdStock);
-
-        // Expiry
-        const tdExpiry = document.createElement("td");
-        tdExpiry.textContent = g.expiry || "-";
-        tr.appendChild(tdExpiry);
-
-        // Strike
-        const tdStrike = document.createElement("td");
-        tdStrike.textContent = e.strike !== "" && e.strike !== null ? e.strike : "-";
-        tr.appendChild(tdStrike);
-
-        // Option
-        const tdOpt = document.createElement("td");
-        if (e.optionType === "CE") {
-          tdOpt.innerHTML = '<span class="pill pill-ce">CE</span>';
-        } else if (e.optionType === "PE") {
-          tdOpt.innerHTML = '<span class="pill pill-pe">PE</span>';
-        } else if (e.optionType === "FUT") {
-          tdOpt.innerHTML = '<span class="pill pill-fut">FUT</span>';
-        } else {
-          tdOpt.textContent = e.optionType || "-";
-        }
-        tr.appendChild(tdOpt);
-
-        // Role
-        const tdRole = document.createElement("td");
-        if (e.role === "Buyer") {
-          tdRole.innerHTML = '<span class="badge badge-buyer">Buyer</span>';
-        } else if (e.role === "Seller") {
-          tdRole.innerHTML = '<span class="badge badge-seller">Seller</span>';
-        } else {
-          tdRole.textContent = e.role || "-";
-        }
-        tr.appendChild(tdRole);
-
-        // Entry Price
-        const tdPrice = document.createElement("td");
-        tdPrice.textContent = e.price !== undefined ? Number(e.price).toFixed(2) : "-";
-        tr.appendChild(tdPrice);
-
-
-        // Live LTP
-        const tdLtp = document.createElement("td");
-        tdLtp.dataset.ltpKey  = `${e.stock}|${e.price}`;
-        tdLtp.dataset.ltpType = "ltp";
-        tdLtp.textContent = e.ltp !== undefined ? Number(e.ltp).toFixed(2) : "-";
-        tr.appendChild(tdLtp);
-
-        // Current Return
-        const tdPnl = document.createElement("td");
-        tdPnl.dataset.ltpKey  = `${e.stock}|${e.price}`;
-        tdPnl.dataset.ltpType = "pnl";
-        if (e.pnlAbs !== null && e.pnlPct !== null) {
-          const cls = e.pnlAbs >= 0 ? "pnl-positive" : "pnl-negative";
-          tdPnl.classList.add(cls);
-          tdPnl.textContent = formatPnlText(e.pnlAbs, e.pnlPct);
-        } else {
-          tdPnl.textContent = "-";
-        }
-        tr.appendChild(tdPnl);
-
-        // Max Low Return
-        const tdMaxLow = document.createElement("td");
-        if (e.maxReturnLow !== null && isFinite(e.maxReturnLow)) {
-          const cls = e.maxReturnLow >= 0 ? "pnl-positive" : "pnl-negative";
-          tdMaxLow.classList.add(cls);
-          tdMaxLow.textContent = e.maxReturnLow.toFixed(1) + "%";
-        } else {
-          tdMaxLow.textContent = "-";
-        }
-        tr.appendChild(tdMaxLow);
-
-        // Max High Return
-        const tdMaxHigh = document.createElement("td");
-        if (e.maxReturnHigh !== null && isFinite(e.maxReturnHigh)) {
-          const cls = e.maxReturnHigh >= 0 ? "pnl-positive" : "pnl-negative";
-          tdMaxHigh.classList.add(cls);
-          tdMaxHigh.textContent = e.maxReturnHigh.toFixed(1) + "%";
-        } else {
-          tdMaxHigh.textContent = "-";
-        }
-        tr.appendChild(tdMaxHigh);
-
-        // P15 (Entry price + 15%)
-        const tdP15 = document.createElement("td");
-        tdP15.textContent = e.price !== undefined ? (Number(e.price) * 1.15).toFixed(2) : "-";
-        tr.appendChild(tdP15);
-
-        // P20 (Entry price + 20%)
-        const tdP20 = document.createElement("td");
-        tdP20.textContent = e.price !== undefined ? (Number(e.price) * 1.20).toFixed(2) : "-";
-        tr.appendChild(tdP20);
-
-        // P25 (Entry price + 25%)
-        const tdP25 = document.createElement("td");
-        tdP25.textContent = e.price !== undefined ? (Number(e.price) * 1.25).toFixed(2) : "-";
-        tr.appendChild(tdP25);
-
-        // P50 (Entry price + 50%)
-        const tdP50 = document.createElement("td");
-        tdP50.textContent = e.price !== undefined ? (Number(e.price) * 1.50).toFixed(2) : "-";
-        tr.appendChild(tdP50);
-
-        // P75 (Entry price + 75%)
-        const tdP75 = document.createElement("td");
-        tdP75.textContent = e.price !== undefined ? (Number(e.price) * 1.75).toFixed(2) : "-";
-        tr.appendChild(tdP75);
-
-        // Days Passed
-        const tdDays = document.createElement("td");
-        tdDays.textContent = e.daysPassed !== "" ? e.daysPassed : "-";
-        tr.appendChild(tdDays);
-
-        // Filled Time
-        const tdTime = document.createElement("td");
-        tdTime.textContent = e.timestamp ? new Date(e.timestamp).toLocaleString() : "-";
-        tr.appendChild(tdTime);
-
-        // Recovery Status
-        const tdStatus = document.createElement("td");
-        let statusText = "";
-        let statusClass = "";
-
-        if (e.pnlPct > 0) {
-          statusText = "✓ Recovered to Profit";
-          statusClass = "pnl-positive";
-        } else if (e.pnlPct >= -0.1 && e.pnlPct <= 0) {
-          statusText = "⚖ Cost-to-Cost";
-        } else {
-          statusText = "↗ Recovering";
-        }
-
-        tdStatus.textContent = statusText;
-        if (statusClass) tdStatus.classList.add(statusClass);
-        tr.appendChild(tdStatus);
-
-        tbody.appendChild(tr);
-
-        // ...existing code...
-        if (g.items.length > 1) {
-          const detailsTr = document.createElement("tr");
-          detailsTr.classList.add("details-row");
-          detailsTr.style.display = "none";
-
-          const detailsTd = document.createElement("td");
-          detailsTd.colSpan = 14;
-
-          const box = document.createElement("div");
-          box.classList.add("details-box");
-
-          const title = document.createElement("div");
-          title.classList.add("details-title");
-          title.textContent = `All fills for ${g.stock} ${g.strike} ${g.optionType}`;
-          box.appendChild(title);
-
-          const innerTable = document.createElement("table");
-          innerTable.classList.add("details-table");
-          innerTable.innerHTML = `
-            <thead>
-              <tr>
-                <th>Time</th>
-                <th>Side</th>
-                <th>Qty</th>
-                <th>Entry Price</th>
-                <th>LTP</th>
-                <th>Return</th>
-                <th>PCR</th>
-              </tr>
-            </thead>
-            <tbody></tbody>
-          `;
-
-          const innerTbody = innerTable.querySelector("tbody");
-          g.items.forEach(item => {
-            const r = document.createElement("tr");
-
-            const tTime = document.createElement("td");
-            tTime.textContent = item.timestamp || "-";
-            r.appendChild(tTime);
-
-            const tSide = document.createElement("td");
-            tSide.textContent = item.side || "-";
-            r.appendChild(tSide);
-
-            const tQty = document.createElement("td");
-            tQty.textContent = item.qty || "-";
-            r.appendChild(tQty);
-
-            const tPrice = document.createElement("td");
-            tPrice.textContent = item.price !== undefined ? Number(item.price).toFixed(2) : "-";
-            r.appendChild(tPrice);
-
-            const tLtp = document.createElement("td");
-            tLtp.dataset.ltpKey  = `${item.stock}|${item.price}`;
-            tLtp.dataset.ltpType = "ltp";
-            tLtp.textContent = item.ltp !== undefined ? Number(item.ltp).toFixed(2) : "-";
-            r.appendChild(tLtp);
-
-            const tPnl = document.createElement("td");
-            tPnl.dataset.ltpKey  = `${item.stock}|${item.price}`;
-            tPnl.dataset.ltpType = "pnl";
-            if (item.pnlAbs !== null && item.pnlPct !== null) {
-              const cls = item.pnlAbs >= 0 ? "pnl-positive" : "pnl-negative";
-              tPnl.classList.add(cls);
-              tPnl.textContent = formatPnlText(item.pnlAbs, item.pnlPct);
-            } else {
-              tPnl.textContent = "-";
-            }
-            r.appendChild(tPnl);
-
-            const tPcr = document.createElement("td");
-            tPcr.textContent = item.pcr !== null ? item.pcr.toFixed(2) : "-";
-            r.appendChild(tPcr);
-
-            innerTbody.appendChild(r);
-          });
-
-          box.appendChild(innerTable);
-          detailsTd.appendChild(box);
-          detailsTr.appendChild(detailsTd);
-          tbody.appendChild(detailsTr);
-
-          tdExpand.addEventListener("click", () => {
-            const isOpen = detailsTr.style.display !== "none";
-            detailsTr.style.display = isOpen ? "none" : "table-row";
-            tdExpand.textContent = isOpen ? "+" : "−";
-          });
-
-          tr.addEventListener("click", (ev) => {
-            if (ev.target === tdExpand) return;
-            const isOpen = detailsTr.style.display !== "none";
-            detailsTr.style.display = isOpen ? "none" : "table-row";
-            tdExpand.textContent = isOpen ? "+" : "−";
-          });
-        }
-      });
-
-      // Update recovery statistics
-      updateRecoveryStatistics(recoveryTrades);
-    }
-
-    function updateRecoveryStatistics(recoveryTrades) {
-      const count = recoveryTrades.length;
-      const stillRecovering = recoveryTrades.filter(g => g.primary.pnlPct < 0 || (g.primary.pnlPct >= 0 && g.primary.pnlPct <= 0.1)).length;
-      const profitCount = recoveryTrades.filter(g => g.primary.pnlPct > 0).length;
-
-      let totalReturn = 0;
-      recoveryTrades.forEach(g => {
-        if (g.primary.pnlPct !== null && isFinite(g.primary.pnlPct)) {
-          totalReturn += g.primary.pnlPct;
-        }
-      });
-      const avgRecovery = count > 0 ? (totalReturn / count).toFixed(1) : 0;
-
-      document.getElementById("recoveryTradesCount").textContent = count;
-      document.getElementById("recoveryAverage").textContent = avgRecovery + "%";
-      document.getElementById("recoveryStillRecovering").textContent = stillRecovering;
-      document.getElementById("recoveryProfit").textContent = profitCount;
-
-      const avgEl = document.getElementById("recoveryAverage");
-      avgEl.classList.remove("pnl-positive", "pnl-negative");
-      if (parseFloat(avgRecovery) > 0) {
-        avgEl.classList.add("pnl-positive");
-      } else if (parseFloat(avgRecovery) < 0) {
-        avgEl.classList.add("pnl-negative");
-      }
-    }
-</script>
-</body>
-</html>
+
+# ===================== MARKET HOURS =====================
+def is_market_open():
+    IST = pytz.timezone('Asia/Kolkata')
+    now = datetime.now(IST)
+    if now.weekday() >= 5:
+        return False
+    market_open  = now.replace(hour=8,  minute=14, second=0, microsecond=0)
+    market_close = now.replace(hour=15, minute=31, second=0, microsecond=0)
+    return market_open <= now <= market_close
+
+
+def wait_until_market_open():
+    IST = pytz.timezone('Asia/Kolkata')
+    while not is_market_open():
+        now = datetime.now(IST)
+        if now.hour >= 15 and now.minute >= 30:
+            next_open = (now + timedelta(days=1)).replace(hour=9, minute=15, second=0, microsecond=0)
+            wait_s    = (next_open - now).total_seconds()
+            print(f"Market closed. Next open: {next_open.strftime('%Y-%m-%d %H:%M:%S %Z')}")
+            print(f"Waiting {int(wait_s/3600)}h {int((wait_s%3600)/60)}m...")
+        else:
+            market_open_time = now.replace(hour=9, minute=15, second=0, microsecond=0)
+            wait_s = (market_open_time - now).total_seconds()
+            print(f"Waiting for market open at {market_open_time.strftime('%H:%M:%S %Z')}")
+            print(f"Time remaining: {int(wait_s/60)}m...")
+        time.sleep(60)
+
+
+def refresh_daily_token():
+    IST = pytz.timezone('Asia/Kolkata')
+    now = datetime.now(IST)
+    if now.hour == 6 and now.minute == 0:
+        print(f"\nDaily token refresh at {now.strftime('%H:%M:%S %Z')}")
+        if login_angelone():
+            print("AngelOne token refreshed.")
+            time.sleep(65)
+        else:
+            print("Token refresh failed.")
+
+
+# ===================== CHUNK BUILDER =====================
+def group_by_exchange(keys):
+    groups = {}
+    for k in keys:
+        parts = k.split(":", 1)
+        if len(parts) == 2:
+            exch, token = parts
+            groups.setdefault(exch, []).append(token)
+    return groups
+
+
+def build_exchange_chunks(all_keys):
+    """Build list of {exchange:[tokens]} where each chunk <= MAX_TOKENS_PER_CALL total."""
+    exchange_groups = group_by_exchange(all_keys)
+    chunks  = []
+    current = {}
+    count   = 0
+    for exch, tokens in exchange_groups.items():
+        for tok in tokens:
+            current.setdefault(exch, []).append(tok)
+            count += 1
+            if count >= MAX_TOKENS_PER_CALL:
+                chunks.append(current)
+                current = {}
+                count   = 0
+    if current:
+        chunks.append(current)
+    return chunks
+
+
+# ===================== MAIN LOOP =====================
+def main():
+    print("\nSYSTEM STARTING — AngelOne Edition v2")
+    print("Tables  : whale_entries_2 / whale_successes_2")
+    print("Broker  : AngelOne SmartAPI")
+    print("Hours   : Mon-Fri  09:15 - 15:30 IST\n")
+
+    create_whale_tables()
+    load_existing_successes()
+    load_existing_entries()
+
+    print("Logging into AngelOne...")
+    if not login_angelone():
+        print("AngelOne login failed. Set ANGELONE_CLIENT_ID and ANGELONE_PASSWORD env vars. Exiting.")
+        return
+
+    get_spot_indices()
+    all_keys = build_all_instruments()
+    all_keys = limit_option_strikes(all_keys)
+
+    if not all_keys:
+        print("No instruments to scan after filtering. Exiting.")
+        return
+
+    chunks = build_exchange_chunks(all_keys)
+    print(f"Total filtered instruments : {len(all_keys)}")
+    print(f"API call chunks            : {len(chunks)} (max {MAX_TOKENS_PER_CALL} tokens each)\n")
+
+    spinner  = ['|', '/', '-', '\\']
+    spin_idx = 0
+
+    print("SCANNING FOR WHALE ORDERS...\n")
+
+    try:
+        while True:
+            if not is_market_open():
+                IST = pytz.timezone('Asia/Kolkata')
+                print(f"Market is closed ({datetime.now(IST).strftime('%H:%M %A')})")
+                wait_until_market_open()
+                print("\nMarket reopening - refreshing AngelOne token & instruments...")
+                login_angelone()
+                all_keys = build_all_instruments()
+                all_keys = limit_option_strikes(all_keys)
+                chunks   = build_exchange_chunks(all_keys)
+
+            refresh_daily_token()
+
+            for chunk_idx, exch_chunk in enumerate(chunks):
+                total_in_chunk = sum(len(v) for v in exch_chunk.values())
+                sys.stdout.write(
+                    f"\r{spinner[spin_idx]} Batch {chunk_idx+1}/{len(chunks)} "
+                    f"({total_in_chunk} symbols)...   "
+                )
+                sys.stdout.flush()
+                spin_idx = (spin_idx + 1) % 4
+
+                try:
+                    batch_raw = fetch_angel_quotes(exch_chunk)
+                    if not batch_raw:
+                        time.sleep(0.5)
+                        continue
+
+                    batch_data = dict(batch_raw)
+
+                    # PCR computation
+                    ce_pe_agg = {}
+                    for sym, details in batch_data.items():
+                        parsed     = parse_underlying_from_symbol(sym)
+                        underlying = parsed["underlying"]
+                        opt_type   = parsed["option_type"]
+                        if opt_type not in ("CE", "PE"):
+                            continue
+                        oi = details.get("oi", 0) or 0
+                        d  = ce_pe_agg.setdefault(underlying, {"CE": 0.0, "PE": 0.0})
+                        d[opt_type] += float(oi)
+
+                    for underlying, vals in ce_pe_agg.items():
+                        ce_oi = vals["CE"]
+                        pe_oi = vals["PE"]
+                        underlying_pcr[underlying] = (pe_oi / ce_oi) if ce_oi > 0 else None
+
+                    # Analyse each instrument
+                    for sym_key, details in batch_data.items():
+                        analyze_instrument(sym_key, details, batch_data)
+
+                except Exception as e:
+                    print(f"\nError in batch {chunk_idx+1}: {e}")
+                    time.sleep(1)
+
+                time.sleep(0.3)
+
+            time.sleep(1.0)
+
+    except KeyboardInterrupt:
+        print("\nStopped by user.")
+
+
+if __name__ == "__main__":
+    main()
+
